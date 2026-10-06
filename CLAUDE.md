@@ -18,7 +18,7 @@ library manager. The desktop app is the reference implementation:
 
 **Decided (2026-10-02):** Android only (sideload APK, no store), Capacitor,
 translation removed, main purpose = online reading + downloads (hitomi + toki).
-Repo stays `alterstare/Manga_Manager-moblie-`; code was rebuilt from desktop
+Repo: **`alterstare/Halftone-moblie`** (git `origin`; the old `Manga_Manager-moblie-` is remote `old-mangamanager`); code was rebuilt from desktop
 v0.4.1, then (2026-10-05) brought to **desktop v0.5.4 parity**: renderer +
 shared replaced with v0.5.4 (translation removed again — translate/ocr/
 inpaint/export, TransEditor/TransWork/WorkTransEditor/CharacterMemo,
@@ -193,6 +193,16 @@ natural format for desktop ⇄ mobile sync.
 - **Commits only when asked**; messages are subject-only, **no
   `Co-Authored-By` / Claude trailers** (the user removed them from history).
   Git identity: `alterstare <alterstare03@gmail.com>`.
+- Release flow (mobile): bump `version` in package.json + `versionCode` /
+  `versionName` in android/app/build.gradle → `npm run sync` → `gradlew
+  assembleRelease` (signed with `~/.halftone/keystore.properties` + keystore —
+  a copy of this PC's debug keystore, so it updates over earlier debug installs;
+  keep `~/.halftone` backed up, a different key can't update installed apps) →
+  copy to `Halftone-vX.Y.Z.apk` (repo root, git-ignored) → commit → push → tag
+  `vX.Y.Z` → GitHub release with the APK attached (no `gh` here: REST API with
+  the git credential token). The app's auto-update (`src/backend/update.ts`)
+  reads `releases/latest` and needs a published (non-draft) release with an
+  `.apk` asset whose tag is newer than the installed versionName.
 - Release flow (desktop): bump version → commit → push → tag `vX.Y.Z` → CI
   builds a draft release → the user publishes on GitHub.
 - Never add a default/bundled site address; the user enters URLs themselves
