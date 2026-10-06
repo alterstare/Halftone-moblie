@@ -34,6 +34,8 @@ import {
   CheckMarkIcon,
   LanguageIcon,
   MoreVertIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   TouchAppIcon
 } from './icons'
 
@@ -56,7 +58,16 @@ export default function Reader({
   const savedScroll = (side === 'right' ? tab?.rightScrollTop : tab?.scrollTop) ?? 0
   const work = useStore((s) => s.works.find((w) => w.id === paneWorkId))
   // Unified favorite (local heart, or the online favorite of the same code).
-  const workFav = useStore((s) => !!work && (work.favorite || !!(work.code && s.onlineFavs[work.code]?.favorite)))
+  // Title-bar heart: doujin = the work's favorite; general manga = this
+  // chapter's favorite (normalFavChapters, the sidebar chapter-row heart).
+  const workFav = useStore(
+    (s) =>
+      !!work &&
+      ((work.library ?? 'doujin') === 'normal'
+        ? (s.settings.normalFavChapters ?? []).includes(work.id)
+        : work.favorite || !!(work.code && s.onlineFavs[work.code]?.favorite))
+  )
+  const toggleNormalFav = useStore((s) => s.toggleNormalFav)
   const setTabScroll = useStore((s) => s.setTabScroll)
   const setTabRightScroll = useStore((s) => s.setTabRightScroll)
   const upsertWork = useStore((s) => s.upsertWork)
@@ -176,17 +187,17 @@ export default function Reader({
 
   // General-manga chapter navigation: prev/next within the same series.
   const isNormalWork = !!work && (work.library ?? 'doujin') === 'normal'
-  const chapters = useMemo(() => {
-    if (!isNormalWork || !work) return []
-    const roots = seriesRootList
-    const group = seriesOf(work, works, roots)
-    return analyzeSeries(group.chapters, group.title, chapterScheme).map((ci) => ci.work)
-  }, [isNormalWork, work, works, seriesRootList, chapterScheme])
+  const seriesGroup = useMemo(
+    () => (isNormalWork && work ? seriesOf(work, works, seriesRootList) : null),
+    [isNormalWork, work, works, seriesRootList]
+  )
+  const chapterInfos = useMemo(
+    () => (seriesGroup ? analyzeSeries(seriesGroup.chapters, seriesGroup.title, chapterScheme) : []),
+    [seriesGroup, chapterScheme]
+  )
+
+  const chapters = useMemo(() => chapterInfos.map((ci) => ci.work), [chapterInfos])
   const chIdx = work ? chapters.findIndex((c) => c.id === work.id) : -1
-  const goChapter = (delta: number): void => {
-    const n = chapters[chIdx + delta]
-    if (n) replaceTabWork(tabId, side, n.id)
-  }
 
   // Online (manga-site) chapter navigation: same series' sibling chapters, loaded in
   // place (same tab) via the shared chapter cache. Left pane only.
@@ -224,6 +235,39 @@ export default function Reader({
   }
   const goComicChapterRef = useRef(goComicChapter)
   goComicChapterRef.current = goComicChapter
+
+  // One chapter navigator for the bottom bar + edge-scroll: online comic
+  // (sibling chapters) or a local series; null for a single work.
+  const chNav =
+    online?.kind === 'comic' && side === 'left' && comicChs.length > 1
+      ? {
+          idx: comicIdx,
+          count: comicChs.length,
+          label: comicChs[comicIdx]?.title ?? online.chapterLabel ?? '',
+          go: (d: 1 | -1) => goComicChapter(d)
+        }
+      : isNormalWork && chapters.length > 1
+        ? {
+            idx: chIdx,
+            count: chapters.length,
+            label: chapterInfos[chIdx]?.label ?? '',
+            go: (d: 1 | -1) => {
+              const n = chapters[chIdx + d]
+              if (!n) return false
+              replaceTabWork(tabId, side, n.id)
+              return true
+            }
+          }
+        : null
+  // Past the first / last page: previous / next chapter, else the reading queue.
+  const continueRef = useRef<(d: 1 | -1) => void>(() => {})
+  continueRef.current = (d) => {
+    // Going back by scrolling up lands on the previous chapter's last page.
+    if (d < 0 && chNav && chNav.idx > 0 && side === 'left')
+      useStore.setState((st) => ({ startAtBottom: { ...st.startAtBottom, [tabId]: true } }))
+    if (chNav ? chNav.go(d) : false) return
+    useStore.getState().continueReading(tabId, side, d)
+  }
 
   // Zoom-scaled pane box (px), the basis for every fit-mode size calculation.
   const sw = Math.max(1, Math.round(pane.w * zoom))
@@ -491,12 +535,12 @@ export default function Reader({
       // previous work. Online (manga-site) uses its sibling chapters; local works use the
       // reading queue (the filtered left list). Only when a neighbour exists.
       if (idx > images.length - 1) {
-        if (online?.kind === 'comic' ? goComicChapterRef.current(1) : continueReading(tabId, side, 1))
-          return
+        continueRef.current(1)
+        return
       }
       if (idx < 0) {
-        if (online?.kind === 'comic' ? goComicChapterRef.current(-1) : continueReading(tabId, side, -1))
-          return
+        continueRef.current(-1)
+        return
       }
       const clamped = Math.max(0, Math.min(images.length - 1, idx))
       setPageIdx(clamped)
@@ -602,7 +646,7 @@ export default function Reader({
               const dir: 1 | -1 = edgeAccum.current > 0 ? 1 : -1
               edgeAccum.current = 0
               // Online manga-site continues by sibling chapter; local by reading queue.
-              goComicChapterRef.current(dir) || useStore.getState().continueReading(tabId, side, dir)
+              continueRef.current(dir)
             }
           } else {
             edgeAccum.current = 0
@@ -882,15 +926,14 @@ export default function Reader({
     }
   }
 
-  // Click one half to advance (paged/spread mode). Which half advances is a
-  // setting (pagedFlipSide); the other half goes back.
-  // The top / bottom 15% of the pane and its center column (15% of the width)
-  // toggle the bars (any mode); elsewhere a tap
-  // flips (paged) or, with 하단 넘김, the lower half scrolls one screen (scroll).
   // Taps on the pages. A single tap waits a moment for a possible second tap
-  // (double tap = zoom), then acts: the top / bottom 15% and the center column
-  // (15% of the width) toggle the bars; elsewhere it flips (paged) or, with
-  // 하단 넘김, the lower half scrolls one screen (scroll).
+  // (double tap = zoom), then acts. Bars toggle zone:
+  //   paged / spread: the center (middle third of the width × middle 40% of
+  //     the height); elsewhere one half flips forward (pagedFlipSide), the
+  //     other back.
+  //   scroll, 넘김 OFF: anywhere.
+  //   scroll, 하단 넘김: the middle third band (full width); the bottom third
+  //     scrolls one screen; the top third does nothing.
   type Tap = { x: number; y: number; rect: DOMRect; el: HTMLElement }
   // A single tap acts after 130ms unless a second finger-down arrives in that
   // window; then it waits for that touch's tap (→ double tap) a little longer.
@@ -921,28 +964,26 @@ export default function Reader({
     pendingSingle.current = () => single(tap)
     tapTimer.current = window.setTimeout(firePending, 130)
   }
-  const barsZone = (t: Tap): boolean => {
-    const y = (t.y - t.rect.top) / t.rect.height
-    const x = (t.x - t.rect.left) / t.rect.width
-    if (y >= 0.15 && y <= 0.85 && Math.abs(x - 0.5) > 0.075) return false
+  const toggleBars = (): void => {
     setBarsHidden((h) => !h)
     setMoreOpen(false)
-    return true
   }
   const onPagedClick = (e: React.MouseEvent): void =>
     handleTap(e, (t) => {
-      if (barsZone(t)) return
+      const y = (t.y - t.rect.top) / t.rect.height
+      const x = (t.x - t.rect.left) / t.rect.width
+      if (Math.abs(x - 0.5) < 1 / 6 && Math.abs(y - 0.5) < 0.2) return toggleBars()
       const step = mode === 'spread' ? 2 : 1
-      const clickedLeft = t.x - t.rect.left < t.rect.width / 2
-      const forward = clickedLeft === (pagedFlipSide === 'left')
+      const forward = x < 0.5 === (pagedFlipSide === 'left')
       goToPage(pageIdx + (forward ? step : -step))
       setBarsHidden(true)
     })
   const onScrollClick = (e: React.MouseEvent): void =>
     handleTap(e, (t) => {
-      if (barsZone(t)) return
-      if (scrollTapFlip !== 'bottom') return
-      if (t.y - t.rect.top < t.rect.height / 2) return
+      if (scrollTapFlip !== 'bottom') return toggleBars()
+      const y = (t.y - t.rect.top) / t.rect.height
+      if (y < 1 / 3) return
+      if (y < 2 / 3) return toggleBars()
       t.el.scrollBy({ top: Math.round(t.el.clientHeight * 0.85), behavior: 'smooth' })
       setBarsHidden(true)
     })
@@ -980,7 +1021,42 @@ export default function Reader({
     setBarsHidden(true)
   }
   // A drag on the pages (scrolling / panning) hides the bars.
+  // Scroll mode, touch: keep pulling past the bottom (or the top) → next (or
+  // previous) chapter. The pull is measured from where the finger was when
+  // the edge was reached; a hint shows how far to go.
+  const EDGE_PULL = 130
+  const edgePull = useRef<{ dir: 1 | -1; y0: number } | null>(null)
+  const [pullHint, setPullHint] = useState<{ dir: 1 | -1; ready: boolean } | null>(null)
+  const trackEdgePull = (t: { clientY: number }): void => {
+    const el = contentRef.current
+    if (!el || mode !== 'scroll' || vz.current.s > 1.01) return
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
+    const atTop = el.scrollTop <= 0
+    const p = edgePull.current
+    if (!p) {
+      if (atBottom) edgePull.current = { dir: 1, y0: t.clientY }
+      else if (atTop) edgePull.current = { dir: -1, y0: t.clientY }
+      return
+    }
+    const pull = p.dir === 1 ? p.y0 - t.clientY : t.clientY - p.y0
+    if ((p.dir === 1 && !atBottom) || (p.dir === -1 && !atTop) || pull < 0) {
+      edgePull.current = null
+      setPullHint(null)
+      return
+    }
+    if (pull > 24) setPullHint({ dir: p.dir, ready: pull >= EDGE_PULL })
+  }
+  const endEdgePull = (t: { clientY: number } | undefined): void => {
+    const p = edgePull.current
+    edgePull.current = null
+    setPullHint(null)
+    if (!p || !t) return
+    const pull = p.dir === 1 ? p.y0 - t.clientY : t.clientY - p.y0
+    if (pull >= EDGE_PULL) continueRef.current(p.dir)
+  }
+
   const onPagesTouchStart = (e: React.TouchEvent): void => {
+    edgePull.current = null
     // A finger-down while a single tap is pending: maybe a double tap.
     if (pendingSingle.current) {
       window.clearTimeout(tapTimer.current)
@@ -995,6 +1071,7 @@ export default function Reader({
   // from the right); 왼쪽 넘김: swipe right. Not while pinch-zoomed (that drag
   // pans the page).
   const onPagesTouchEnd = (e: React.TouchEvent): void => {
+    if (e.touches.length === 0) endEdgePull(e.changedTouches[0])
     const s0 = swipe.current
     swipe.current = null
     const t = e.changedTouches[0]
@@ -1008,6 +1085,7 @@ export default function Reader({
     setBarsHidden(true)
   }
   const onPagesTouchMove = (e: React.TouchEvent): void => {
+    if (e.touches.length === 1) trackEdgePull(e.touches[0])
     const s = touchStart.current
     const t = e.touches[0]
     if (!s || !t || barsHidden) return
@@ -1107,7 +1185,11 @@ export default function Reader({
               // Local work: the unified favorite (same heart as the library card).
               <button
                 className={`mini icon reader-fav ${workFav ? 'on' : ''}`}
-                onClick={() => void setWorkFavorite(work, !workFav)}
+                onClick={() =>
+                  (work.library ?? 'doujin') === 'normal'
+                    ? void toggleNormalFav('chapter', work.id, !workFav)
+                    : void setWorkFavorite(work, !workFav)
+                }
                 title={workFav ? '즐겨찾기 해제' : '즐겨찾기'}
               >
                 <FavoriteIcon filled={workFav} />
@@ -1227,6 +1309,13 @@ export default function Reader({
         </div>
       )}
 
+      {pullHint && (
+        <div className={`edge-pull-hint ${pullHint.dir === 1 ? 'bottom' : 'top'} ${pullHint.ready ? 'ready' : ''}`}>
+          {pullHint.ready
+            ? `놓으면 ${pullHint.dir === 1 ? '다음화' : '이전화'}`
+            : `계속 당기면 ${pullHint.dir === 1 ? '다음화' : '이전화'}`}
+        </div>
+      )}
       {images.length > 0 && (
         <div
           className={`reader-bottom ${moreOpen ? 'more-open' : ''}`}
@@ -1234,48 +1323,6 @@ export default function Reader({
           onTouchStart={onBarTouchStart}
           onTouchEnd={onBarTouchEnd}
         >
-          {isNormalWork && chapters.length > 1 && (
-            <div className="chapter-nav">
-              <button
-                className="mini"
-                disabled={chIdx <= 0}
-                onClick={() => goChapter(-1)}
-              >
-                ‹ 이전화
-              </button>
-              <span className="chapter-pos">
-                {chIdx + 1}/{chapters.length}
-              </span>
-              <button
-                className="mini"
-                disabled={chIdx < 0 || chIdx >= chapters.length - 1}
-                onClick={() => goChapter(1)}
-              >
-                다음화 ›
-              </button>
-            </div>
-          )}
-          {online?.kind === 'comic' && side === 'left' && comicChs.length > 1 && (
-            <div className="chapter-nav">
-              <button
-                className="mini"
-                disabled={comicIdx <= 0}
-                onClick={() => goComicChapter(-1)}
-              >
-                ‹ 이전화
-              </button>
-              <span className="chapter-pos">
-                {comicIdx + 1}/{comicChs.length}
-              </span>
-              <button
-                className="mini"
-                disabled={comicIdx < 0 || comicIdx >= comicChs.length - 1}
-                onClick={() => goComicChapter(1)}
-              >
-                다음화 ›
-              </button>
-            </div>
-          )}
           {/* Custom track: grey base, online pages already loaded in light purple,
               read progress in purple; the native range sits on top (thumb). */}
           <div className="page-slider-wrap">
@@ -1308,6 +1355,28 @@ export default function Reader({
           >
             <MoreVertIcon />
           </button>
+          {/* Chapter row (series / online comic): ‹ 현재 화 › centered under the slider. */}
+          {chNav && (
+            <div className="chapter-nav">
+              <button className="ch-btn" disabled={chNav.idx <= 0} onClick={() => chNav.go(-1)} title="이전화">
+                <ChevronLeftIcon />
+              </button>
+              <span className="chapter-pos">
+                <b>{chNav.label || `${chNav.idx + 1}화`}</b>
+                <span className="chapter-count">
+                  {chNav.idx + 1} / {chNav.count}
+                </span>
+              </span>
+              <button
+                className="ch-btn"
+                disabled={chNav.idx < 0 || chNav.idx >= chNav.count - 1}
+                onClick={() => chNav.go(1)}
+                title="다음화"
+              >
+                <ChevronRightIcon />
+              </button>
+            </div>
+          )}
           {/* Extra row (⋮ / swipe up): mode · fit · 넘김. Flat group, dividers. */}
           <div className="reader-more">
             <div className="reader-more-inner">

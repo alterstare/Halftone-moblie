@@ -500,6 +500,8 @@ export default function ManageSection(): JSX.Element {
         </section>
       )}
 
+      <ImageCacheSection />
+
       <section data-cat="manage">
         <h2>업데이트</h2>
         <SettingRow title="자동 업데이트" desc="앱을 켤 때 새 버전이 있는지 확인하고, 있으면 미리 받아 둡니다. 설치는 작업 바의 “설치”를 눌러야 진행됩니다.">
@@ -566,5 +568,44 @@ export default function ManageSection(): JSX.Element {
         />
       )}
     </>
+  )
+}
+
+// Disk cache for online / NAS page images and covers. Over the budget, the
+// least recently viewed images are dropped first (LRU).
+function ImageCacheSection(): JSX.Element {
+  const { draft, patch } = useSettings()
+  const [usage, setUsage] = useState<{ bytes: number; files: number } | null>(null)
+  const load = (): void => void window.api.imageCacheInfo().then(setUsage).catch(() => setUsage(null))
+  useEffect(load, [])
+  const mb = (n: number): string => `${(n / 1024 / 1024 / 1024).toFixed(2)}GB`
+  return (
+    <section data-cat="manage">
+      <h2>이미지 캐시</h2>
+      <SettingRow
+        title="캐시 용량"
+        desc="온라인·NAS에서 본 페이지와 표지를 기기에 보관하는 최대 용량(GB)입니다. 넘으면 가장 오래 안 본 이미지부터 지웁니다. 0이면 보관하지 않습니다."
+      >
+        <Stepper
+          value={draft.imageCacheGB ?? 0.5}
+          onChange={(v) => patch({ imageCacheGB: Math.round(v * 10) / 10 })}
+          min={0}
+          max={100}
+          step={0.5}
+        />
+        <span>GB</span>
+      </SettingRow>
+      <SettingRow title="사용 중" desc={usage ? `${mb(usage.bytes)} · ${usage.files.toLocaleString()}개` : '확인 중…'}>
+        <button
+          className="mini"
+          onClick={async () => {
+            await window.api.clearImageCache()
+            load()
+          }}
+        >
+          캐시 비우기
+        </button>
+      </SettingRow>
+    </section>
   )
 }

@@ -60,7 +60,11 @@ final class Net {
         .build();
 
     private static File imgCacheDir;
-    private static final long IMG_CACHE_MAX = 400L * 1024 * 1024;
+    // Disk image cache budget (설정 › 관리 › 이미지 캐시). 0 = keep nothing.
+    private static volatile long cacheMax = 400L * 1024 * 1024;
+    // Bytes added since the last trim; a background trim runs every ~16MB.
+    private static long addedSinceTrim = 0;
+    private static volatile boolean trimming = false;
 
     private Net() {}
 
@@ -113,8 +117,11 @@ final class Net {
             .addInterceptor(chain -> {
                 Request.Builder b = chain.request().newBuilder();
                 if (chain.request().header("User-Agent") == null) b.header("User-Agent", DOUJIN_UA);
-                if (chain.request().header("Referer") == null) b.header("Referer", DOUJIN_SITE + "/");
-                if (chain.request().header("Origin") == null) b.header("Origin", DOUJIN_SITE);
+                String site = doujinSite;
+                if (!site.isEmpty()) {
+                    if (chain.request().header("Referer") == null) b.header("Referer", site + "/");
+                    if (chain.request().header("Origin") == null) b.header("Origin", site);
+                }
                 return chain.proceed(b.build());
             })
             .build();
@@ -136,7 +143,8 @@ final class Net {
     }
 
     // The doujin site's origin, sent as Referer / Origin (its CDN requires it).
-    private static final String DOUJIN_SITE = "https://" + "hito" + "mi.la";
+    // Comes from the user-entered address (recognised in JS, MM.setNetwork).
+    static volatile String doujinSite = "";
 
     static OkHttpClient client(String kind) {
         if ("doujin".equals(kind)) return doujin;
@@ -273,6 +281,20 @@ final class Net {
 
     // Bytes of a remote image, served from the disk cache when present. Image urls
     // are content-addressed (doujin hash / comic path), so entries never go stale.
+    // A NAS file (reader page / cover), kept in the same disk cache so pages
+    // aren't fetched again on every view.
+    static byte[] cachedNas(String path) throws IOException {
+        File f = new File(imgCacheDir, sha1("nas|" + path));
+        if (f.exists() && f.length() > 0) {
+            //noinspection ResultOfMethodCallIgnored
+            f.setLastModified(System.currentTimeMillis());
+            return Files.readAllBytes(f.toPath());
+        }
+        byte[] bytes = Vfs.read(path);
+        store(f, bytes);
+        return bytes;
+    }
+
     static byte[] cachedImage(String kind, String url) throws IOException {
         File f = new File(imgCacheDir, sha1(kind + "|" + url));
         if (f.exists() && f.length() > 0) {
@@ -286,12 +308,7 @@ final class Net {
                 if (!res.isSuccessful()) throw new HttpError(res.code());
                 ResponseBody body = res.body();
                 byte[] bytes = body == null ? new byte[0] : body.bytes();
-                File tmp = new File(f.getPath() + ".tmp");
-                try (OutputStream out = new FileOutputStream(tmp)) {
-                    out.write(bytes);
-                }
-                //noinspection ResultOfMethodCallIgnored
-                tmp.renameTo(f);
+                store(f, bytes);
                 return bytes;
             } catch (HttpError e) {
                 throw e; // 403/404: retrying won't help
@@ -313,19 +330,63 @@ final class Net {
         HttpError(int code) { super("HTTP " + code); this.code = code; }
     }
 
+    // Write a cache entry (temp + rename); with a 0 budget nothing is kept.
+    // Every ~16MB added, trim in the background.
+    private static void store(File f, byte[] bytes) throws IOException {
+        if (cacheMax <= 0) return;
+        File tmp = new File(f.getPath() + ".tmp");
+        try (OutputStream out = new FileOutputStream(tmp)) {
+            out.write(bytes);
+        }
+        //noinspection ResultOfMethodCallIgnored
+        tmp.renameTo(f);
+        boolean trim;
+        synchronized (Net.class) {
+            addedSinceTrim += bytes.length;
+            trim = addedSinceTrim > 16L * 1024 * 1024 && !trimming;
+            if (trim) {
+                addedSinceTrim = 0;
+                trimming = true;
+            }
+        }
+        if (trim) new Thread(() -> {
+            try {
+                pruneImgCache();
+            } finally {
+                trimming = false;
+            }
+        }).start();
+    }
+
+    // LRU: entries are touched (mtime) on every hit, so the least recently
+    // viewed go first; trims to 90% of the budget to avoid trimming each write.
     private static void pruneImgCache() {
         File[] files = imgCacheDir.listFiles();
         if (files == null) return;
+        long max = cacheMax;
         long total = 0;
         for (File f : files) total += f.length();
-        if (total <= IMG_CACHE_MAX) return;
+        if (total <= max) return;
         Arrays.sort(files, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
         for (File f : files) {
-            if (total <= IMG_CACHE_MAX * 3 / 4) break;
+            if (total <= max * 9 / 10) break;
             total -= f.length();
             //noinspection ResultOfMethodCallIgnored
             f.delete();
         }
+    }
+
+    static void setCacheLimit(long bytes) {
+        cacheMax = Math.max(0, bytes);
+        new Thread(Net::pruneImgCache).start();
+    }
+
+    // { bytes, files } currently in the cache.
+    static long[] cacheUsage() {
+        File[] files = imgCacheDir.listFiles();
+        long total = 0;
+        if (files != null) for (File f : files) total += f.length();
+        return new long[] {total, files == null ? 0 : files.length};
     }
 
     static void clearImgCache() {

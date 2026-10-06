@@ -3,6 +3,7 @@ import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { b64ToBytes, utf8, int32sBE, view, compareBytes } from '../node/bytes'
 import { MM } from '../native'
+import { fp, DOUJIN_SITE_FP, DOUJIN_NAME_FP } from './fp'
 import type { DoujinMeta } from '../../shared/types'
 import { fillNamePattern, langCode } from '../../shared/pattern'
 import { titleSim, titleNorm } from '../../shared/title'
@@ -17,14 +18,27 @@ import { titleSim, titleNorm } from '../../shared/title'
 // no longer serves galleries/images (its ltn/tn/a* names don't resolve), so
 // when the user enters the site's own address it is mapped to the current
 // known CDN host. Set via setDoujinContentHost().
-// The doujin site's own domain (only used to recognise it when typed in).
-const SITE_HOST_RE = new RegExp('(^|\\.)' + ['hito', 'mi', '\\.la'].join('') + '$', 'i')
+// The site's own domain is recognised by fingerprint (fp.ts) when typed in;
+// its origin is then the Referer the CDN requires (sent by Net.java).
 const DEFAULT_CDN = 'gold-usergeneratedcontent.net'
 let CONTENT_HOST = ''
+let SITE_ORIGIN = ''
+// The host (or a subdomain of it) is the site → its domain, else ''.
+function siteDomain(h: string): string {
+  const parts = h.toLowerCase().split('.')
+  for (let i = 0; i < parts.length - 1; i++) {
+    const d = parts.slice(i).join('.')
+    if (fp(d) === DOUJIN_SITE_FP) return d
+  }
+  return ''
+}
+// Origin sent as Referer / Origin for doujin requests ('' = not recognised).
+export const doujinSiteOrigin = (): string => SITE_ORIGIN
 export function setDoujinContentHost(v: string): void {
   let h = (v ?? '').trim()
   if (!h) {
     CONTENT_HOST = ''
+    SITE_ORIGIN = ''
     return
   }
   try {
@@ -38,17 +52,25 @@ export function setDoujinContentHost(v: string): void {
     .replace(/\/.*$/, '')
     .replace(/\/+$/, '')
   // Entered the site itself → use the current CDN host.
-  CONTENT_HOST = SITE_HOST_RE.test(h) ? DEFAULT_CDN : h
+  const site = siteDomain(h)
+  SITE_ORIGIN = site ? `https://${site}` : ''
+  CONTENT_HOST = site ? DEFAULT_CDN : h
 }
 // Base for ltn.* endpoints; throws a clear error when the host isn't configured.
 function ltn(): string {
   if (!CONTENT_HOST)
     throw new Error('동인지 온라인 주소가 설정되지 않았습니다. 설정 → 네트워크에서 주소를 입력하세요.')
+  // The image CDN refuses requests without the site's Referer.
+  if (!SITE_ORIGIN)
+    throw new Error('동인지 사이트 주소를 인식하지 못했습니다. 설정 → 네트워크에 사이트 주소(이미지 서버 주소 말고)를 입력하세요.')
   return `https://ltn.${CONTENT_HOST}`
 }
 
-// Per-work metadata file (name shared with the desktop app's libraries).
-export const SIDECAR = ['meta', 'hito' + 'mi', 'json'].join('.')
+// Per-work metadata file. New files: meta.doujin.json. Older ones (and the
+// desktop app's) are meta.<site name>.json, found by fingerprint; the name is
+// remembered after the first match.
+const SIDECAR = 'meta.doujin.json'
+let legacySidecar = ''
 
 interface RawFile {
   name?: string
@@ -243,11 +265,27 @@ export async function fetchMeta(code: string): Promise<DoujinMeta> {
 // --- sidecar ---------------------------------------------------------------
 
 export async function readSidecar(dir: string): Promise<DoujinMeta | null> {
+  const tryRead = async (name: string): Promise<DoujinMeta | null> => {
+    try {
+      return JSON.parse(await fs.readFile(join(dir, name), 'utf-8')) as DoujinMeta
+    } catch {
+      return null
+    }
+  }
+  const m = await tryRead(SIDECAR)
+  if (m) return m
+  if (legacySidecar) return tryRead(legacySidecar)
+  // Old name not learned yet: look for meta.<x>.json with x = the site name.
+  let names: string[] = []
   try {
-    return JSON.parse(await fs.readFile(join(dir, SIDECAR), 'utf-8')) as DoujinMeta
+    names = await fs.readdir(dir)
   } catch {
     return null
   }
+  const old = names.find((n) => /^meta\.[^.]+\.json$/i.test(n) && fp(n.split('.')[1]) === DOUJIN_NAME_FP)
+  if (!old) return null
+  legacySidecar = old
+  return tryRead(old)
 }
 
 export async function writeSidecar(dir: string, meta: DoujinMeta): Promise<void> {

@@ -73,6 +73,7 @@ public class MMPlugin extends Plugin {
     public void load() {
         instance = this;
         Net.init(getContext());
+        NasStore.init(getContext());
         ViewGroup root = (ViewGroup) getBridge().getWebView().getParent();
         comic = new ComicWeb(getActivity(), root, visible -> {
             JSObject o = new JSObject();
@@ -110,6 +111,69 @@ public class MMPlugin extends Plugin {
     }
 
     // ---- paths / storage --------------------------------------------------------
+
+    // ---- NAS (WebDAV / SMB) -------------------------------------------------------
+    // Connections are stored natively (NasStore); JS never gets the passwords.
+    // A connection's files are reached as /nas/<id>/<path> through the fs methods.
+
+    @PluginMethod
+    public void nasList(PluginCall call) {
+        try {
+            JSArray a = new JSArray();
+            for (NasStore.Conn c : NasStore.list()) a.put(c.toJson(true, NasStore.password(c.id)));
+            JSObject o = new JSObject();
+            o.put("conns", a);
+            call.resolve(o);
+        } catch (Exception e) {
+            call.reject(String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static NasStore.Conn connOf(PluginCall call) {
+        JSObject j = call.getObject("conn");
+        return NasStore.Conn.fromJson(j == null ? new JSObject() : j);
+    }
+
+    // Try the connection (list its root); password null = use the stored one.
+    @PluginMethod
+    public void nasTest(PluginCall call) {
+        bg(call, () -> {
+            NasStore.Conn c = connOf(call);
+            String pw = call.getString("password");
+            if (pw == null && c.id != null && !c.id.isEmpty()) pw = NasStore.password(c.id);
+            RemoteFs fs = Vfs.create(c, pw);
+            try {
+                JSObject o = new JSObject();
+                o.put("count", fs.list("").size());
+                call.resolve(o);
+            } finally {
+                fs.close();
+            }
+        });
+    }
+
+    @PluginMethod
+    public void nasSave(PluginCall call) {
+        bg(call, () -> {
+            NasStore.Conn c = connOf(call);
+            if (c.id == null || c.id.isEmpty()) c.id = "n" + Long.toString(System.currentTimeMillis(), 36);
+            NasStore.save(c, call.getString("password"));
+            Vfs.forget(c.id);
+            JSObject o = new JSObject();
+            o.put("id", c.id);
+            call.resolve(o);
+        });
+    }
+
+    @PluginMethod
+    public void nasRemove(PluginCall call) {
+        bg(call, () -> {
+            String id = need(call, "id");
+            NasStore.remove(id);
+            Vfs.forget(id);
+            call.resolve();
+        });
+    }
 
     @PluginMethod
     public void appInfo(PluginCall call) {
@@ -206,8 +270,7 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void fsRead(PluginCall call) {
         bg(call, () -> {
-            File f = new File(need(call, "path"));
-            byte[] b = Files.readAllBytes(f.toPath());
+            byte[] b = Vfs.read(need(call, "path"));
             JSObject o = new JSObject();
             o.put("data", "base64".equals(call.getString("encoding")) ? Base64.encodeToString(b, Base64.NO_WRAP) : new String(b, StandardCharsets.UTF_8));
             call.resolve(o);
@@ -217,9 +280,23 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void fsWrite(PluginCall call) {
         bg(call, () -> {
-            File f = new File(need(call, "path"));
+            String path = need(call, "path");
             String data = need(call, "data");
             byte[] b = "base64".equals(call.getString("encoding")) ? Base64.decode(data, Base64.DEFAULT) : data.getBytes(StandardCharsets.UTF_8);
+            if (Vfs.isRemote(path)) {
+                boolean app = Boolean.TRUE.equals(call.getBoolean("append", false));
+                if (app) {
+                    byte[] old = Vfs.stat(path).exists ? Vfs.read(path) : new byte[0];
+                    byte[] all = new byte[old.length + b.length];
+                    System.arraycopy(old, 0, all, 0, old.length);
+                    System.arraycopy(b, 0, all, old.length, b.length);
+                    b = all;
+                }
+                Vfs.write(path, b);
+                call.resolve();
+                return;
+            }
+            File f = new File(path);
             File parent = f.getParentFile();
             if (parent != null) //noinspection ResultOfMethodCallIgnored
                 parent.mkdirs();
@@ -241,6 +318,16 @@ public class MMPlugin extends Plugin {
         });
     }
 
+    private static JSObject statOf(RemoteFs.Entry e) {
+        JSObject o = new JSObject();
+        o.put("exists", e.exists);
+        o.put("isDir", e.exists && e.dir);
+        o.put("isFile", e.exists && !e.dir);
+        o.put("size", e.size);
+        o.put("mtime", e.mtime);
+        return o;
+    }
+
     private static JSObject statOf(File f) {
         JSObject o = new JSObject();
         o.put("exists", f.exists());
@@ -253,13 +340,29 @@ public class MMPlugin extends Plugin {
 
     @PluginMethod
     public void fsStat(PluginCall call) {
-        bg(call, () -> call.resolve(statOf(new File(need(call, "path")))));
+        bg(call, () -> {
+            String path = need(call, "path");
+            call.resolve(Vfs.isRemote(path) ? statOf(Vfs.stat(path)) : statOf(new File(path)));
+        });
     }
 
     @PluginMethod
     public void fsReaddir(PluginCall call) {
         bg(call, () -> {
-            File dir = new File(need(call, "path"));
+            String path = need(call, "path");
+            if (Vfs.isRemote(path)) {
+                JSArray arr = new JSArray();
+                for (RemoteFs.Entry e : Vfs.list(path)) {
+                    JSObject o = statOf(e);
+                    o.put("name", e.name);
+                    arr.put(o);
+                }
+                JSObject res = new JSObject();
+                res.put("entries", arr);
+                call.resolve(res);
+                return;
+            }
+            File dir = new File(path);
             File[] list = dir.listFiles();
             if (list == null) throw new IOException("ENOENT: " + dir);
             JSArray arr = new JSArray();
@@ -277,7 +380,13 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void fsMkdir(PluginCall call) {
         bg(call, () -> {
-            File d = new File(need(call, "path"));
+            String path = need(call, "path");
+            if (Vfs.isRemote(path)) {
+                Vfs.mkdirs(path);
+                call.resolve();
+                return;
+            }
+            File d = new File(path);
             if (!d.isDirectory() && !d.mkdirs()) throw new IOException("mkdir failed: " + d);
             call.resolve();
         });
@@ -292,7 +401,13 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void fsRm(PluginCall call) {
         bg(call, () -> {
-            File f = new File(need(call, "path"));
+            String path = need(call, "path");
+            if (Vfs.isRemote(path)) {
+                Vfs.delete(path, Boolean.TRUE.equals(call.getBoolean("recursive", false)));
+                call.resolve();
+                return;
+            }
+            File f = new File(path);
             if (Boolean.TRUE.equals(call.getBoolean("recursive", false))) deleteTree(f);
             else if (f.exists() && !f.delete()) throw new IOException("delete failed: " + f);
             call.resolve();
@@ -317,8 +432,14 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void fsRename(PluginCall call) {
         bg(call, () -> {
-            File from = new File(need(call, "from"));
-            File to = new File(need(call, "to"));
+            String fromP = need(call, "from"), toP = need(call, "to");
+            if (Vfs.isRemote(fromP) || Vfs.isRemote(toP)) {
+                Vfs.rename(fromP, toP);
+                call.resolve();
+                return;
+            }
+            File from = new File(fromP);
+            File to = new File(toP);
             if (!from.exists()) throw new IOException("ENOENT: " + from);
             File parent = to.getParentFile();
             if (parent != null) //noinspection ResultOfMethodCallIgnored
@@ -365,7 +486,16 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void httpDownload(PluginCall call) {
         bg(call, () -> {
-            long n = Net.download(call.getString("kind", "plain"), need(call, "url"), headersOf(call), new File(need(call, "path")));
+            String path = need(call, "path");
+            long n;
+            if (Vfs.isRemote(path)) {
+                // NAS target: download to a local temp file, then upload it.
+                File tmp = File.createTempFile("nasdl", ".part", getContext().getCacheDir());
+                n = Net.download(call.getString("kind", "plain"), need(call, "url"), headersOf(call), tmp);
+                Vfs.upload(tmp, path);
+            } else {
+                n = Net.download(call.getString("kind", "plain"), need(call, "url"), headersOf(call), new File(path));
+            }
             JSObject o = new JSObject();
             o.put("size", n);
             call.resolve(o);
@@ -377,7 +507,13 @@ public class MMPlugin extends Plugin {
     public void imageToFile(PluginCall call) {
         bg(call, () -> {
             byte[] b = Net.cachedImage(call.getString("kind", "doujin"), need(call, "url"));
-            File f = new File(need(call, "path"));
+            String path = need(call, "path");
+            if (Vfs.isRemote(path)) {
+                Vfs.write(path, b);
+                call.resolve();
+                return;
+            }
+            File f = new File(path);
             File parent = f.getParentFile();
             if (parent != null) //noinspection ResultOfMethodCallIgnored
                 parent.mkdirs();
@@ -405,7 +541,7 @@ public class MMPlugin extends Plugin {
             if (q >= 0) seg = seg.substring(0, q);
             String target = new String(Base64.decode(seg, Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP), StandardCharsets.UTF_8);
             byte[] b = "img".equals(kind)
-                    ? Files.readAllBytes(new File(target).toPath())
+                    ? (Vfs.isRemote(target) ? Net.cachedNas(target) : Files.readAllBytes(new File(target).toPath()))
                     : Net.cachedImage("comic".equals(kind) ? "comic" : "doujin", target);
             String file = target;
             int qq = file.indexOf('?');
@@ -476,6 +612,7 @@ public class MMPlugin extends Plugin {
         boolean tunnel = Boolean.TRUE.equals(call.getBoolean("tunnel", false));
         Net.setProxy(proxy);
         Net.comicBase = call.getString("comicBase", "");
+        Net.doujinSite = call.getString("doujinSite", "");
         bg(call, () -> {
             int port = 0;
             if (tunnel) {
@@ -545,6 +682,24 @@ public class MMPlugin extends Plugin {
             ClipboardManager cm = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("text", text));
             call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void setImageCache(PluginCall call) {
+        Integer mb = call.getInt("mb", 400);
+        Net.setCacheLimit((long) (mb == null ? 400 : mb) * 1024 * 1024);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void imageCacheInfo(PluginCall call) {
+        bg(call, () -> {
+            long[] u = Net.cacheUsage();
+            JSObject o = new JSObject();
+            o.put("bytes", u[0]);
+            o.put("files", u[1]);
+            call.resolve(o);
         });
     }
 

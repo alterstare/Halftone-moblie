@@ -1945,6 +1945,8 @@ body:has(.activity) .fab-wrap {
 }
 .reader-head-btns .reader-fav.on {
   color: var(--danger);
+  /* not the generic purple "on" button fill — only the heart turns red */
+  background: transparent;
 }
 
 /* Library: half the old side margin (24 → 12px); the cards get the room. */
@@ -2070,4 +2072,466 @@ body:has(.activity) .fab-wrap {
    purple; the last one read keeps the purple outline; the open one is darker. */
 .chapter-row.read:not(.active) {
   background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+/* ---------- NAS dialogs ---------- */
+.nas-modal {
+  width: min(440px, calc(100vw - 24px));
+  max-height: 86vh;
+  overflow-y: auto;
+  padding: 14px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nas-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nas-head b {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+}
+.nas-where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nas-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  flex: 1;
+  min-width: 0;
+}
+.nas-field .search {
+  flex: none; /* .search grows (flex: 1) — in this column it would collapse */
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  font-size: 15px;
+}
+.nas-row {
+  display: flex;
+  gap: 8px;
+}
+.nas-port {
+  flex: 0 0 90px;
+}
+.nas-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.nas-msg {
+  font-size: 13px;
+  padding: 2px 2px;
+}
+.nas-msg.ok {
+  color: var(--accent);
+}
+.nas-msg.err {
+  color: var(--danger);
+  word-break: break-word;
+}
+.nas-actions {
+  justify-content: flex-end;
+  display: flex;
+}
+.nas-actions .btn {
+  height: 38px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 600;
+}
+.nas-actions .btn.primary {
+  color: var(--accent);
+}
+.nas-actions .btn:disabled {
+  opacity: 0.4;
+}
+.nas-browser .nas-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.nas-dir {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 0 6px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+}
+.nas-dir .micon {
+  font-size: 20px;
+  color: var(--accent);
+  flex: none;
+}
+.nas-dir span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nas-dir:active {
+  background: var(--accent-soft);
+}
+
+/* Reader bottom bar: slider · page · ⋮ on top; for a series / online comic a
+   centered chapter row under it (‹ current chapter ›); ⋮ opens the rest. */
+.reader-bottom .chapter-nav {
+  order: 5;
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: -4px 0 2px;
+  border: none;
+  background: transparent;
+}
+.reader-bottom .reader-more {
+  order: 6;
+}
+.ch-btn {
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  color: var(--text);
+  font-size: 26px;
+  display: grid;
+  place-items: center;
+}
+.ch-btn:disabled {
+  opacity: 0.3;
+}
+.ch-btn:active:not(:disabled) {
+  background: var(--accent-soft);
+}
+.reader-bottom .chapter-pos {
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+  font-size: 14px;
+}
+.reader-bottom .chapter-pos b {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chapter-count {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+/* Edge pull (scroll mode): "keep pulling" → "let go" for the next / previous chapter. */
+.edge-pull-hint {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 7;
+  padding: 8px 16px;
+  border-radius: 18px;
+  background: var(--bg-1);
+  color: var(--text-dim);
+  font-size: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  transition: color 0.15s, background-color 0.15s;
+}
+.edge-pull-hint.bottom {
+  bottom: 24px;
+}
+.edge-pull-hint.top {
+  top: 24px;
+}
+.edge-pull-hint.ready {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 일반 만화 온라인 filters: "… 더보기" buttons in one centered row (dividers);
+   the open one drops its chips below. */
+.filter-mores {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 6px;
+}
+.filter-mores .genre-more {
+  margin: 0;
+}
+.genre-more.set {
+  color: var(--accent);
+}
+/* Chapter arrows: 2px further out from the chapter label. */
+.reader-bottom .chapter-nav {
+  gap: 8px;
+}
+
+/* Pager (library / online / sidebar): borderless round chevron buttons. */
+.pager-arrow {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 28px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+}
+.pager.sm .pager-arrow {
+  width: 36px;
+  height: 36px;
+  font-size: 24px;
+}
+.pager-arrow:disabled {
+  opacity: 0.3;
+}
+.pager-arrow:active:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* Titles: at least the meta / artist size (16px) everywhere; 일반 만화 a bit
+   larger (18px) so the title clearly leads. */
+.tile-info .gtile-title,
+.tile-info .gcard-title {
+  font-size: 16px;
+}
+/* 일반 만화: the title outranks the meta / artist lines (16px). */
+.comic-browse .tile-info .gcard-title,
+.gtile.series .tile-info .gtile-title {
+  font-size: 18px;
+  line-height: 1.35;
+}
+.gtile.series.ctile .ctile-title {
+  font-size: 16px;
+}
+
+/* ---------- Popups: no outline, no top icon ----------
+   Confirm / exit dialogs (.exit-modal) and the other modals lose their
+   frame; the round icon on top is gone; text is left-aligned; actions are
+   flat text buttons at the bottom right (primary = purple, danger = red). */
+.modal,
+.exit-modal {
+  border: none !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3) !important;
+}
+.exit-modal {
+  background: var(--bg-1);
+  text-align: left;
+  padding: 22px 22px 12px;
+}
+.exit-modal .exit-icon {
+  display: none;
+}
+.exit-modal .exit-title {
+  font-size: 16px;
+  line-height: 1.5;
+}
+.exit-modal .exit-desc {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.exit-modal .exit-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.exit-modal .exit-btn {
+  flex: none;
+  height: auto;
+  padding: 8px 12px;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  transform: none;
+}
+.exit-modal .exit-btn.primary {
+  color: var(--accent);
+}
+.exit-modal .exit-btn.danger {
+  color: var(--danger);
+}
+.exit-modal .exit-btn:active {
+  background: var(--bg-3) !important;
+}
+
+/* Dialog buttons (일반 만화 다운로드 / 화 선택 / 완료 / 그룹 생성): flat text,
+   stacked choices split by lines. */
+.dl-modal .btn,
+.dl-select-foot .btn,
+.dl-progress-box .btn,
+.grp-pop .mini,
+.modal .modal-head ~ * .btn {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text);
+  font-weight: 600;
+}
+.dl-modal .btn.primary,
+.dl-select-foot .btn.primary,
+.dl-progress-box .btn.primary,
+.grp-pop .mini {
+  color: var(--accent);
+}
+.dl-modal .btn:disabled,
+.dl-select-foot .btn:disabled {
+  opacity: 0.4;
+}
+.dl-menu {
+  gap: 0 !important;
+}
+.dl-menu .btn.block {
+  width: 100%;
+  min-height: 48px;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 0 4px;
+  border-radius: 0;
+  font-size: 15px;
+}
+.dl-menu .btn.block + .btn.block {
+  border-top: 1px solid var(--line) !important;
+}
+.dl-select-foot {
+  justify-content: flex-end;
+  gap: 4px;
+}
+.dl-modal .btn:active:not(:disabled),
+.grp-pop .mini:active {
+  background: var(--accent-soft) !important;
+}
+/* 화 선택: 전체 선택 · 전체 해제 · 선택 반전 as flat text with dividers. */
+.dl-modal .mini {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--accent);
+  font-weight: 600;
+  padding: 6px 8px;
+}
+.dl-modal .mini + .mini {
+  position: relative;
+  margin-left: 9px;
+}
+.dl-modal .mini + .mini::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  margin-top: -7px;
+  background: var(--line);
+}
+.dl-modal .dl-chapter-list {
+  border-color: var(--line) !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-radius: 0;
+}
+
+/* Swipe 라이브러리 ⇄ 온라인: the new screen slides in from the side. */
+@keyframes slide-from-right {
+  from {
+    translate: 36% 0;
+    opacity: 0.4;
+  }
+}
+@keyframes slide-from-left {
+  from {
+    translate: -36% 0;
+    opacity: 0.4;
+  }
+}
+.app > .body.slide-from-right {
+  animation: slide-from-right 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+.app > .body.slide-from-left {
+  animation: slide-from-left 0.24s cubic-bezier(0.2, 0, 0, 1);
+}
+.app > .body {
+  overflow-x: hidden;
+}
+
+/* 격자형: the cover sits in a 6px frame (like the tab grid cards), its inner
+   corners rounded so it flows into the text below. */
+.ctile .ctile-thumb {
+  border: 6px solid var(--bg-1); /* same colour as the card background */
+  background: var(--bg-1); /* letterbox ≠ frame colour, so the frame reads */
+  border-radius: var(--r6) var(--r6) 16px 16px;
+  box-sizing: border-box;
+}
+.ctile > .sel-box {
+  top: 12px;
+  left: 12px;
+}
+.ctile .ctile-thumb :is(.thumb, .gcard-thumb, .gtile-thumb-inner) {
+  background: transparent !important;
+}
+
+/* 격자형: fixed text rows — title 2 lines, artist 1 line, meta 1 line — each
+   kept even when empty, so every card has the same height. */
+.ctile-title {
+  height: calc(2 * 1.35em);
+  flex: none;
+}
+.ctile-artist,
+.ctile-meta {
+  height: 1.35em;
+  line-height: 1.35;
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+.ctile-artist :is(span, a) {
+  white-space: nowrap;
+}
+/* The 온라인 badge is a thumb child too: keep it a small label, not the
+   full-box fill every other thumb child gets. */
+.ctile-thumb > .online-fav-badge {
+  width: auto !important;
+  height: auto !important;
+  z-index: 1;
+}
+/* Favorite = red wherever it is on (grid bar halves had no rule → text colour). */
+.seg-heart.on {
+  color: var(--danger);
+}
+/* Reader sidebar (local series / online comic): heart vs group (+) in the
+   same 20 : 18 ratio as the library cards (was 15 : 18). */
+.lib-list .seg .seg-heart {
+  font-size: 20px;
+  translate: 0 -0.8px;
 }

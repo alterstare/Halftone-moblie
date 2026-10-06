@@ -6,6 +6,10 @@
 // Categories are all rendered at once; CSS shows only the active one
 // (.settings-inner[data-show] hides the other <section data-cat>s), so a
 // section's local state and running tasks survive tab switches.
+import ContextMenu from './ContextMenu'
+import { NasBrowser, NasConnModal } from './NasDialogs'
+import { useNas, emptyConn } from '../nas'
+import type { NasConn } from '../../../shared/ipc'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
@@ -77,6 +81,16 @@ export default function Settings(): JSX.Element {
     return () => setSettingsDirty(false)
   }, [dirty, setSettingsDirty])
 
+  // Folder picking: chooser popup → device picker / NAS browser / new NAS connection.
+  type Apply = (dir: string) => void
+  const [chooser, setChooser] = useState<{ apply: Apply } | null>(null)
+  const [browse, setBrowse] = useState<{ conn: NasConn; apply: Apply } | null>(null)
+  const [newConn, setNewConn] = useState<{ apply: Apply } | null>(null)
+  const nasConns = useNas((s) => s.conns)
+  useEffect(() => {
+    void useNas.getState().refresh()
+  }, [])
+
   const ctl: SettingsCtl = {
     draft,
     patch: (p) => setDraft((d) => ({ ...d, ...p })),
@@ -98,10 +112,8 @@ export default function Settings(): JSX.Element {
         setRescanning(null)
       }
     },
-    pickDir: async (apply) => {
-      const dir = await window.api.pickFolder()
-      if (dir) apply(dir)
-    }
+    // Where to pick from: this device, or one of the NAS connections.
+    pickDir: async (apply) => setChooser({ apply })
   }
 
   // Persist the draft. Per-mode keys (SPLIT_SETTING_KEYS) go into this mode's
@@ -199,6 +211,44 @@ export default function Settings(): JSX.Element {
   const modeName = ctl.isDoujin ? '동인지' : '일반 만화'
   return (
     <SettingsContext.Provider value={ctl}>
+      {chooser && (
+        <ContextMenu
+          x={0}
+          y={0}
+          items={[
+            {
+              label: '이 기기에서 선택',
+              onClick: async () => {
+                const dir = await window.api.pickFolder()
+                if (dir) chooser.apply(dir)
+              }
+            },
+            ...nasConns.map((c) => ({ label: `NAS · ${c.name}`, onClick: () => setBrowse({ conn: c, apply: chooser.apply }) })),
+            { label: '+ NAS 연결 추가', onClick: () => setNewConn({ apply: chooser.apply }) }
+          ]}
+          onClose={() => setChooser(null)}
+        />
+      )}
+      {browse && (
+        <NasBrowser
+          conn={browse.conn}
+          onClose={() => setBrowse(null)}
+          onPick={(p) => {
+            browse.apply(p)
+            setBrowse(null)
+          }}
+        />
+      )}
+      {newConn && (
+        <NasConnModal
+          initial={emptyConn('webdav')}
+          onClose={() => setNewConn(null)}
+          onSaved={(id) => {
+            const c = useNas.getState().conns.find((x) => x.id === id)
+            if (c) setBrowse({ conn: c, apply: newConn.apply })
+          }}
+        />
+      )}
       <div className="settings">
         <div className={`settings-inner ${q.trim() ? 'searching' : ''}`} data-show={q.trim() ? 'search' : cat} ref={innerRef}>
           <h1>설정 · {modeName}</h1>

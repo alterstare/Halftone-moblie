@@ -46,7 +46,7 @@ async function importDownloaded(dir: string, artist?: string | null): Promise<Wo
 // Download a comic series (all chapters, or only `chapterUrls`).
 async function runComicDownload(seriesUrl: string, title: string, chapterUrls?: string[]): Promise<Work[]> {
   const destRoot = normalDestRoot()
-  await ensureStorage()
+  await ensureStorage([destRoot])
   return runDownload(seriesUrl, title, async (signal, report) => {
     // Grab the author from the series page so downloaded chapters carry it.
     const artist = await comicSeriesAuthor(seriesUrl).catch(() => null)

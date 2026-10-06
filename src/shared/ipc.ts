@@ -20,6 +20,10 @@ export interface ComicListSource {
   type: ComicType
   query?: string // free-text search; overrides genre/sort when present
   field?: 'title' | 'author' // which field `query` searches (default title)
+  // Webtoon list only: weekday ('월'…'일', none = all) and platform id (site's
+  // numeric id, none = all).
+  day?: string
+  plat?: string
 }
 // One series card on a manga-site list page.
 export interface ComicSummary {
@@ -41,6 +45,7 @@ export interface ComicListResult {
   page: number
   hasNext: boolean
   genres: string[] // genre chips scraped from the live page (for the filter UI)
+  platforms?: { id: string; name: string }[] // webtoon platform chips (live page)
 }
 
 export const IPC = {
@@ -137,6 +142,22 @@ export const IPC = {
   installUpdate: 'update:install', // renderer -> main: quit and install the downloaded update
   resetApp: 'app:reset' // renderer -> main: wipe settings/library data (+ optionally work folders), relaunch
 } as const
+
+// A NAS connection (WebDAV or SMB). Its folders are paths /nas/<id>/<path>.
+// The password never leaves the native side (hasPassword tells if one is set).
+export interface NasConn {
+  id: string // '' when new
+  name: string
+  type: 'webdav' | 'smb'
+  url: string // WebDAV: http(s)://host:port/base
+  host: string // SMB
+  port: number // SMB (0 = 445)
+  share: string // SMB share name
+  domain: string // SMB (usually empty)
+  user: string
+  insecure: boolean // WebDAV https with a self-signed certificate
+  hasPassword?: boolean
+}
 
 // Auto-update lifecycle surfaced in the activity bar.
 export interface UpdateStatus {
@@ -260,6 +281,14 @@ export interface Api {
   removeManualTag: (workId: string, tag: string) => Promise<Work>
   incrementView: (workId: string) => Promise<Work>
   openInExplorer: (workId: string) => Promise<void>
+  // NAS (WebDAV / SMB) connections + folder browsing.
+  nasList: () => Promise<NasConn[]>
+  nasTest: (conn: NasConn, password: string | null) => Promise<{ ok: boolean; count?: number; error?: string }>
+  nasSave: (conn: NasConn, password: string | null) => Promise<string>
+  nasRemove: (id: string) => Promise<void>
+  listDirs: (path: string) => Promise<string[]>
+  imageCacheInfo: () => Promise<{ bytes: number; files: number }>
+  clearImageCache: () => Promise<void>
   clipboardReadText: () => Promise<string> // for the text-field 붙여넣기 menu
   clipboardWriteText: (text: string) => Promise<void> // 복사 menus (works even when the window isn't focused)
   // Reader 이미지 저장: copy a page image into the phone's Download folder

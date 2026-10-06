@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore, lastReadKey } from '../store'
+import { useStore, useSeriesRoots, lastReadKey } from '../store'
+import { groupSeries, titleKey, isComicCode } from '../util'
 import { getComicChapters } from '../comic'
 import type { ComicChapter } from '../../../shared/ipc'
 import type { OnlineFav } from '../../../shared/types'
@@ -16,13 +17,30 @@ import { useTabState } from './useTabState'
 export default function ComicChapterList(): JSX.Element {
   const comicStatus = useComicStatus()
   const replaceTabOnline = useStore((s) => s.replaceTabOnline)
-  const goHome = useStore((s) => s.goHome)
   const onlineFavs = useStore((s) => s.onlineFavs)
+  const toggleNormalUnifiedFav = useStore((s) => s.toggleNormalUnifiedFav)
+  const works = useStore((s) => s.works)
+  const normalFavSeries = useStore((s) => s.settings.normalFavSeries)
+  const roots = useSeriesRoots()
   const toggleOnlineFav = useStore((s) => s.toggleOnlineFav)
   const setOnlineRank = useStore((s) => s.setOnlineRank)
   const active = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const online = active?.online
   const seriesUrl = online?.seriesUrl
+
+  // Series heart state = what toggleNormalUnifiedFav sees: this series url, any
+  // online favorite of the same title, or a favorited local series of that title.
+  const seriesFav = useMemo(() => {
+    if (!online || !seriesUrl) return false
+    if (onlineFavs[seriesUrl]?.favorite) return true
+    const k = titleKey(online.title)
+    if (!k) return false
+    if (Object.values(onlineFavs).some((f) => f.favorite && isComicCode(f.code) && titleKey(f.title) === k)) return true
+    const favS = normalFavSeries ?? []
+    return groupSeries(works.filter((w) => (w.library ?? 'doujin') === 'normal'), roots).some(
+      (g) => titleKey(g.title) === k && favS.includes(g.key)
+    )
+  }, [online, seriesUrl, onlineFavs, works, normalFavSeries, roots])
 
   // Per-chapter online favorite/rank stored in onlineFavs, keyed by chapter url —
   // gives the online reader the same 평점/즐겨찾기 controls as the local one.
@@ -66,11 +84,29 @@ export default function ComicChapterList(): JSX.Element {
   return (
     <div className="lib-list">
       <div className="lib-list-head">
-        <button className="mini" onClick={goHome}>
-          ← 홈
-        </button>
-        <span className="lib-series-label">
+        <span className="lib-series-label wide">
           <AutoStoriesIcon /> 시리즈 · {chapters.length}화
+          {seriesUrl && online && (
+            <span className="lib-series-actions">
+              {/* Series favorite, unified with a local series of the same title —
+                  same heart as the online browse card. */}
+              <span className="seg" onClick={(e) => e.stopPropagation()}>
+                <span
+                  className={`seg-heart ${seriesFav ? 'on' : ''}`}
+                  title="즐겨찾기"
+                  onClick={() =>
+                    void toggleNormalUnifiedFav({
+                      title: online.title,
+                      url: seriesUrl,
+                      meta: { title: online.title, artist: online.artist, thumbUrl: online.thumb, language: null, pageCount: 0 }
+                    })
+                  }
+                >
+                  <FavoriteIcon filled={seriesFav} />
+                </span>
+              </span>
+            </span>
+          )}
         </span>
       </div>
       <div className="lib-search-row">

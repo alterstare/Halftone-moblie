@@ -7,8 +7,8 @@ android {
         applicationId "com.noth2.mangamanager"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 505
-        versionName "0.5.5"
+        versionCode 506
+        versionName "0.5.6"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -31,6 +31,11 @@ android {
                 keyAlias p['keyAlias']
                 keyPassword p['keyPassword']
             }
+        }
+    }
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/versions/9/OSGI-INF/MANIFEST.MF', 'META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
         }
     }
     buildTypes {
@@ -56,6 +61,9 @@ dependencies {
     implementation project(':capacitor-android')
     implementation "androidx.webkit:webkit:$androidxWebkitVersion"
     implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    // NAS: SMB2/3 client; credentials kept with the Android keystore.
+    implementation "com.hierynomus:smbj:0.13.0"
+    implementation "androidx.security:security-crypto:1.1.0-alpha06"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

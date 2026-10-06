@@ -1,6 +1,8 @@
+import { useRef } from 'react'
 import type { JSX, ReactNode } from 'react'
 import { useStore } from '../store'
 import { useLock } from '../lock'
+import { useSwipeClose } from './libraryTools'
 import { HomeIcon, LanguageIcon, MenuIcon, SettingsIcon, DownloadIcon, FavoriteIcon, AssignmentIcon, HistoryIcon, CompareArrowsIcon } from './icons'
 
 // Left slide-in navigation drawer (☰). Surfaces every screen plus the
@@ -45,6 +47,12 @@ export default function MenuDrawer(): JSX.Element {
   const defaultSort = useStore((s) => s.settings.defaultSort)
 
   const close = (): void => setMenuOpen(false)
+  // Swipe left anywhere on the open menu (drawer or the dimmed side) closes it.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useSwipeClose(rootRef, close, open, {
+    drawer: () => rootRef.current?.querySelector<HTMLElement>('.menu-drawer') ?? null,
+    fade: () => rootRef.current?.querySelector<HTMLElement>('.menu-overlay') ?? null
+  })
   const go = (fn: () => void): void => {
     fn()
     close()
@@ -65,7 +73,7 @@ export default function MenuDrawer(): JSX.Element {
   const onlineClick = (): void => go(goBrowse)
 
   return (
-    <div className={`menu-root ${open ? 'open' : ''}`} aria-hidden={!open}>
+    <div ref={rootRef} className={`menu-root ${open ? 'open' : ''}`} aria-hidden={!open}>
       <div className="menu-overlay" onClick={close} />
       <nav className="menu-drawer">
         <div className="menu-head">

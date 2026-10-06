@@ -49,7 +49,14 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   list rows are unused on the phone.) Folder / 메타 채우기 / 삭제 live in the
   long-press menu (useWorkCard / useSeriesCard). ComicBrowse has no layout
   toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out from a
-  chevron at the chips row's end, genres from a centered 장르 더보기. `ConfirmModal` portals to body (`compact` =
+  chevron at the chips row's end; filters fold into centered "… 더보기" buttons
+  (만화: 장르; 웹툰: 요일 · 장르 · 플랫폼 — `day` / `plat` URL params, platform
+  list scraped from the page's 플랫폼 row, genre chips from the 장르 row).
+  Genres are multi-select (comma-joined `source.genre`; 만화 `g=a,b`, webtoon
+  `tag=<id>,<id>` with ids learned from in-page clicks → `webtoonTags`); day /
+  platform stay single. Chosen filters show as removable `.search-chips` under
+  the dropdowns. (Genre/platform tags on download: postponed — `comicSeriesMeta`
+  scrapes them but nothing uses it yet.) `ConfirmModal` portals to body (`compact` =
   text-only dialog).
   Thumbnails (phone): every cover box uses `--thumb-ratio` (338/480, a typical
   cover, gallery 4224126) and the image fills the box WIDTH (taller → cropped
@@ -67,8 +74,8 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   works by `lastViewedAt` + online works from `onlineHistory` (backend
   `history.json`, recorded in store.openOnline/openComic), newest first.
   Reader (phone): title/bottom bars overlay the pages (`.overlay-bars`), hide
-  on a drag / tap-flip, a tap on the top / bottom 15% or the center 15% column toggles them; no artist in the title bar
-  (online = globe icon; local works get a favorite heart instead of 폴더 열기); bottom bar = slider + ⋮, which (or a swipe up) expands
+  on a drag / tap-flip, a tap toggles them in the center (paged: middle third × middle 40%; scroll: anywhere with 넘김 OFF, the middle third band with 하단 넘김 — bottom third scrolls, top third idle); no artist in the title bar
+  (online = globe icon; local works get a favorite heart instead of 폴더 열기; the heart = that work / chapter); bottom bar = slider + ⋮, which (or a swipe up) expands
   mode · fit · 넘김 (paged: `pagedFlipSide`, scroll: `scrollTapFlip` 하단/OFF).
   Pinch zoom = visual only (`vz` ref in Reader): `.zoom-layer` (scroll: the page
   column; paged/spread: a wrapper) is CSS-scaled from 0,0 and the pane's scroll
@@ -100,6 +107,12 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `data-sel` + checkbox via `useSel`/`SelBox`; Android back ends selection
   (`popBack`).
   Swipe left on 라이브러리 → 온라인, right on 온라인 → 라이브러리 (`useSwipeNav`).
+  The new screen slides in from that side (`swipeSlide` → `.slide-from-*`).
+  The open ☰ menu / reader list drawer follows a leftward drag (`useSwipeClose`:
+  drawer + its toggle move, backdrop fades); past 1/3 of its width or a flick
+  closes it, otherwise it springs back.
+  격자형 cards: cover in a 6px `--bg-1` frame (card background), fixed text rows
+  (title 2 lines, artist 1, meta 1 — rendered even when empty) → equal heights.
   Library side padding 12px; phone hides scrollbars (the desktop 12px custom
   scrollbar took layout room → uneven margins); reader pages 4px each side.
   Online download progress = thin bar on the card's top edge (`.gcard > .gcard-dlbar`).
@@ -109,6 +122,16 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   default 60); `settings.readerSidebar` off hides drawer + toggle. Scroll-mode
   slider follows scroll fractionally (`syncSliderRef`, DOM writes, re-applied
   in a layout effect after each render).
+  Reader chapter navigation (`chNav`: online comic siblings or local series):
+  bottom bar = slider · page · ⋮, then a centered row ‹ 현재 화 (n / total) ›;
+  ⋮ opens mode / fit / 넘김. Scroll mode, touch: pulling 130px past the
+  bottom / top (`trackEdgePull`, hint bubble) → next / previous chapter
+  (`continueRef`; going back sets `startAtBottom` → lands on the last page);
+  paged past the ends does the same.
+  Online comic sidebar head = the local one: full-width 시리즈 · N화 label with
+  the series heart at the right end (`toggleNormalUnifiedFav`), no ← 홈.
+  Favorite / 기록 cards (`OnlineFavCard`) open a comic series by fetching its
+  chapters → last-read (or first) chapter with `seriesUrl` attached.
   Chapter lists (online comic sidebar `ComicChapterList`, local `ChapterRow`):
   every chapter opened before (`readProgress`) gets `.read` = light purple
   tint; the last read keeps `.last-read` (purple outline); open = `.active`.
@@ -116,6 +139,9 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `.mode-switching`).
   Tab strip: new tabs animate in (held 'pre-enter' two frames so the reader's
   mount frame doesn't eat it); tab grid has open/close animations.
+  Popups: no frame, no top icon (`.exit-modal .exit-icon` hidden), left text,
+  flat text action buttons bottom-right (primary purple / danger red); dialog
+  buttons in `.dl-modal` / `.grp-pop` are flat too (mobile.css end).
   `pressGuard.ts`: a press on a control inside a card (tag, +N, star, button)
   marks the card `no-press` so only the control shows press feedback.
   Every CSS `:hover` rule is moved into `@media (hover: hover)` at build time
@@ -130,9 +156,24 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
     folder → real path, file open/save), storage permission (MANAGE_EXTERNAL_STORAGE),
     comic WebView control, toast/exit.
   - `Net.java`: OkHttp. kind `doujin` = DoH (1.1.1.1 by IP) + UA/Referer;
-    `comic` = WebView cookies + UA + site Referer; disk image cache (400MB).
+    `comic` = WebView cookies + UA + site Referer; disk image cache (budget = `settings.imageCacheGB`, default 0.5 GB, set via
+    `setImageCache` from applyNetwork; LRU by mtime, touched on hit, trimmed
+    to 90% in the background every ~16MB written; 0 = no cache). 설정 › 관리 ›
+    이미지 캐시 shows usage + 캐시 비우기.
   - `MMWebViewClient.java`: serves `https://localhost/_mm/{img|web|comic}/<b64url>`
     (local file / doujin image / comic image) — replaces desktop `mangaimg://`.
+  - NAS (WebDAV / SMB): a NAS folder is the path `/nas/<connId>/<rel>`; every
+    fs method (and `httpDownload` / `imageToFile` / the `/_mm/img/` server)
+    goes through `Vfs.java`, which sends those to `WebDavFs` (OkHttp,
+    PROPFIND/GET/PUT/MKCOL/DELETE/MOVE, Basic auth, optional trust-all TLS) or
+    `SmbFs` (smbj). Connections + passwords live in `NasStore`
+    (EncryptedSharedPreferences); JS sees them without passwords
+    (`nasList/nasTest/nasSave/nasRemove`, `listDirs`). Remote reads are cached
+    in the 400MB image cache (`Net.cachedNas`); downloads to a NAS go to a
+    local temp file, then upload. Settings: 폴더 · NAS 연결 list; "+ 폴더 추가"
+    asks 이 기기 / NAS · <name> / + NAS 연결 (`NasDialogs.tsx`, `nas.ts`
+    displayPath). App allows cleartext http (LAN NAS). `ensureStorage(paths)`
+    skips the storage permission when all paths are NAS.
   - `Tunnel.java`: SNI-bypass local CONNECT proxy (desktop green-tunnel
     equivalent: DoH + ClientHello split into 40-byte TLS records). On when
     `settings.bypassTunnel`; comic OkHttp client + every WebView (ProxyController)
@@ -179,9 +220,13 @@ is `doujin` (`DoujinMeta`, `api/doujin.ts`, `isDoujin`…), the general-manga
 source is `comic` (`ComicBrowse`, `comicBaseUrl`, `ComicWeb.java`…). The
 desktop app is being renamed the same way; no more code is ported from it.
 Data saved by ≤0.5.4 is migrated on load
-(`backend/lib/legacyNames.ts`); the only literal site strings left are the
-functional ones (doujin site Referer in Net.java, its host regex and the
-`meta.<site>.json` sidecar name in `lib/doujin.ts`), assembled from parts.
+(`backend/lib/legacyNames.ts`). No site string is in the source at all: names
+the app must recognise are 64-bit FNV-1a fingerprints (`backend/lib/fp.ts`)
+compared against what it sees — the typed doujin address (→ CDN host + the
+site origin, passed as `doujinSite` to `MM.setNetwork` for Net.java's
+Referer/Origin; the CDN 404s without it, so a CDN-only address errors), old
+`meta.<site>.json` sidecars (new ones are `meta.doujin.json`), and pre-0.5.5
+setting keys / values. Compute a fingerprint in a shell, never in a file.
 
 Two library modes:
 

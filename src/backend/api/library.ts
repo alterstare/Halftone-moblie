@@ -2,7 +2,7 @@
 // tags / views), folder operations, session, thumbnails and the exit/reset
 // flow. Mobile port of the desktop main/ipc/library.ts.
 import type { Settings, SessionState, Work } from '../../shared/types'
-import type { Api, CloseDecision } from '../../shared/ipc'
+import type { Api, CloseDecision, NasConn } from '../../shared/ipc'
 import { IPC } from '../../shared/ipc'
 import * as fs from '../node/fs'
 import { join, resolve, sep, basename, dirname } from '../node/path'
@@ -54,7 +54,8 @@ export const libraryApi: Partial<Api> = {
   // ---------- scanning / organizing ----------
 
   scanLibrary: async () => {
-    await ensureStorage()
+    const s = store.settings
+    await ensureStorage([...s.libraryRoots, ...normalRoots(s), s.downloadDir, s.normalDownloadDir])
     const scanned = await scanLibrary(store.settings, {
       onProgress: (n, current) => sendToRenderer(IPC.scanProgress, { scanned: n, total: 0, current, done: false })
     })
@@ -67,7 +68,7 @@ export const libraryApi: Partial<Api> = {
 
   // Rescan just one folder (favorites / a library root / download dir).
   scanFolder: async (root: string) => {
-    await ensureStorage()
+    await ensureStorage([root])
     const merged = store.mergeScanPartial(await scanRoot(root, store.settings))
     await store.flushWorks()
     return merged
@@ -221,6 +222,32 @@ export const libraryApi: Partial<Api> = {
   },
 
   // ---------- clipboard (텍스트 필드 붙여넣기 / 복사 메뉴) ----------
+
+  // ---------- NAS (WebDAV / SMB) ----------
+
+  nasList: async () => (await MM.nasList()).conns,
+  nasTest: async (conn: NasConn, password: string | null) => {
+    try {
+      const r = await MM.nasTest({ conn, password })
+      return { ok: true, count: r.count }
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) }
+    }
+  },
+  nasSave: async (conn: NasConn, password: string | null) => (await MM.nasSave({ conn, password })).id,
+  nasRemove: async (id: string) => {
+    await MM.nasRemove({ id })
+  },
+  imageCacheInfo: () => MM.imageCacheInfo(),
+  clearImageCache: () => MM.clearImageCache(),
+  // Sub-folders of a folder (NAS browser).
+  listDirs: async (path: string) => {
+    const entries = await fs.readdir(path, { withFileTypes: true })
+    return entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !e.name.startsWith('@') && !e.name.startsWith('#'))
+      .map((e) => e.name)
+      .sort((a, b) => a.localeCompare(b))
+  },
 
   clipboardReadText: async () => (await MM.clipboardRead()).text ?? '',
   clipboardWriteText: async (text: string) => {

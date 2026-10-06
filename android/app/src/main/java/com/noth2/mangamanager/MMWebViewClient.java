@@ -54,6 +54,9 @@ final class MMWebViewClient extends BridgeWebViewClient {
             return error(400);
         }
         try {
+            if ("img".equals(kind) && Vfs.isRemote(target)) {
+                return ok(mimeOf(target), new ByteArrayInputStream(Net.cachedNas(target)));
+            }
             if ("img".equals(kind)) {
                 File f = new File(target);
                 if (!f.isFile()) return error(404);

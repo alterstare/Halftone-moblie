@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
+import { ChevronLeftIcon, ChevronRightIcon } from './icons'
 
 interface Props {
   page: number // 0-based
@@ -24,8 +25,8 @@ export default function Pager({ page, lastPage, onPage, small, hasNext }: Props)
 
   return (
     <div className={`pager ${small ? 'sm' : ''}`}>
-      <button className={small ? 'mini' : 'btn'} disabled={page <= 0} onClick={() => onPage(page - 1)}>
-        ←
+      <button className="pager-arrow" disabled={page <= 0} onClick={() => onPage(page - 1)} title="이전 페이지">
+        <ChevronLeftIcon />
       </button>
       <span className="pager-pos">
         <input
@@ -38,11 +39,12 @@ export default function Pager({ page, lastPage, onPage, small, hasNext }: Props)
         {lastPage >= 0 && <span> / {lastPage + 1}</span>}
       </span>
       <button
-        className={small ? 'mini' : 'btn'}
+        className="pager-arrow"
         disabled={lastPage >= 0 ? page >= lastPage : hasNext === false}
         onClick={() => onPage(page + 1)}
+        title="다음 페이지"
       >
-        →
+        <ChevronRightIcon />
       </button>
     </div>
   )

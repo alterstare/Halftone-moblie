@@ -62,7 +62,9 @@ export async function readdir(path: string, o?: { withFileTypes: true }): Promis
   let entries
   try {
     entries = (await MM.fsReaddir({ path })).entries
-  } catch {
+  } catch (e: any) {
+    // NAS errors (login, network) carry their own message; keep it.
+    if (path.startsWith('/nas/') && !/ENOENT/.test(String(e?.message ?? ''))) throw e
     throw enoent(path)
   }
   if (!o?.withFileTypes) return entries.map((e) => e.name)

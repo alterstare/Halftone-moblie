@@ -3,6 +3,7 @@
 import type { JSX, ReactNode } from 'react'
 import SettingRow from '../SettingRow'
 import { useSettings } from './context'
+import { useNas, displayPath, isNasPath } from '../../nas'
 
 // Mutually-exclusive choice rendered as description cards: one card per option
 // with a title, optional badge and a per-option description.
@@ -44,9 +45,11 @@ function FolderButtons({ path, mode }: { path: string; mode: 'doujin' | 'normal'
   const { rescanning, rescan } = useSettings()
   return (
     <>
-      <button className="mini" onClick={() => window.api.openFolder(path)}>
-        열기
-      </button>
+      {!isNasPath(path) && (
+        <button className="mini" onClick={() => window.api.openFolder(path)}>
+          열기
+        </button>
+      )}
       {mode && (
         <button className="mini" disabled={rescanning === path} onClick={() => rescan(path, mode)}>
           {rescanning === path ? '갱신 중…' : '갱신'}
@@ -74,6 +77,7 @@ export function RootList({
   mode: 'doujin' | 'normal'
   addLabel?: string
 }): JSX.Element {
+  const nasConns = useNas((st) => st.conns)
   return (
     <div className="set-block">
       <SettingRow title={title} desc={desc}>
@@ -83,7 +87,7 @@ export function RootList({
       </SettingRow>
       {roots.map((r) => (
         <div className="path-item" key={r}>
-          <code>{r}</code>
+          <code>{displayPath(r, nasConns)}</code>
           <FolderButtons path={r} mode={mode} />
           <button className="mini danger" onClick={() => onRemove(r)}>
             제거
@@ -112,6 +116,7 @@ export function FolderRow({
   onClear?: () => void
   mode: 'doujin' | 'normal' | null
 }): JSX.Element {
+  const nasConns = useNas((st) => st.conns)
   return (
     <div className="set-block">
       <SettingRow title={title} desc={desc}>
@@ -121,7 +126,7 @@ export function FolderRow({
       </SettingRow>
       {path ? (
         <div className="path-item">
-          <code>{path}</code>
+          <code>{displayPath(path, nasConns)}</code>
           <FolderButtons path={path} mode={mode} />
           {onClear && (
             <button className="mini danger" onClick={onClear}>

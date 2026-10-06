@@ -174,6 +174,8 @@ export interface Settings {
   readerSidebar: boolean
   // Check GitHub releases on start and download a newer APK (phone).
   autoUpdate: boolean
+  // Phone: disk cache for online / NAS images, in GB (0 = off).
+  imageCacheGB: number
   listToggleTop: number
   // General-manga online: genres hidden from browse/search results (client-side;
   // the site has no exclude filter). Matched against each card's genre list.
@@ -365,6 +367,7 @@ export const DEFAULT_SETTINGS: Settings = {
   resumeReading: true,
   readerSidebar: true,
   autoUpdate: true,
+  imageCacheGB: 0.5,
   listToggleTop: 60,
   comicExcludeGenres: [],
   shortcuts: {},

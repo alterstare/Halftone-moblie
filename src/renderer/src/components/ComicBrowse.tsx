@@ -67,7 +67,11 @@ export default function ComicBrowse(): JSX.Element {
   const [reloadKey, setReloadKey] = useState(0)
   // Phone: 인증창 / 주소 / 비상용 and the genre list stay folded until asked for.
   const [toolsOpen, setToolsOpen] = useState(false)
-  const [genreOpen, setGenreOpen] = useState(false)
+  // Which filter dropdown is open (만화: 장르; 웹툰: 요일 / 장르 / 플랫폼).
+  const [filterOpen, setFilterOpen] = useState<'day' | 'genre' | 'plat' | null>(null)
+  const [day, setDay] = useState<string>('')
+  const [plat, setPlat] = useState<string>('')
+  const [platforms, setPlatforms] = useState<{ id: string; name: string }[]>([])
   const refreshWaiters = useRef<(() => void)[]>([]) // pull-to-refresh waits for the fetch
   const comicBaseUrl = useStore((s) => s.settings.comicBaseUrl)
   const setSettings = useStore((s) => s.setSettings)
@@ -125,6 +129,7 @@ export default function ComicBrowse(): JSX.Element {
         }
         // Use the genre chips the live page actually offers (per type).
         if (r.genres && r.genres.length) setGenres(['전체', ...r.genres.filter((g) => g !== '전체')])
+        if (r.platforms && r.platforms.length) setPlatforms(r.platforms)
       })
       .catch((e) => alive && setError(String(e?.message ?? e)))
       .finally(() => {
@@ -156,6 +161,8 @@ export default function ComicBrowse(): JSX.Element {
       type,
       query: query.trim() || undefined,
       field,
+      day: day || undefined,
+      plat: plat || undefined,
       ...patch
     }
     setPage(0)
@@ -163,6 +170,16 @@ export default function ComicBrowse(): JSX.Element {
     setSource(next)
   }
   const run = (): void => applySource({})
+  // Genres: several at once (comma-joined in `genre`, '전체' = none).
+  const selGenres = genre === '전체' ? [] : genre.split(',').filter(Boolean)
+  const setSelGenres = (next: string[]): void => {
+    const v = next.length ? next.join(',') : '전체'
+    setGenre(v)
+    applySource({ genre: v })
+  }
+  const toggleGenre = (g: string): void =>
+    setSelGenres(g === '전체' ? [] : selGenres.includes(g) ? selGenres.filter((x) => x !== g) : [...selGenres, g])
+  const genreLabel = selGenres.length > 1 ? `${selGenres[0]} 외 ${selGenres.length - 1}` : (selGenres[0] ?? '')
   // Pressing the 🌐 online button while already here bumps browseTopNonce →
   // return to the initial listing: KEEP type/sort/genre, but CLEAR the search
   // query (and field). First page + scroll top. Skip the initial mount.
@@ -335,7 +352,7 @@ export default function ComicBrowse(): JSX.Element {
   }
 
   return (
-    <div className="browse" ref={rootRef} onClickCapture={sel.capture}>
+    <div className="browse comic-browse" ref={rootRef} onClickCapture={sel.capture}>
       {ptrSpinner}
       {sel.selecting && (
         <SelectBar
@@ -400,7 +417,11 @@ export default function ComicBrowse(): JSX.Element {
               className={`chip ${type === v ? 'active' : ''}`}
               onClick={() => {
                 setType(v)
-                applySource({ type: v })
+                setGenre('전체')
+                setDay('')
+                setPlat('')
+                setFilterOpen(null)
+                applySource({ type: v, genre: '전체', day: undefined, plat: undefined })
               }}
             >
               {l}
@@ -466,23 +487,70 @@ export default function ComicBrowse(): JSX.Element {
           </div>
         )}
 
+        {/* Filters fold into "… 더보기" buttons; one dropdown open at a time.
+            만화: 장르. 웹툰: 요일 · 장르 · 플랫폼. The chosen value shows on the button. */}
         {!favMode && (
-          <button className={`genre-more ${genreOpen ? 'open' : ''}`} onClick={() => setGenreOpen((v) => !v)}>
-            <span>{genreOpen ? '장르 접기' : genre && genre !== '전체' ? `장르 · ${genre}` : '장르 더보기'}</span>
-            <ArrowDownIcon />
-          </button>
+          <div className="flat-group filter-mores">
+            {(type === 'webtoon'
+              ? ([
+                  ['day', '요일', day ? `${day}요일` : ''],
+                  ['genre', '장르', genreLabel],
+                  ['plat', '플랫폼', plat ? (platforms.find((x) => x.id === plat)?.name ?? '') : '']
+                ] as const)
+              : ([['genre', '장르', genreLabel]] as const)
+            ).map(([k, label, val]) => (
+              <button
+                key={k}
+                className={`genre-more ${filterOpen === k ? 'open' : ''} ${val ? 'set' : ''}`}
+                onClick={() => setFilterOpen((o) => (o === k ? null : k))}
+              >
+                <span>{val ? `${label} · ${val}` : `${label} 더보기`}</span>
+                <ArrowDownIcon />
+              </button>
+            ))}
+          </div>
         )}
-        {!favMode && genreOpen && (
+        {!favMode && filterOpen === 'day' && (
+          <div className="genre-chips">
+            {['', '월', '화', '수', '목', '금', '토', '일'].map((d) => (
+              <span
+                key={d || 'all'}
+                className={`tag ${day === d ? 'fav-tag' : ''}`}
+                onClick={() => {
+                  setDay(d)
+                  applySource({ day: d || undefined })
+                }}
+              >
+                {d || '전체'}
+              </span>
+            ))}
+          </div>
+        )}
+        {!favMode && filterOpen === 'plat' && (
+          <div className="genre-chips">
+            {[{ id: '', name: '전체' }, ...platforms].map((pl) => (
+              <span
+                key={pl.id || 'all'}
+                className={`tag ${plat === pl.id ? 'fav-tag' : ''}`}
+                onClick={() => {
+                  setPlat(pl.id)
+                  applySource({ plat: pl.id || undefined })
+                }}
+              >
+                {pl.name}
+              </span>
+            ))}
+            {platforms.length === 0 && <span className="hint">목록을 불러오면 플랫폼이 표시됩니다.</span>}
+          </div>
+        )}
+        {!favMode && filterOpen === 'genre' && (
           <div className="genre-chips">
             {genres.map((g) => (
               <span
                 key={g}
-                className={`tag ${genre === g ? 'fav-tag' : ''} ${excludeGenres.includes(g) ? 'excluded' : ''}`}
-                title={g === '전체' ? undefined : excludeGenres.includes(g) ? '우클릭: 제외 해제' : '클릭: 이 장르만 · 우클릭: 이 장르 제외'}
-                onClick={() => {
-                  setGenre(g)
-                  applySource({ genre: g })
-                }}
+                className={`tag ${(g === '전체' ? !selGenres.length : selGenres.includes(g)) ? 'fav-tag' : ''} ${excludeGenres.includes(g) ? 'excluded' : ''}`}
+                title={g === '전체' ? undefined : excludeGenres.includes(g) ? '우클릭: 제외 해제' : '클릭: 선택 / 해제 (여러 개) · 우클릭: 이 장르 제외'}
+                onClick={() => toggleGenre(g)}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   if (g !== '전체') toggleExclude(g)
@@ -506,6 +574,26 @@ export default function ComicBrowse(): JSX.Element {
                   해제
                 </span>
               </span>
+            )}
+          </div>
+        )}
+        {/* Chosen filters as removable chips (like the doujin search tokens). */}
+        {!favMode && (selGenres.length > 0 || (type === 'webtoon' && (day || plat))) && (
+          <div className="search-chips">
+            {type === 'webtoon' && day && (
+              <button className="chip active search-tok" title="필터에서 제거" onClick={() => (setDay(''), applySource({ day: undefined }))}>
+                {day}요일 ✕
+              </button>
+            )}
+            {selGenres.map((g) => (
+              <button key={g} className="chip active search-tok" title="필터에서 제거" onClick={() => toggleGenre(g)}>
+                {g} ✕
+              </button>
+            ))}
+            {type === 'webtoon' && plat && (
+              <button className="chip active search-tok" title="필터에서 제거" onClick={() => (setPlat(''), applySource({ plat: undefined }))}>
+                {platforms.find((x) => x.id === plat)?.name ?? '플랫폼'} ✕
+              </button>
             )}
           </div>
         )}

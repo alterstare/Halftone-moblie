@@ -282,8 +282,8 @@ async function makeWork(
     /* keep default */
   }
 
-  // Sidecar (SIDECAR, meta.<site>.json) carries doujin metadata so it survives rescans.
-  const meta = await readSidecar(dir)
+  // Sidecar (meta.doujin.json or the older site-named one) carries doujin metadata so it survives rescans.
+  const meta = library === 'doujin' ? await readSidecar(dir) : null
   const tags = [...new Set([...applyGenreRules(dir, settings), ...(meta?.tags ?? [])])]
 
   return {

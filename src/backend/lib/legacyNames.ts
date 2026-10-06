@@ -2,24 +2,31 @@
 // enum values and setting keys. On load they are mapped to the neutral names
 // (doujin / comic) — only enum-like fields and camelCase keys, never titles,
 // artists or tags. Idempotent: already-migrated data passes through unchanged.
-const OLD = ['hito' + 'mi', 'to' + 'ki'] as const
-const NEW: Record<string, string> = { [OLD[0]]: 'doujin', [OLD[1]]: 'comic' }
-const ENUM_KEYS = new Set(['library', 'source', 'mode', 'kind', 'libraryMode', 'startScreen'])
+// The old names are matched by fingerprint (fp.ts), never spelled out.
+import { fp, DOUJIN_NAME_FP, COMIC_NAME_FP } from './fp'
 
-function renameKey(k: string): string {
-  for (const o of OLD) {
-    if (k === o) return NEW[o]
-    if (k.startsWith(o) && /[A-Z]/.test(k[o.length] ?? '')) return NEW[o] + k.slice(o.length)
-  }
-  return k
+const NEW: Record<string, string> = { [DOUJIN_NAME_FP]: 'doujin', [COMIC_NAME_FP]: 'comic' }
+const ENUM_KEYS = new Set(['library', 'source', 'mode', 'kind', 'libraryMode', 'startScreen'])
+const seen = new Map<string, string | undefined>()
+const neutral = (word: string): string | undefined => {
+  if (!seen.has(word)) seen.set(word, NEW[fp(word)])
+  return seen.get(word)
 }
 
+// 'xxx' / 'xxxBaseUrl' → 'doujin' / 'doujinBaseUrl' (lower-case head of a camelCase key).
+function renameKey(k: string): string {
+  const m = /^([a-z]+)(.*)$/.exec(k)
+  if (!m || (m[2] && !/^[A-Z]/.test(m[2]))) return k
+  const n = neutral(m[1])
+  return n ? n + m[2] : k
+}
+
+// 'xxx' / 'xxx-home' (startScreen) → 'doujin' / 'doujin-home'.
 function mapValue(v: string): string {
-  for (const o of OLD) {
-    if (v === o) return NEW[o]
-    if (v.startsWith(o + '-')) return NEW[o] + v.slice(o.length) // startScreen 'xxx-home'
-  }
-  return v
+  const i = v.indexOf('-')
+  const head = i < 0 ? v : v.slice(0, i)
+  const n = /^[a-z]+$/.test(head) ? neutral(head) : undefined
+  return n ? n + v.slice(head.length) : v
 }
 
 export function migrateNames<T>(data: T): T {

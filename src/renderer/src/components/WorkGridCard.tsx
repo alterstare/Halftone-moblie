@@ -45,15 +45,15 @@ export default function WorkGridCard({ work, compact = false }: { work: Work; co
           <Thumb workId={work.id} />
         </div>
         <div className="ctile-title">{work.title}</div>
-        {work.artist && (
-          <div className="ctile-artist">
+        <div className="ctile-artist">
+          {work.artist && (
             <ArtistLinks
               artist={work.artist}
               onPick={(a) => setFilter({ kind: 'artist', value: a })}
               onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
             />
-          </div>
-        )}
+          )}
+        </div>
         <div className="ctile-meta">
           {work.code && (
             <>

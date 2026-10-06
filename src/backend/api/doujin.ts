@@ -226,7 +226,7 @@ export const doujinApi: Partial<Api> = {
     if (!code) throw new Error('코드를 찾을 수 없습니다')
     const destRoot = store.settings.downloadDir ?? store.settings.libraryRoots[0]
     if (!destRoot) throw new Error('다운로드 폴더 또는 라이브러리 폴더를 먼저 설정하세요')
-    await ensureStorage()
+    await ensureStorage([destRoot])
     return runDownload(code, '', async (signal, report) => {
       const { dir, meta } = await downloadGallery(
         code,

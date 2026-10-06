@@ -42,15 +42,15 @@ export default function SeriesGridCard({ series, compact = false }: { series: Se
           <Thumb workId={c.rep?.id ?? ''} />
         </div>
         <div className="ctile-title">{series.title}</div>
-        {c.artist && (
-          <div className="ctile-artist">
+        <div className="ctile-artist">
+          {c.artist && (
             <ArtistLinks
               artist={c.artist}
               onPick={(a) => addSearchToken(tagToken(`artist:${a}`))}
               onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
             />
-          </div>
-        )}
+          )}
+        </div>
         <div className="ctile-meta">전체 {c.chapters.length}화</div>
         <CompactBar fav={heart} action={group} />
         {c.seriesMenu}

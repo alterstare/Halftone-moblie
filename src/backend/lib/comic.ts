@@ -245,6 +245,13 @@ const SORT_PARAM: Record<ComicSort, string> = {
 // search: &page=<n>), so open the exact page directly instead of loading page 1
 // and clicking through genre/sort/pager (that took seconds per call and forced
 // a reload whenever the previous click had changed the URL). 1-based `page`.
+// Webtoon genre name → the site's tag id (learned from the URL after a click).
+const webtoonTags: Record<string, string> = {}
+
+// '전체' / '' → []; 'a,b' → ['a', 'b'].
+const genreList = (g: string | undefined): string[] =>
+  (g ?? '').split(',').map((x) => x.trim()).filter((x) => x && x !== '전체')
+
 function listUrl(base: string, src: ComicListSource, page: number): string {
   const b = base.replace(/\/+$/, '')
   const u = new URL(
@@ -258,8 +265,22 @@ function listUrl(base: string, src: ComicListSource, page: number): string {
     // Section filter: search otherwise mixes in novels and anime.
     u.searchParams.set('kind', src.type === 'webtoon' ? 'webtoon' : 'manhwa')
   } else {
-    if (src.genre && src.genre !== '전체') u.searchParams.set('g', src.genre)
+    // Several genres (comma-joined in src.genre): 만화 = g=a,b; webtoon =
+    // tag=<id>,<id> (g= is ignored there) — ids learned from clicks (webtoonTags);
+    // genres without a known id are clicked in-page.
+    const gs = genreList(src.genre)
+    if (gs.length) {
+      if (src.type !== 'webtoon') u.searchParams.set('g', gs.join(','))
+      else {
+        const ids = gs.map((g) => webtoonTags[g]).filter(Boolean)
+        if (ids.length) u.searchParams.set('tag', ids.join(','))
+      }
+    }
     if (SORT_PARAM[src.sort]) u.searchParams.set('sort', SORT_PARAM[src.sort])
+    if (src.type === 'webtoon') {
+      if (src.day) u.searchParams.set('day', src.day)
+      if (src.plat) u.searchParams.set('plat', src.plat)
+    }
   }
   if (page > 1) u.searchParams.set('page', String(page))
   return u.href
@@ -267,25 +288,53 @@ function listUrl(base: string, src: ComicListSource, page: number): string {
 
 // In-page: apply genre + sort + page (client-side React buttons), then scrape
 // the cards and the available genre chips. Runs async (awaits re-renders).
-function listScript(genre: string, sortLabel: string, page: number): string {
-  const G = JSON.stringify(genre)
+function listScript(genres: string[], sortLabel: string, page: number): string {
+  const G = JSON.stringify(genres)
   const S = JSON.stringify(sortLabel)
   return `(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms))
   const abs = (u) => { try { return new URL(u, location.href).href } catch { return u } }
   const txt = (el) => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
   const chipText = (c) => { const f = c.querySelector('.chip-name-full'); return f ? txt(f) : txt(c) }
+  // Chips of one labelled filter row (장르 / 플랫폼 …); pages with a single
+  // unlabelled row fall back to every chip.
+  const rowChips = (label) => {
+    const row = [...document.querySelectorAll('.filter-row')].find((r) => txt(r.querySelector('.label')) === label)
+    return row ? [...row.querySelectorAll('button.chip')] : null
+  }
+  const genreChips = () =>
+    (rowChips('장르') || [...document.querySelectorAll('.filter .chips button.chip')]).filter((c) => !c.classList.contains('ani-more-toggle-chip'))
   // Wait until the card list re-renders (first card href changes), max ~2.5s,
   // instead of a fixed sleep after every click.
   const cardsSig = () => [...document.querySelectorAll('a.card')].slice(0, 3).map((a) => a.getAttribute('href')).join('|')
   const afterClick = async (before) => {
     for (let i = 0; i < 25; i++) { await sleep(100); if (cardsSig() !== before) { await sleep(150); return } }
   }
-  // genre
-  if (${G} && ${G} !== '전체') {
-    const chips = [...document.querySelectorAll('.filter .chips button.chip, .chips button.chip')]
-    const g = chips.find((c) => chipText(c) === ${G} || (c.title || '').includes(${G}))
-    if (g && !g.classList.contains('active')) { const b = cardsSig(); g.click(); await afterClick(b) }
+  // genres: every wanted chip must end up active (several allowed). Each click
+  // on a webtoon list adds one id to ?tag= → learned[name] = that id.
+  const learned = {}
+  const tagSet = () => new Set((new URLSearchParams(location.search).get('tag') || '').split(',').filter(Boolean))
+  if (${G}.length) {
+    // The filter rows render after the cards on a fresh load — wait for them,
+    // or the click is skipped and the list silently drops the genre.
+    for (let i = 0; i < 40 && genreChips().length < 2; i++) await sleep(100)
+    for (const want of ${G}) {
+      // Server-rendered chips can exist before React has hydrated them (a click
+      // then does nothing) → click, check it took, retry a few times.
+      const find = () => genreChips().find((c) => chipText(c).replace(/^✓\\s*/, '') === want || (c.title || '') === want)
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const g = find()
+        if (!g || g.classList.contains('active')) break
+        const before = tagSet()
+        const b = cardsSig()
+        g.click()
+        await afterClick(b)
+        const added = [...tagSet()].filter((t) => !before.has(t))
+        if (added.length === 1) learned[want] = added[0]
+        if (find() && find().classList.contains('active')) break
+        await sleep(300)
+      }
+    }
   }
   // sort
   if (${S}) {
@@ -359,14 +408,17 @@ function listScript(genre: string, sortLabel: string, page: number): string {
     // Author isn't on the list card (only the series page) → artist stays null.
     seen.add(url); out.push({ url, title, thumb, artist: null, genre, chapter })
   }
-  const genres = [...document.querySelectorAll('.filter .chips button.chip')].map(chipText).filter(Boolean)
+  const genres = genreChips().map(chipText).filter(Boolean)
+  const platforms = (rowChips('플랫폼') || [])
+    .filter((c) => c.dataset.platformId)
+    .map((c) => ({ id: c.dataset.platformId, name: (c.querySelector('img')?.alt || c.getAttribute('aria-label') || c.title || txt(c)).replace(/\\s*(포함|제외).*$/, '') }))
   const vis = nums()
   const maxNum = vis.length ? Math.max(...vis) : 1
   const cur = curPage()
   // More pages beyond the visible window → the "다음 10페이지" button is enabled.
   const nextWin = pager() && pager().querySelector('.pager-btn[aria-label^="다음"]')
   const hasNext = cur < maxNum || (!!nextWin && !nextWin.disabled)
-  return { items: out, hasNext, genres, page: cur }
+  return { items: out, hasNext, genres, platforms, page: cur, learned }
 })()`
 }
 
@@ -469,14 +521,22 @@ export async function comicList(base: string, src: ComicListSource, page: number
     await ensure(listUrl(base, src, page + 1), true)
     // On a search results page there are no genre/sort tabs to drive — passing
     // '전체'/'' skips those in-page clicks (which would otherwise no-op or churn).
-    const r = await evalPage<{ items: ComicListResult['items']; hasNext: boolean; genres: string[]; page?: number }>(
-      listScript(src.query ? '전체' : src.genre, src.query ? '' : SORT_LABEL[src.sort], page + 1),
+    const r = await evalPage<{
+      items: ComicListResult['items']
+      hasNext: boolean
+      genres: string[]
+      platforms?: { id: string; name: string }[]
+      page?: number
+      learned?: Record<string, string>
+    }>(
+      listScript(src.query ? [] : genreList(src.genre), src.query ? '' : SORT_LABEL[src.sort], page + 1),
       { items: [], hasNext: false, genres: [] }
     )
     // r.page = where the site actually landed (a jump past the end stops at the
     // last page) → report it so the UI shows the real page.
+    if (src.type === 'webtoon' && r.learned) Object.assign(webtoonTags, r.learned)
     const landed = r.page && r.page > 0 ? r.page - 1 : page
-    return { items: r.items ?? [], page: landed, hasNext: !!r.hasNext, genres: r.genres ?? [] }
+    return { items: r.items ?? [], page: landed, hasNext: !!r.hasNext, genres: r.genres ?? [], platforms: r.platforms ?? [] }
   })
 }
 
@@ -530,6 +590,26 @@ const TITLE_SCRIPT = `(() => {
   const d = (document.title || '').replace(/\\s*[-|·—][^-|·—]*$/, '').trim()
   return d || null
 })()`
+
+// Series page meta: genre tags (#판타지 …) and the source platform (카카오 …);
+// weekday isn't on the series page. Not used yet — tags on download are
+// postponed (they need a proper home in the series-tag model first).
+const SERIES_META_SCRIPT = `(() => {
+  const txt = (el) => (el ? el.textContent : '').replace(/\\s+/g, ' ').trim()
+  const tags = [...document.querySelectorAll('.hero-v2-tags a, a[href*="field=genre"]')]
+    .map((a) => txt(a).replace(/^#\\s*/, ''))
+    .filter(Boolean)
+  const pl = document.querySelector('.pill-plat')
+  const platform = pl ? (txt(pl) || (pl.querySelector('img') && pl.querySelector('img').alt) || null) : null
+  return { tags: [...new Set(tags)], platform }
+})()`
+
+export async function comicSeriesMeta(seriesUrl: string): Promise<{ tags: string[]; platform: string | null }> {
+  return queue(async () => {
+    await ensure(seriesUrl, true)
+    return evalPage<{ tags: string[]; platform: string | null }>(SERIES_META_SCRIPT, { tags: [], platform: null })
+  })
+}
 
 export async function comicSeriesTitle(seriesUrl: string): Promise<string | null> {
   return queue(async () => {

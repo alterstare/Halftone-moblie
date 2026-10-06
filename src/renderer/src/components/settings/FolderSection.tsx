@@ -2,7 +2,12 @@
 // download folder-name patterns. Also exports the folder rows reused by other
 // sections (download). The favorites folder lives in the 즐겨찾기
 // box (TagSection).
+import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
+import type { NasConn } from '../../../../shared/ipc'
+import { useNas, emptyConn } from '../../nas'
+import { NasConnModal } from '../NasDialogs'
+import ConfirmModal from '../ConfirmModal'
 import { fillNamePattern, SAMPLE_FIELDS } from '../../../../shared/pattern'
 import SettingRow from '../SettingRow'
 import { useSettings } from './context'
@@ -128,6 +133,59 @@ function LanguageDirs(): JSX.Element {
   )
 }
 
+// NAS (WebDAV / SMB) connections. Folders on them are added through the
+// usual "+ 폴더 추가" (it asks: this device or which NAS).
+function NasConnections(): JSX.Element {
+  const conns = useNas((s) => s.conns)
+  const [edit, setEdit] = useState<NasConn | null>(null)
+  const [del, setDel] = useState<NasConn | null>(null)
+  useEffect(() => {
+    void useNas.getState().refresh()
+  }, [])
+  return (
+    <div className="set-block">
+      <SettingRow
+        title="NAS 연결"
+        desc="WebDAV / SMB로 NAS에 연결합니다. 연결한 뒤 폴더 추가에서 NAS 폴더를 고를 수 있습니다. 비밀번호는 기기에 암호화해 저장됩니다."
+      >
+        <button className="mini" onClick={() => setEdit(emptyConn('webdav'))}>
+          + NAS 연결
+        </button>
+      </SettingRow>
+      {conns.map((c) => (
+        <div className="path-item" key={c.id}>
+          <code>
+            {c.name} · {c.type === 'webdav' ? `WebDAV ${c.url}` : `SMB ${c.host}/${c.share}`}
+          </code>
+          <button className="mini" onClick={() => setEdit(c)}>
+            편집
+          </button>
+          <button className="mini danger" onClick={() => setDel(c)}>
+            삭제
+          </button>
+        </div>
+      ))}
+      {conns.length === 0 && <div className="path-item empty">연결된 NAS 없음</div>}
+      {edit && <NasConnModal initial={edit} onClose={() => setEdit(null)} />}
+      {del && (
+        <ConfirmModal
+          compact
+          danger
+          title={`NAS 연결 '${del.name}'을(를) 삭제하시겠습니까?`}
+          desc={<>이 NAS의 폴더는 라이브러리에서 더 이상 읽을 수 없게 됩니다. NAS의 파일은 지워지지 않습니다.</>}
+          confirmLabel="삭제"
+          onConfirm={async () => {
+            await window.api.nasRemove(del.id)
+            await useNas.getState().refresh()
+            setDel(null)
+          }}
+          onCancel={() => setDel(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 export default function FolderSection(): JSX.Element {
   const { draft, patch, isDoujin, pickDir } = useSettings()
   const addTo = (key: 'libraryRoots' | 'normalRoots' | 'flattenRoots') => () =>
@@ -138,6 +196,7 @@ export default function FolderSection(): JSX.Element {
   return (
     <section data-cat="folder">
       <h2>폴더</h2>
+      <NasConnections />
       {isDoujin ? (
         <>
           <RootList

@@ -1,7 +1,7 @@
 {
   "name": "manga-manager-mobile",
-  "version": "0.5.5",
-  "description": "Manga Manager for Android (Capacitor): hitomi / general-manga online reading and downloads",
+  "version": "0.5.6",
+  "description": "Halftone for Android (Capacitor): doujin / general-manga online reading and downloads",
   "author": "noth2",
   "type": "module",
   "scripts": {

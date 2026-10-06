@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import type { OnlineFav } from '../../../shared/types'
-import { useStore } from '../store'
+import { useStore, lastReadKey } from '../store'
 import { getOnlineImages } from '../images'
 import OnlineThumb from './OnlineThumb'
 import Stars from './Stars'
@@ -58,8 +58,31 @@ export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout:
   const open = (): void => {
     setOnlineListFav(true) // opened from a favorites view → reader list shows favorites
     const g = { code: fav.code, title: fav.title, artist: fav.artist }
-    if (isComic) openComic({ ...g, kind: 'comic' })
+    if (isComic) void openComicSeries()
     else openOnline(g)
+  }
+  // Manga-site favorites / 기록 entries are keyed by the series url: open the
+  // last-read chapter (or the first) with the series attached, like the online
+  // browse does — the reader's chapter list, nav and series heart need it.
+  const openComicSeries = async (): Promise<void> => {
+    try {
+      const chapters = await window.api.comicChapters(fav.code)
+      if (chapters.length === 0) return alert('이 작품의 화 목록을 찾지 못했습니다.')
+      const st = useStore.getState()
+      const lastUrl = st.settings.resumeReading !== false ? lastReadKey(st.readProgress, chapters.map((c) => c.url)) : null
+      const ch = chapters.find((c) => c.url === lastUrl) ?? chapters[0]
+      openComic({
+        code: ch.url,
+        title: fav.title,
+        artist: fav.artist,
+        kind: 'comic',
+        seriesUrl: fav.code,
+        chapterLabel: ch.title,
+        thumb: fav.thumbUrl
+      })
+    } catch (e: any) {
+      alert(String(e?.message ?? e))
+    }
   }
   const dl = (): void => {
     if (active) return void stopDownload(fav.code)
@@ -97,14 +120,12 @@ export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout:
           <span className="online-fav-badge">온라인</span>
         </div>
         <div className="ctile-title">{fav.title}</div>
-        {fav.artist && <div className="ctile-artist">{artistLinks(fav.artist)}</div>}
-        {(!isComic || fav.pageCount > 0) && (
-          <div className="ctile-meta">
-            {!isComic && <CopyCode code={fav.code} />}
-            {!isComic && fav.pageCount > 0 && ' · '}
-            {fav.pageCount > 0 && `${fav.pageCount}p`}
-          </div>
-        )}
+        <div className="ctile-artist">{fav.artist && artistLinks(fav.artist)}</div>
+        <div className="ctile-meta">
+          {!isComic && <CopyCode code={fav.code} />}
+          {!isComic && fav.pageCount > 0 && ' · '}
+          {fav.pageCount > 0 && `${fav.pageCount}p`}
+        </div>
         <CompactBar fav={heart} action={dlBtn} />
       </div>
     )

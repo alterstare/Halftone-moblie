@@ -4,7 +4,7 @@ import { useStore } from './store'
 import { isNarrow } from './mobile'
 import ExitModal from './components/ExitModal'
 import MobileTabBar from './components/MobileTabBar'
-import { popBack } from './components/libraryTools'
+import { popBack, swipeSlide, useSwipeClose } from './components/libraryTools'
 import Home from './components/Home'
 import Reader from './components/Reader'
 import SplitReader from './components/SplitReader'
@@ -90,6 +90,17 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const was = prevView.current
     prevView.current = view
+    // A swipe between 라이브러리 ⇄ 온라인: slide instead of the blur.
+    const dir = swipeSlide.dir
+    swipeSlide.dir = null
+    if (dir && was !== view) {
+      const el = bodyRef.current
+      if (!el) return
+      el.classList.remove('mode-switching', 'slide-from-left', 'slide-from-right')
+      void el.offsetWidth
+      el.classList.add(dir === 'left' ? 'slide-from-right' : 'slide-from-left')
+      return
+    }
     // (also when leaving the reader for any other screen)
     if (was === view || (!['reader', 'manage', 'download'].includes(view) && was !== 'reader')) return
     const el = bodyRef.current
@@ -365,6 +376,11 @@ function ReaderSplit(): JSX.Element {
   const activeNormal = activeTab?.mode === 'normal'
   const dragging = useRef(false)
   const paneRef = useRef<HTMLDivElement>(null)
+  // Phone: swipe left on the open list drawer closes it.
+  useSwipeClose(paneRef, () => !useStore.getState().listCollapsed && useStore.getState().toggleListCollapsed(), isNarrow(), {
+    follow: () => [splitRef.current?.querySelector<HTMLElement>(':scope > .divider') ?? null],
+    fade: () => splitRef.current?.querySelector<HTMLElement>(':scope > .list-scrim') ?? null
+  })
   const dragW = useRef(0)
   // General-manga list keeps its own (narrower) width; both stay resizable.
   const paneWidth = activeNormal ? normalListWidth : listWidth

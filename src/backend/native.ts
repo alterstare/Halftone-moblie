@@ -1,3 +1,4 @@
+import type { NasConn } from '../shared/ipc'
 // Binding to the native Capacitor plugin (android/…/MMPlugin.java). Every path
 // is an absolute file-system path.
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core'
@@ -14,6 +15,11 @@ export interface FsEntry {
 export type NetKind = 'doujin' | 'comic' | 'plain'
 
 export interface MMPlugin {
+  // NAS connections (passwords stay native).
+  nasList(): Promise<{ conns: NasConn[] }>
+  nasTest(o: { conn: NasConn; password: string | null }): Promise<{ count: number }>
+  nasSave(o: { conn: NasConn; password: string | null }): Promise<{ id: string }>
+  nasRemove(o: { id: string }): Promise<void>
   // Installed app version (versionName).
   appInfo(): Promise<{ version: string; code: number }>
   // Hand a downloaded APK to the system installer (asks for "unknown apps"
@@ -48,11 +54,13 @@ export interface MMPlugin {
   saveImageToDownloads(o: { src: string; name?: string }): Promise<{ name: string }>
   doh(o: { name: string; type: string }): Promise<{ answers: { type: number; data: string }[] }>
   // tunnel = SNI-bypass proxy (Tunnel.java) for the manga-site traffic.
-  setNetwork(o: { proxy: string; comicBase: string; tunnel: boolean }): Promise<{ tunnelPort: number }>
+  setNetwork(o: { proxy: string; comicBase: string; doujinSite: string; tunnel: boolean }): Promise<{ tunnelPort: number }>
   netReset(): Promise<void>
   clipboardRead(): Promise<{ text: string }>
   clipboardWrite(o: { text: string }): Promise<void>
   clearImageCache(): Promise<void>
+  setImageCache(o: { mb: number }): Promise<void>
+  imageCacheInfo(): Promise<{ bytes: number; files: number }>
 
   pickFolder(): Promise<{ path: string | null }>
   pickFiles(o: { mime?: string; multiple?: boolean; as?: 'text' | 'file' }): Promise<{

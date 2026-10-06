@@ -572,15 +572,15 @@ export default function Browse(): JSX.Element {
               <>
                 <div className="ctile-thumb">{thumb}</div>
                 <div className="ctile-title">{g.title}</div>
-                {g.artists.length > 0 && (
-                  <div className="ctile-artist">
+                <div className="ctile-artist">
+                  {g.artists.length > 0 && (
                     <ArtistLinks
                       artist={g.artists.join(', ')}
                       onPick={(a) => runSearch(a.includes(' ') ? `artist:"${a}"` : `artist:${a}`)}
                       onMenu={(a, e) => openTagMenu(e, tagToken(`artist:${a}`), a)}
                     />
-                  </div>
-                )}
+                  )}
+                </div>
                 <div className="ctile-meta">
                   <CopyCode code={g.code} /> · {g.pageCount}p
                 </div>
