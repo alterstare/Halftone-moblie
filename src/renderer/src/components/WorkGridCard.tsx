@@ -3,173 +3,124 @@ import type { JSX } from 'react'
 import type { Work } from '../../../shared/types'
 import { useStore } from '../store'
 import { allTags, tagToken } from '../util'
-import { invalidateThumb } from '../thumbs'
 import Thumb from './Thumb'
+import { ArtistLinks } from './ArtistLinks'
 import Stars from './Stars'
 import TagList from './TagList'
-import FavGroup from './FavGroup'
-import ContextMenu from './ContextMenu'
+import GroupButton from './GroupButton'
+import MoreClamp from './MoreClamp'
+import TileBar, { CompactBar } from './TileBar'
+import CardMore from './CardMore'
+import { getImages } from '../images'
+import { FavoriteIcon } from './icons'
+import { useWorkCard } from './useWorkCard'
+import { useSel } from './libraryTools'
 
-// Grid tile for the home library (compact, image-forward).
-export default function WorkGridCard({ work }: { work: Work }): JSX.Element {
-  const openTab = useStore((s) => s.openTab)
-  const openTabBackground = useStore((s) => s.openTabBackground)
-  const openGlance = useStore((s) => s.openGlance)
-  const openSplit = useStore((s) => s.openSplit)
-  const startDownload = useStore((s) => s.startDownload)
-  const searchOnline = useStore((s) => s.searchOnline)
-  const addFavoriteTag = useStore((s) => s.addFavoriteTag)
-  const splitOpen = useStore((s) => !!s.tabs.find((t) => t.id === s.activeTabId)?.split)
+// Grid tile for a local work on the home library (phone layout): thumb on the
+// left, text on the right — full title, meta, artist (1 line + 더보기), 5 tag
+// rows (+ 추가 태그 보기) — and a 3-cell bar below: favorite | rating | group.
+// The tile grows with its content (see .gtile in mobile.css). Behavior is
+// shared with the list card via useWorkCard.
+// `compact` = the 2-column 격자형 card: cover on top, title, [code] · artist,
+// 즐겨찾기 | 그룹. Without it this is the 목록형 card (with the 더보기 panel).
+export default function WorkGridCard({ work, compact = false }: { work: Work; compact?: boolean }): JSX.Element {
   const setFilter = useStore((s) => s.setFilter)
   const addSearchToken = useStore((s) => s.addSearchToken)
-  const upsertWork = useStore((s) => s.upsertWork)
   const favoriteTags = useStore((s) => s.settings.favoriteTags)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [crossMenu, setCrossMenu] = useState<{ x: number; y: number; query: string; raw: string } | null>(null)
-  const [adding, setAdding] = useState(false)
-  const [newTag, setNewTag] = useState('')
+  const c = useWorkCard(work)
+  const sel = useSel(work.id)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const heart = (
+    <span className={`seg-heart ${c.isFav ? 'on' : ''}`} title="즐겨찾기" onClick={c.toggleFav}>
+      <FavoriteIcon filled={c.isFav} />
+    </span>
+  )
 
-  const toggleFav = async (e: React.MouseEvent): Promise<void> => {
-    e.stopPropagation()
-    const updated = await window.api.setFavorite(work.id, !work.favorite)
-    invalidateThumb(work.id)
-    upsertWork(updated)
-  }
-
-  const addTag = async (): Promise<void> => {
-    const t = newTag.trim()
-    if (t) upsertWork(await window.api.addManualTag(work.id, t))
-    setNewTag('')
-    setAdding(false)
-  }
-  const removeTag = async (tag: string): Promise<void> => {
-    upsertWork(await window.api.removeManualTag(work.id, tag))
-  }
+  if (compact)
+    return (
+      <div className={`gtile ctile${sel.cls}`} {...c.cardEvents} {...sel.attr}>
+        {sel.box}
+        <div className="ctile-thumb">
+          <Thumb workId={work.id} />
+        </div>
+        <div className="ctile-title">{work.title}</div>
+        <div className="ctile-meta">{[work.code && `[${work.code}]`, work.artist].filter(Boolean).join(' · ')}</div>
+        <CompactBar fav={heart} action={<GroupButton work={work} />} />
+        {c.workMenu}
+        {c.tagMenu}
+      </div>
+    )
 
   return (
-    <div
-      className="gtile"
-      // Capture phase: Alt+click anywhere on the card (incl. the artist/tag area,
-      // whose children stopPropagation) opens Glance before the child handlers run.
-      onClickCapture={(e) => {
-        // Dragging to select/copy text (e.g. the title) must not open a tab.
-        if (window.getSelection()?.toString()) return e.stopPropagation()
-        if (e.altKey) {
-          e.preventDefault()
-          e.stopPropagation()
-          openGlance({ workId: work.id })
-        }
-      }}
-      onClick={() => openTab(work.id)}
-      onMouseDown={(e) => {
-        if (e.button === 1) e.preventDefault() // block middle-click autoscroll
-      }}
-      onAuxClick={(e) => {
-        if (e.button === 1) {
-          e.preventDefault()
-          openTabBackground(work.id)
-        }
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
-      }}
-    >
-      <div className="gtile-thumb">
-        <Thumb workId={work.id} />
-      </div>
-      <div className="gtile-foot" onClick={(e) => e.stopPropagation()}>
-        <Stars rank={work.rank} onChange={async (r) => upsertWork(await window.api.setRank(work.id, r))} />
-        <FavGroup favorite={work.favorite} onToggle={toggleFav} work={work} />
-      </div>
-      <div className="gtile-title selectable">{work.title}</div>
-      <div className="gtile-meta">
-        {work.pageCount}p
-        {work.code && (
-          <>
-            {' · '}
-            <span
-              className="code copyable"
-              onClick={(e) => {
-                e.stopPropagation()
-                navigator.clipboard?.writeText(work.code!)
-              }}
-            >
-              [{work.code}]
-            </span>
-          </>
-        )}
-        {work.language && ` · ${work.language}`}
-      </div>
-      {work.artist && (
-        <div className="gtile-meta gtile-artist">
-          <span
-            className="artist-link"
-            onClick={(e) => {
-              e.stopPropagation()
-              setFilter({ kind: 'artist', value: work.artist! })
-            }}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              setCrossMenu({ x: e.clientX, y: e.clientY, query: tagToken(`artist:${work.artist}`), raw: work.artist! })
-            }}
-          >
-            {work.artist}
-          </span>
+    <div className={`gtile${sel.cls}`} {...c.cardEvents} {...sel.attr}>
+      {sel.box}
+      <div className="tile-body">
+        <div className="gtile-thumb">
+          <Thumb workId={work.id} />
         </div>
-      )}
-      <div className="gtile-tags">
-        <TagList
-          tags={allTags(work)}
-          favoriteTags={favoriteTags}
-          manualTags={work.manualTags}
-          onTagClick={(t) => addSearchToken(tagToken(t))}
-          onTagContext={(t, e) => setCrossMenu({ x: e.clientX, y: e.clientY, query: tagToken(t), raw: t })}
-          onRemove={removeTag}
-          onAddClick={adding ? undefined : () => setAdding(true)}
-          singleLine={false}
-          max={6}
-        />
-        {adding && (
-          <input
-            autoFocus
-            className="tag-input"
-            value={newTag}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setNewTag(e.target.value)}
-            onBlur={addTag}
-            onKeyDown={(e) => e.key === 'Enter' && addTag()}
-            placeholder="태그…"
-          />
-        )}
+        <div className="tile-info">
+          <div className="gtile-title selectable">{work.title}</div>
+          <div className="gtile-meta">
+            {work.pageCount}p
+            {work.code && (
+              <>
+                {' · '}
+                <span
+                  className="code copyable"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigator.clipboard?.writeText(work.code!)
+                  }}
+                >
+                  [{work.code}]
+                </span>
+              </>
+            )}
+            {work.language && ` · ${work.language}`}
+          </div>
+          {work.artist && (
+            <MoreClamp className="gtile-meta gtile-artist">
+              <ArtistLinks
+                artist={work.artist}
+                onPick={(a) => setFilter({ kind: 'artist', value: a })}
+                onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
+              />
+            </MoreClamp>
+          )}
+          <div className="gtile-tags">
+            <TagList
+              tags={allTags(work)}
+              favoriteTags={favoriteTags}
+              manualTags={work.manualTags}
+              onTagClick={(t) => addSearchToken(tagToken(t))}
+              onTagContext={(t, e) => c.openTagMenu(e, tagToken(t), t)}
+              onRemove={c.removeTag}
+              onAddClick={c.adding ? undefined : c.startAddTag}
+              lines={4}
+              fluid
+            />
+            {c.tagInput}
+          </div>
+        </div>
       </div>
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          items={[
-            { label: '새 탭에서 열기', onClick: () => openTab(work.id) },
-            { label: '백그라운드에서 열기', onClick: () => openTabBackground(work.id) },
-            { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(work.id) },
-            ...(work.code && (work.library ?? 'hitomi') === 'hitomi'
-              ? [{ label: '다시 다운로드', onClick: () => startDownload({ kind: 'hitomi' as const, input: work.code! }) }]
-              : [])
-          ]}
-          onClose={() => setMenu(null)}
+      <TileBar
+        fav={heart}
+        rating={<Stars rank={work.rank} onChange={c.setRank} />}
+        action={<GroupButton work={work} />}
+        more={{ open: moreOpen, onToggle: () => setMoreOpen((o) => !o) }}
+      />
+      {moreOpen && (
+        <CardMore
+          getImgs={() => getImages(work.id)}
+          editions={
+            (work.library ?? 'hitomi') === 'hitomi'
+              ? { code: work.code, artist: work.artist, title: work.title, language: work.language }
+              : undefined
+          }
         />
       )}
-      {crossMenu && (
-        <ContextMenu
-          x={crossMenu.x}
-          y={crossMenu.y}
-          items={[
-            { label: '온라인에서 검색', onClick: () => searchOnline(crossMenu.query) },
-            { label: '즐겨찾는 태그로 추가', onClick: () => addFavoriteTag(crossMenu.raw) }
-          ]}
-          onClose={() => setCrossMenu(null)}
-        />
-      )}
+      {c.workMenu}
+      {c.tagMenu}
     </div>
   )
 }

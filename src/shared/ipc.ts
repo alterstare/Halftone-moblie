@@ -1,7 +1,7 @@
 // IPC channel names + the shape of the API exposed to the renderer via preload.
-import type { Work, Settings, SessionState, ParsedName, HitomiMeta, OnlineFav } from './types'
+import type { Work, Settings, SessionState, ParsedName, HitomiMeta, OnlineFav, ScanProgress, ReadProgress, OnlineHistoryEntry } from './types'
 
-export type OnlineSort = 'date' | 'today' | 'week' | 'month' | 'year'
+export type OnlineSort = 'date' | 'today' | 'week' | 'month' | 'year' | 'random'
 
 // Ordering for search results. 'date' = nozomi order (newest first);
 // 'popular' = reorder by site popularity (year).
@@ -11,25 +11,7 @@ export type HitomiListSource =
   | { kind: 'index'; language: string | null; sort?: OnlineSort }
   | { kind: 'search'; query: string; language: string | null; sort?: SearchSort }
 
-// --- General-manga online (toki-family mirror) ---
-// Genre filter chips. '전체' = no filter. The rest are sent as the site's genre
-// tag; live-tune the exact tokens against the real site if they don't match.
-export const TOKI_GENRES = [
-  '전체',
-  '학원',
-  '액션',
-  'SF',
-  '스토리',
-  '판타지',
-  '드라마',
-  '로맨스',
-  '시대',
-  '스포츠',
-  '일상',
-  '성인',
-  '무협'
-] as const
-export type TokiGenre = (typeof TOKI_GENRES)[number]
+// --- General-manga online (manga-site-family mirror) ---
 export type TokiSort = 'date' | 'new' | 'bookmark' | 'view' | 'rating' | 'chapter'
 export type TokiType = 'manga' | 'webtoon'
 export interface TokiListSource {
@@ -39,7 +21,7 @@ export interface TokiListSource {
   query?: string // free-text search; overrides genre/sort when present
   field?: 'title' | 'author' // which field `query` searches (default title)
 }
-// One series card on a toki list page.
+// One series card on a manga-site list page.
 export interface TokiSummary {
   url: string // series page url (unique id)
   title: string
@@ -80,26 +62,32 @@ export const IPC = {
   setCoverHash: 'works:setCoverHash',
   setWorkGroups: 'works:setGroups',
   deleteGroup: 'works:deleteGroup',
+  renameGroup: 'works:renameGroup',
   hitomiFindKorean: 'hitomi:findKorean',
+  hitomiFindEditions: 'hitomi:findEditions',
   exportFavorites: 'fav:export',
   importFavorites: 'fav:import',
-  importFavoriteList: 'fav:importList',
-  removeFavoriteList: 'fav:removeList',
   importOnlineFavList: 'fav:importOnlineList',
   removeOnlineFavList: 'fav:removeOnlineList',
   hitomiSummaries: 'hitomi:summaries',
   preloadOnlineFavLists: 'fav:preloadOnline',
   onlineFavPreloadProgress: 'fav:preloadProgress',
   mergeFavorites: 'fav:merge',
+  exportRatings: 'ratings:export',
+  importRatings: 'ratings:import',
+  mergeRatings: 'ratings:merge',
   getOnlineFavs: 'online:getFavs',
+  getReadProgress: 'progress:get',
+  markRead: 'progress:markRead',
   setOnlineFav: 'online:setFav',
-  exportOnlineFavs: 'online:export',
-  importOnlineFavs: 'online:import',
-  mergeOnlineFavs: 'online:merge',
+  setFavoriteByCode: 'fav:setByCode',
   addManualTag: 'works:addManualTag',
   removeManualTag: 'works:removeManualTag',
   incrementView: 'works:incrementView',
   openInExplorer: 'works:openInExplorer',
+  clipboardReadText: 'app:clipboardReadText',
+  clipboardWriteText: 'app:clipboardWriteText',
+  saveImageToDownloads: 'app:saveImageToDownloads',
   deleteWork: 'works:delete',
   mergeSeries: 'works:mergeSeries',
   renameNormalChapters: 'works:renameNormalChapters',
@@ -133,6 +121,8 @@ export const IPC = {
   tokiScrapeList: 'toki:scrapeList',
   tokiDownloadGeneric: 'toki:downloadGeneric',
   tokiOpenSite: 'toki:openSite',
+  tokiChallenge: 'toki:challenge', // main -> renderer: Cloudflare auth window shown/cleared
+  tokiStatus: 'toki:status', // main -> renderer: what the manga-site scraper is doing (null = idle)
   saveThumb: 'thumb:save',
   getThumb: 'thumb:get',
   pickImage: 'dialog:pickImage',
@@ -142,30 +132,22 @@ export const IPC = {
   requestClose: 'app:requestClose', // main -> renderer: show exit modal
   closeWindow: 'app:closeWindow', // renderer -> main: exit decision
   navBack: 'app:navBack', // main -> renderer: mouse/back-command → go back
-  navForward: 'app:navForward' // main -> renderer: mouse/forward-command → go forward
+  navForward: 'app:navForward', // main -> renderer: mouse/forward-command → go forward
+  updateStatus: 'update:status', // main -> renderer: auto-update progress/state
+  installUpdate: 'update:install', // renderer -> main: quit and install the downloaded update
+  resetApp: 'app:reset' // renderer -> main: wipe settings/library data (+ optionally work folders), relaunch
 } as const
+
+// Auto-update lifecycle surfaced in the activity bar.
+export interface UpdateStatus {
+  state: 'available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number // 0-100 while downloading
+  error?: string
+}
 
 // User's choice in the exit modal.
 export type CloseDecision = 'keep' | 'clear' | 'cancel'
-
-// One detected+translated text region. Coords are in original-image pixels.
-export interface TransBlock {
-  x: number
-  y: number
-  w: number
-  h: number
-  text: string // recognized source text
-  tr: string // Korean translation
-  bg?: string // manual bubble-fill colour override (hex); auto-sampled when unset
-}
-export interface TransResult {
-  ok: boolean
-  w: number // original image width (for scaling the overlay)
-  h: number
-  blocks: TransBlock[]
-  panelText?: string // used when the engine returns text without per-box coords
-  error?: string
-}
 
 export interface HitomiProgress {
   code: string
@@ -209,7 +191,7 @@ export interface Api {
   scanLibrary: () => Promise<Work[]>
   // Rescan a single folder; works get favorite/group inferred from their path.
   scanFolder: (root: string) => Promise<Work[]>
-  onScanProgress: (cb: (p: { scanned: number; total: number; current: string; done: boolean }) => void) => () => void
+  onScanProgress: (cb: (p: ScanProgress) => void) => () => void
   organizeLanguages: () => Promise<Work[]>
   organizeByGenre: () => Promise<{ works: Work[]; moved: number }>
   onOrganizeProgress: (cb: (p: { moved: number; current: string; done: boolean }) => void) => () => void
@@ -225,19 +207,25 @@ export interface Api {
   // Delete a group: drops it from settings, moves its works out of the group
   // folder, and strips the group id from those works. Returns fresh state.
   deleteGroup: (groupId: string) => Promise<{ settings: Settings; works: Work[] }>
+  renameGroup: (groupId: string, name: string) => Promise<{ settings: Settings; works: Work[] }>
   hitomiFindKorean: (payload: {
     code: string | null
     artist: string | null
     title: string
   }) => Promise<GallerySummary[]>           // Korean editions of a work
+  hitomiFindEditions: (payload: {
+    code: string | null
+    artist: string | null
+    title: string
+    language?: string | null
+  }) => Promise<Record<'korean' | 'japanese' | 'english', (GallerySummary & { similar?: boolean })[]>>
+  // Favorites ⇄ Pupil-compatible JSON ({favorites, favorite_tags, ranks}).
+  // Export = every favorited gallery code; import merges (hearts the codes,
+  // syncing downloaded works) and returns how many were already downloaded.
   exportFavorites: () => Promise<{ ok: boolean; count: number; path?: string }>
   importFavorites: () => Promise<{ ok: boolean; matched: number; total: number }>
-  // Import a favorite file as its OWN named list (favlist:<file name> tag) so it
-  // can be browsed separately. Adds the tag to matched local works.
-  importFavoriteList: () => Promise<{ ok: boolean; matched: number; total: number; name: string }>
-  removeFavoriteList: (name: string) => Promise<{ ok: boolean }>
-  // Online favorite lists: import a file as a named online list, remove one, and
-  // fetch gallery summaries for a set of codes (to render the list).
+  // Favorite lists: import a file as a named list of codes, remove one, and
+  // fetch gallery summaries for a set of codes (to render a list).
   importOnlineFavList: () => Promise<{ ok: boolean; name: string; total: number }>
   removeOnlineFavList: (name: string) => Promise<{ ok: boolean }>
   hitomiSummaries: (codes: string[]) => Promise<GallerySummary[]>
@@ -245,20 +233,38 @@ export interface Api {
   onOnlineFavPreload: (cb: (p: { done: number; total: number }) => void) => () => void
   // Merge 2+ favorite files into one new file (union); no library change.
   mergeFavorites: () => Promise<{ ok: boolean; count: number; files: number; path?: string }>
-  // Online (hitomi) favorites + ranks, keyed by gallery code.
+  // Rating files, per library mode (동인지 / 일반 만화 kept separate).
+  exportRatings: (lib: 'hitomi' | 'normal') => Promise<{ ok: boolean; count: number; path?: string }>
+  importRatings: (lib: 'hitomi' | 'normal') => Promise<{ ok: boolean; applied: number; total: number }>
+  mergeRatings: (lib: 'hitomi' | 'normal') => Promise<{ ok: boolean; count: number; files: number; path?: string }>
+  // Online (doujin) favorites + ranks, keyed by gallery code.
   getOnlineFavs: () => Promise<OnlineFav[]>
+  getReadProgress: () => Promise<Record<string, ReadProgress>>
+  // 기록: online works opened in the reader (local works use lastViewedAt).
+  getOnlineHistory: () => Promise<Record<string, OnlineHistoryEntry>>
+  recordOnlineView: (e: Omit<OnlineHistoryEntry, 'at'>) => Promise<OnlineHistoryEntry>
+  markRead: (key: string) => Promise<void>
   setOnlineFav: (
     code: string,
     patch: { favorite?: boolean; rank?: number },
     meta?: Partial<OnlineFav>
   ) => Promise<OnlineFav>
-  exportOnlineFavs: () => Promise<{ ok: boolean; count: number; path?: string }>
-  importOnlineFavs: () => Promise<{ ok: boolean; count: number }>
-  mergeOnlineFavs: () => Promise<{ ok: boolean; count: number; files: number; path?: string }>
+  // Heart / unheart a doujin gallery by code: updates the favorites list and
+  // every local work with that code (moving folders per favoriteMoveToFolder).
+  setFavoriteByCode: (
+    code: string,
+    fav: boolean,
+    meta?: Partial<OnlineFav>
+  ) => Promise<{ fav: OnlineFav; works: Work[] }>
   addManualTag: (workId: string, tag: string) => Promise<Work>
   removeManualTag: (workId: string, tag: string) => Promise<Work>
   incrementView: (workId: string) => Promise<Work>
   openInExplorer: (workId: string) => Promise<void>
+  clipboardReadText: () => Promise<string> // for the text-field 붙여넣기 menu
+  clipboardWriteText: (text: string) => Promise<void> // 복사 menus (works even when the window isn't focused)
+  // Reader 이미지 저장: copy a page image into the phone's Download folder
+  // (shows a toast with the saved name).
+  saveImageToDownloads: (src: string, name?: string) => Promise<void>
   deleteWork: (workId: string) => Promise<void>
   // Merge several general-manga works into one series folder (chapters become
   // subfolders of a single <root>/<title> folder). Returns the moved works.
@@ -266,7 +272,7 @@ export interface Api {
   // Rename general-manga chapter folders in place to the given names (the caller
   // computes "<n>화 <subtitle>" per work). Returns the updated works.
   renameNormalChapters: (items: { id: string; name: string }[]) => Promise<Work[]>
-  // Sweep hitomi-coded works that 404 on hitomi (deleted) into settings.deletedDir.
+  // Sweep doujin-coded works that 404 on doujin (deleted) into settings.deletedDir.
   // Returns a summary + the refreshed works. Progress via onClassifyProgress.
   classifyDeleted: () => Promise<{ moved: number; checked: number; uncertain: number; works: Work[] }>
   onClassifyProgress: (
@@ -279,8 +285,8 @@ export interface Api {
   hitomiEnrich: (workId: string) => Promise<Work>
   hitomiEnrichAll: () => Promise<Work[]>
   hitomiCancelEnrich: () => Promise<void>
-  hitomiDownload: (input: string) => Promise<Work> // input = code or hitomi url
-  // Abort a running/queued download by its progress code (hitomi code, toki
+  hitomiDownload: (input: string) => Promise<Work> // input = code or doujin url
+  // Abort a running/queued download by its progress code (doujin code, manga-site
   // seriesUrl, or "backup:<title>"). No-op if that code isn't downloading.
   downloadStop: (code: string) => Promise<boolean>
   onHitomiProgress: (cb: (p: HitomiProgress) => void) => () => void
@@ -292,7 +298,7 @@ export interface Api {
   replaceAvifWithWebp: (avifPath: string, webpBase64: string) => Promise<void>
   hitomiReadUrls: (code: string) => Promise<string[]>
   hitomiRegenCover: (workId: string, code: string) => Promise<{ ok: boolean; error?: string }>
-  // General-manga online (toki-family). Scraped via a hidden BrowserWindow.
+  // General-manga online (manga-site-family). Scraped via a hidden BrowserWindow.
   tokiList: (source: TokiListSource, page: number) => Promise<TokiListResult>
   tokiChapters: (seriesUrl: string) => Promise<TokiChapter[]>
   tokiReadUrls: (chapterUrl: string) => Promise<string[]> // wrapped image urls
@@ -332,6 +338,16 @@ export interface Api {
   openFolder: (path: string) => Promise<void>
   // Main asks the renderer to show the styled exit modal.
   onRequestClose: (cb: () => void) => () => void
+  // Auto-update state pushed from main (available → downloading → downloaded).
+  onUpdateStatus: (cb: (s: UpdateStatus) => void) => () => void
+  // User clicked "지금 재시작" on the downloaded-update row → quit + install.
+  installUpdate: () => void
+  // Wipe all app data (settings/library/session). deleteWorkFolders also removes
+  // every scanned work's folder from disk. Relaunches the app. Never resolves.
+  resetApp: (deleteWorkFolders: boolean) => Promise<void>
+  // Cloudflare auth window shown (true) / cleared (false) — show a banner.
+  onTokiChallenge: (cb: (active: boolean) => void) => () => void
+  onTokiStatus: (cb: (msg: string | null) => void) => () => void
   // Mouse "back" side button / browser-backward app command → go back.
   onNavBack: (cb: () => void) => () => void
   // Mouse "forward" side button / browser-forward app command → go forward.

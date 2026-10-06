@@ -1,16 +1,27 @@
 import { hasExclusions, filterExcluded, getExcluded } from './exclude'
+import { isTokiCode } from './util'
 
 // Caches the per-work image url list so thumbnails and the reader share one
 // readdir round-trip. Cleared entries reload on demand.
 const cache = new Map<string, Promise<string[]>>()
+// Reverse index (page src → its work and position), filled as lists load, so
+// translation can find a page's previous page and its work's character notes.
+const pageIndex = new Map<string, { workId: string; idx: number; srcs: string[] }>()
 
 export function getImages(workId: string): Promise<string[]> {
   let p = cache.get(workId)
   if (!p) {
-    p = window.api.getWorkImages(workId)
+    p = window.api.getWorkImages(workId).then((srcs) => {
+      srcs.forEach((s, idx) => pageIndex.set(s, { workId, idx, srcs }))
+      return srcs
+    })
     cache.set(workId, p)
   }
   return p
+}
+
+export function pageOf(src: string): { workId: string; idx: number; srcs: string[] } | undefined {
+  return pageIndex.get(src)
 }
 
 export function invalidate(workId: string): void {
@@ -26,14 +37,14 @@ export async function getCover(workId: string): Promise<string | null> {
   return kept[0] ?? imgs[0]
 }
 
-// Online (streamed) gallery image urls, keyed by hitomi code.
+// Online (streamed) gallery image urls, keyed by doujin code.
 const onlineCache = new Map<string, Promise<string[]>>()
 
 export function getOnlineImages(code: string): Promise<string[]> {
   let p = onlineCache.get(code)
   if (!p) {
-    // A toki "code" is the chapter viewer URL (http…); a hitomi code is numeric.
-    p = /^https?:/.test(code) ? window.api.tokiReadUrls(code) : window.api.hitomiReadUrls(code)
+    // A manga-site "code" is the chapter viewer URL (http…); a doujin code is numeric.
+    p = isTokiCode(code) ? window.api.tokiReadUrls(code) : window.api.hitomiReadUrls(code)
     onlineCache.set(code, p)
   }
   return p

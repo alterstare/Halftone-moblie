@@ -1,0 +1,1948 @@
+/* Phone layout overrides on top of the desktop styles.css. The breakpoint
+   matches isNarrow() in mobile.ts. */
+
+/* Touch: no hover-only affordances, no long-press text selection on UI chrome. */
+@media (hover: none) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+}
+
+@media (max-width: 760px) {
+  /* Reader: the list pane floats over the reader as a drawer instead of taking
+     a column; the divider keeps only its toggle button. */
+  .reader-split {
+    position: relative;
+  }
+  .reader-split .list-pane {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 30;
+    max-width: 88vw;
+    box-shadow: 4px 0 18px rgba(0, 0, 0, 0.35);
+  }
+  .reader-split .list-pane.collapsed {
+    box-shadow: none;
+  }
+  .reader-split .divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    /* Rides on the drawer's edge (--pane-w set inline, 0 when closed). */
+    left: min(var(--pane-w, 0px), 88vw);
+    width: 0;
+    z-index: 31;
+    transition: left 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  /* Open drawer: the reader behind is dimmed + blurred, and a touch anywhere
+     on it closes the drawer. Fades with the drawer's slide. */
+  .reader-split .list-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 29;
+    background: rgba(0, 0, 0, 0.18);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .reader-split .list-scrim.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .reader-split .divider .list-toggle {
+    width: 22px;
+    height: 64px;
+  }
+
+  /* Settings category tabs: one scrollable row instead of wrapped words. */
+  .settings-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 9px 12px;
+  }
+
+  /* Settings rows with several buttons: title, description, then the buttons
+     on their own line (wrapping) instead of squeezing the text column. */
+  .set-row.stack {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .set-row.stack .set-ctl {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- Grid cards (phone layout) ----------
+   Cover on the left, text on the right, and a bar along the bottom (rating
+   left; favorite + download/group pill right). Minimum height = cover + bar;
+   the card grows for a long title (never clamped) and up to 5 tag rows (rest
+   behind "+N"). The artist line shows one line (rest behind "+N").
+   Applies to local tiles (.gtile) and online cards (.gcard). */
+.work-grid,
+.browse-grid:not(.list) {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  align-items: start;
+}
+.gtile,
+.browse-grid:not(.list) .gcard {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  content-visibility: visible;
+  contain-intrinsic-size: auto;
+}
+.gtile.series {
+  height: auto;
+}
+.tile-body {
+  display: flex;
+  gap: 12px;
+  padding: 10px 10px 8px;
+  align-items: stretch;
+}
+/* Cover: fixed 112×160, vertically centered when the text column is taller. */
+.tile-body .gtile-thumb,
+.tile-body .gcard-thumb,
+.tile-body .gcard-thumb-wrap {
+  flex: 0 0 112px;
+  width: 112px;
+  height: 160px;
+  align-self: center;
+  border-radius: var(--r4);
+  overflow: hidden;
+  background: var(--bg-3);
+  position: relative;
+}
+.tile-body .gcard-thumb-wrap .gcard-thumb {
+  width: 100%;
+  height: 100%;
+}
+.tile-info {
+  flex: 1;
+  min-width: 0;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Text +2px over the old grid card sizes; full title, no reserved lines. */
+.tile-info .gtile-title,
+.tile-info .gcard-title {
+  flex: none;
+  padding: 0 0 2px;
+  font-size: 15px;
+  display: block;
+  -webkit-line-clamp: unset;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.tile-info .gtile-meta,
+.tile-info .gcard-meta {
+  flex: none;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+  height: auto;
+  line-height: 1.45;
+  white-space: normal;
+  overflow: visible;
+}
+.tile-info .gcard-genre {
+  display: block;
+}
+/* Tags: as many rows as the work has, up to 5 (TagList fluid) — the card grows
+   for them; the rest sits behind the "+N" chip. Height follows the content
+   (the desktop's fixed 5-row box is overridden). */
+.tile-info .gtile-tags,
+.browse-grid:not(.list) .tile-info .gcard-tags {
+  flex: none;
+  height: auto;
+  padding: 6px 0 0;
+  overflow: visible;
+}
+.tile-info .gtile-tags:has(.taglist-grid.expanded),
+.tile-info .gtile-tags:has(.tag-input),
+.browse-grid:not(.list) .tile-info .gcard-tags:has(.taglist-grid.expanded) {
+  flex: none;
+  overflow: visible;
+}
+.tile-info .gtile-tags .tag,
+.tile-info .gcard-tags .tag {
+  font-size: 12px;
+  padding: 1px 7px;
+}
+.tile-info .taglist-grid .mtag {
+  line-height: 22px;
+}
+
+/* Artist: one line, a "+N" chip opens the rest. */
+.more-clamp {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.more-clamp-text {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.more-clamp-text[data-open] {
+  display: block;
+  overflow: visible;
+}
+.more-clamp-text .gcard-artist {
+  display: inline;
+}
+.more-clamp-btn {
+  flex: none;
+  align-self: flex-start;
+  font-size: 12px;
+  line-height: 22px;
+  padding: 0 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Bottom bar: rating on the left (no frame); favorite + download/group on the
+   right as the desktop's framed pill with a divider — buttons ~2px roomier on
+   each side than on the desktop for touch. */
+.tile-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 44px;
+  padding: 0 10px;
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+}
+.tile-rating .stars {
+  font-size: 18px !important;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+.tile-seg .seg-heart,
+.tile-seg .seg-dl,
+.tile-seg .grp-btn {
+  width: 36px;
+  height: 32px;
+}
+.tile-seg .seg-heart {
+  font-size: 20px;
+}
+.tile-seg .seg-dl {
+  font-size: 17px;
+}
+.tile-seg .grp-btn {
+  font-size: 17px;
+  border: none;
+  background: transparent;
+}
+
+/* ---------- Library search row (phone) ----------
+   The box takes the whole row; the clear (×) and the sort icon sit inside its
+   right end. No separate search button — Enter on the keyboard searches. */
+.search-ac.has-trailing .search {
+  padding-right: 80px;
+}
+.search-ac.has-trailing .search-clear {
+  right: 46px;
+}
+.search-trailing {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+}
+.dd-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.dd-icon.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.dd-icon:active {
+  background: var(--accent-soft);
+}
+.dropdown.dd-icon-wrap .dropdown-panel {
+  left: auto;
+  right: 0;
+  min-width: 150px;
+  white-space: nowrap;
+}
+.dropdown.dd-icon-wrap.align-left .dropdown-panel {
+  left: 0;
+  right: auto;
+}
+/* Filter icon (언어 / 제목·작가) inside the box's left end. */
+.search-leading {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+.search-ac.has-leading .search {
+  padding-left: 46px;
+}
+.search-trailing {
+  z-index: 1;
+}
+/* Same corner radius as the other buttons (.btn = --r4). */
+.search-row .search {
+  border-radius: var(--r4);
+}
+
+/* Grid ⇄ list and sort-direction toggles: small circles instead of ovals,
+   with the dividers next to them pulled in (less room taken). */
+.chips .layout-toggle {
+  width: 32px;
+  height: 32px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+/* The sort menu drops over the chips row below — lift the search row above it. */
+.home-head .search-row,
+.browse-head .search-row {
+  position: relative;
+  z-index: 30;
+}
+.dropdown.dd-icon-wrap .dropdown-panel {
+  background: var(--bg-1);
+  z-index: 60;
+}
+
+.chips > .layout-toggle + * {
+  margin-left: 9px;
+}
+.chips > .layout-toggle + *::before {
+  left: -5px;
+}
+
+/* ---------- Touch press feedback ----------
+   Taps are short, so the press veil (box-shadow) used to blink on/off. Fade it
+   in fast while the finger is down and out a little slower after release —
+   quick enough not to feel laggy, soft enough not to flicker. */
+@media (hover: none) {
+  button,
+  .btn,
+  .mini,
+  .chip,
+  .seg-heart,
+  .seg-dl,
+  .grp-btn,
+  .list-toggle,
+  .tab-close,
+  .fav-caret,
+  .dropdown-opt,
+  .menu-item,
+  .menu-mode,
+  .menu-close,
+  .menu-btn,
+  .home-tab,
+  .icon-tab,
+  .dd-icon,
+  .tag,
+  .star {
+    transition:
+      box-shadow 0.22s ease-out,
+      background-color 0.22s ease-out,
+      color 0.18s ease-out,
+      border-color 0.22s ease-out;
+  }
+  button:active,
+  .btn:active,
+  .mini:active,
+  .chip:active,
+  .seg-heart:active,
+  .seg-dl:active,
+  .grp-btn:active,
+  .list-toggle:active,
+  .tab-close:active,
+  .fav-caret:active,
+  .dropdown-opt:active,
+  .menu-item:active,
+  .menu-mode:active,
+  .menu-close:active,
+  .menu-btn:active,
+  .home-tab:active,
+  .icon-tab:active,
+  .dd-icon:active,
+  .tag:active {
+    transition-duration: 0.06s;
+  }
+}
+
+/* ---------- 분류 popup (library) ----------
+   작품 / 언어 / 그룹 분류 together; the popup itself scrolls when it doesn't
+   fit the screen. The + chip sits at the right end of the chips row. */
+.chips > .class-btn {
+  margin-left: auto;
+}
+.chips > .class-btn::before {
+  display: none;
+}
+.chips .class-btn.active {
+  color: #fff;
+}
+.class-modal {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 14px;
+}
+.class-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 16px;
+}
+.class-sec h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+/* No boxes: sections are separated by horizontal divider lines only. */
+.class-modal .cat-panel.inline {
+  position: static;
+  box-shadow: none;
+  white-space: normal;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.class-sec + .class-sec {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.class-modal-head {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+/* Borderless X close button (the app-wide close control). */
+.icon-close {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.class-modal .cat-panel label {
+  min-height: 36px;
+}
+.class-modal .cat-panel.grp-panel {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+}
+
+/* ---------- Phone tab bar (MobileTabBar) ----------
+   ☰ · 라이브러리 · 온라인, then a strip showing ONE tab at a time (swipe to
+   look through; tap to open), then the tab-count button. */
+.mtabbar .mtab-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  height: 34px;
+  align-self: flex-end;
+}
+.mtabbar .mtab-strip::-webkit-scrollbar {
+  display: none;
+}
+.mtab {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always; /* one tab per swipe, even on a fast fling */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  background: var(--bg-2);
+  border-radius: var(--r5) var(--r5) 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+  transition: opacity 0.18s ease-out, background-color 0.18s ease-out;
+}
+.mtab.active {
+  background: var(--bg);
+  color: var(--text);
+}
+.mtab.closing {
+  opacity: 0;
+}
+/* A newly opened tab rises + fades in (held invisible until it starts). */
+@keyframes mtab-in {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+}
+.mtab.pre-enter {
+  opacity: 0;
+  transition: none;
+}
+.mtab.entering {
+  animation: mtab-in 0.26s cubic-bezier(0.2, 0, 0, 1);
+}
+/* Tab-count button: same tab-shaped box as the 라이브러리 / 온라인 buttons. */
+.mtabbar .mtab-count {
+  flex: 0 0 auto;
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+  color: var(--text);
+}
+.mtab-count-box {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border: 2px solid currentColor;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Tab grid (Chrome-mobile tab switcher). */
+.mtswitch {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  animation: mtswitch-in 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+/* Open: fade + the grid settles from slightly zoomed (Chrome-like); close: the
+   reverse, quicker. */
+@keyframes mtswitch-in {
+  from {
+    opacity: 0;
+    scale: 1.04;
+  }
+}
+@keyframes mtswitch-out {
+  to {
+    opacity: 0;
+    scale: 1.04;
+  }
+}
+.mtswitch.closing {
+  pointer-events: none;
+  animation: mtswitch-out 0.17s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.mtswitch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+}
+.mtswitch-grid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+  align-content: start;
+}
+.mtcard {
+  transition: opacity 0.18s ease-out, scale 0.18s ease-out;
+  /* Chrome: the card is a colored frame — title on it, the cover inset. */
+  background: var(--bg-3);
+  border-radius: 16px;
+  padding: 0 6px 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.mtcard-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+/* The open tab: accent frame. */
+.mtcard.active {
+  background: var(--accent);
+}
+.mtcard.active .mtcard-head {
+  color: #fff;
+}
+.mtcard.closing {
+  opacity: 0;
+  scale: 0.9;
+  pointer-events: none;
+}
+.mtcard-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mtcard-close {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  color: inherit;
+}
+.mtcard-img {
+  aspect-ratio: 3 / 4;
+  background: var(--bg-1);
+  border-radius: 11px;
+  position: relative;
+  overflow: hidden;
+}
+.mtcard-img .thumb,
+.mtcard-img .mtcard-thumb {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.mtcard-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ---------- Reader: overlay bars ----------
+   Title bar + bottom bar float over the pages and slide away while reading
+   (scroll / page flip); a tap on the bottom 15% of the pages brings them back.
+   Scroll mode pads the page column by the bars' heights (inline style). */
+.reader-wrap.overlay-bars {
+  position: relative;
+  overflow: hidden;
+}
+.overlay-bars > .reader-head,
+.overlay-bars > .reader-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  transition: translate 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.22s ease-out;
+}
+.overlay-bars > .reader-head {
+  top: 0;
+}
+.overlay-bars > .reader-bottom {
+  bottom: 0;
+  backdrop-filter: blur(6px); /* like the title bar: pages don't show through */
+}
+.overlay-bars.bars-hidden > .reader-head {
+  translate: 0 -100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.overlay-bars.bars-hidden > .reader-bottom {
+  translate: 0 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.overlay-bars > .reader-content {
+  height: 100%;
+  flex: none;
+}
+/* Title gets the whole row (no artist); online = the globe icon. */
+.reader-online {
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  color: var(--text-dim);
+}
+.reader-online .micon {
+  width: 1em;
+  height: 1em;
+}
+/* ⋮ at the bottom bar's right end; the mode / fit / 넘김 row expands below. */
+.reader-bottom .reader-more-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 19px;
+  border-radius: 50%;
+}
+.reader-bottom .page-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.reader-bottom .reader-more-btn.on {
+  color: var(--accent);
+}
+.reader-more {
+  flex: 0 0 100%;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s cubic-bezier(0.2, 0, 0, 1);
+  margin-top: -8px; /* cancel the row gap while collapsed */
+}
+.reader-bottom.more-open .reader-more {
+  grid-template-rows: 1fr;
+  margin-top: 0;
+}
+.reader-more-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+}
+.reader-more .reader-btns {
+  padding-bottom: 4px;
+}
+.flip-btn {
+  flex-shrink: 0;
+}
+
+/* Sidebar search: taller (1.5×) now that it fills the row alone. */
+.lib-search-row .search.sm {
+  height: 42px;
+  font-size: 14px;
+}
+/* Reader pages: the app handles two-finger pinch zoom itself. */
+.reader-content {
+  touch-action: pan-x pan-y;
+}
+
+/* Paged / spread: the page(s) sit in a pane-sized layer that the pinch zoom
+   scales (scroll mode scales the page column itself). */
+.reader-content.paged > .zoom-layer {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* ---------- Sidebar (reader list) cards ----------
+   Same build as the library grid tile: cover (vertically centered) + text,
+   then the rating / 즐겨찾기 · 그룹(다운로드) bar. */
+.lib-item.lib-tile {
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+.lib-tile-body {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+}
+.lib-tile-body .lib-thumb {
+  align-self: center;
+}
+.lib-tile .tile-bar {
+  height: 40px;
+  padding: 0 8px;
+}
+
+/* Every search box: corners concentric with the round icon buttons inside it
+   (fully rounded ends). */
+.search,
+.search.sm,
+.search-row .search,
+.lib-search-row .search.sm {
+  border-radius: 999px;
+}
+.lib-search-row .search-ac.has-trailing > .search.sm {
+  padding-right: 76px;
+}
+.lib-search-row .search-ac.has-trailing .search-clear {
+  right: 44px;
+}
+.lib-search-row .search-trailing {
+  right: 3px;
+}
+
+/* No browser pinch-zoom anywhere (the reader's pages zoom in JS instead). */
+html,
+body {
+  touch-action: pan-x pan-y;
+}
+
+/* ---------- Long-press menus: centered popup ----------
+   Dimmed backdrop (touch outside closes), rows divided by lines, no frames on
+   the rows; submenus expand in place (indented). */
+.ctx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fade-in 0.14s ease-out;
+}
+.ctx-overlay.closing {
+  animation: fade-out 0.15s ease-in forwards;
+}
+.ctx-menu.centered {
+  position: static;
+  width: min(320px, 100%);
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 4px 0;
+  border: none;
+  border-radius: 16px;
+  background: var(--bg-1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  animation: modal-in 0.16s cubic-bezier(0.2, 0, 0, 1);
+}
+.ctx-menu.centered .ctx-item {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 20px;
+  font-size: 15px;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  white-space: normal;
+  text-align: left;
+}
+.ctx-menu.centered .ctx-item + .ctx-item,
+.ctx-menu.centered .ctx-inline-sub,
+.ctx-menu.centered .ctx-inline-sub + .ctx-item {
+  border-top: 1px solid var(--line);
+}
+.ctx-menu.centered .ctx-item.has-sub {
+  justify-content: space-between;
+}
+.ctx-menu.centered .ctx-item.has-sub.open {
+  color: var(--accent);
+}
+.ctx-menu.centered .ctx-inline-sub {
+  background: var(--bg-2);
+}
+.ctx-menu.centered .ctx-inline-sub .ctx-item {
+  padding-left: 36px;
+  font-size: 14px;
+  min-height: 44px;
+}
+.ctx-menu.centered .ctx-item:active:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* Reader title: long-press opens the copy popup (no text selection), and a
+   long-press on a page never starts the system image / selection UI. */
+.reader-head h2,
+.reader-content img {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  cursor: default;
+}
+
+/* Touch: long-press opens the item's popup menu (which has 제목 복사), so
+   selectable titles don't start a text selection on a phone. */
+.selectable {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* ---------- Library tools: pull to refresh ----------
+   While pulling / settling, every child of the list slides down by --ptr; the
+   spinner rides above the search box and turns with the pull, then spins
+   while the refresh runs. */
+.ptr-host {
+  position: relative;
+  overscroll-behavior-y: contain;
+}
+.ptr-host.ptr-on > :not(.ptr-spin),
+.ptr-host.ptr-anim > :not(.ptr-spin) {
+  transform: translateY(var(--ptr, 0px));
+}
+.ptr-host.ptr-anim > :not(.ptr-spin) {
+  transition: transform 0.26s cubic-bezier(0.2, 0, 0, 1);
+}
+.ptr-spin {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 38px;
+  height: 38px;
+  margin-left: -19px;
+  border-radius: 50%;
+  background: var(--bg-1);
+  color: var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  z-index: 5;
+  opacity: var(--ptr-p, 0);
+  transform: translateY(calc(var(--ptr, 0px) - 46px)) rotate(calc(var(--ptr-p, 0) * 300deg));
+}
+.ptr-host.ptr-on > .ptr-spin,
+.ptr-host.ptr-anim > .ptr-spin {
+  display: flex;
+}
+.ptr-host.ptr-anim > .ptr-spin {
+  transition: transform 0.26s cubic-bezier(0.2, 0, 0, 1), opacity 0.26s;
+}
+.ptr-host.ptr-busy > .ptr-spin .micon {
+  animation: convert-spin 0.8s linear infinite;
+}
+
+/* ---------- Library tools: floating + ---------- */
+.fab-wrap {
+  position: fixed;
+  right: 18px;
+  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  transition: translate 0.22s cubic-bezier(0.2, 0, 0, 1), opacity 0.22s;
+}
+.fab-wrap.fab-hidden {
+  translate: 0 140%;
+  opacity: 0;
+  pointer-events: none;
+}
+.fab {
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 28px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+.fab .micon {
+  transition: rotate 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.fab.open .micon {
+  rotate: 45deg;
+}
+.fab:active {
+  filter: brightness(0.9);
+}
+.fab-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 119;
+}
+/* Drop-up menu: rises from the button; rows divided by a line, no frames. */
+.fab-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  background: var(--bg-1);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  transform-origin: bottom right;
+  opacity: 0;
+  translate: 0 12px;
+  scale: 0.96;
+  pointer-events: none;
+  transition: opacity 0.18s, translate 0.18s cubic-bezier(0.2, 0, 0, 1), scale 0.18s cubic-bezier(0.2, 0, 0, 1);
+}
+.fab-menu.open {
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  pointer-events: auto;
+}
+.fab-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 18px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+}
+.fab-item + .fab-item {
+  border-top: 1px solid var(--line);
+}
+.fab-item .micon {
+  font-size: 20px;
+  color: var(--text-dim);
+}
+.fab-item:active {
+  background: var(--accent-soft);
+}
+
+/* ---------- Library tools: 작품 선택 ---------- */
+/* Bar fixed flush to the bottom edge (over the activity bar), sliding up. */
+.sel-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding: 0 10px env(safe-area-inset-bottom, 0px);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.08);
+  animation: sel-bar-in 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes sel-bar-in {
+  from {
+    translate: 0 100%;
+  }
+}
+body.has-sel-bar .home,
+body.has-sel-bar .browse {
+  padding-bottom: 96px;
+}
+.sel-count {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+.sel-bar .flat-group {
+  display: flex;
+  align-items: center;
+}
+.sel-btn {
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 22px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.sel-btn:disabled {
+  opacity: 0.35;
+}
+.sel-btn:active:not(:disabled) {
+  color: var(--accent);
+}
+/* Cards while selecting: a checkbox at the top-left, filled when picked; the
+   picked card gets the purple outline. */
+.sel-mode {
+  position: relative;
+}
+.sel-box {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 3;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--text-dim);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  pointer-events: none;
+}
+.sel-box.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.sel-mode.sel-on {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+/* Activity bar showing at the bottom → the + sits above it. */
+body:has(.activity) .fab-wrap {
+  bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Compact confirm (e.g. 작품 일괄 삭제): text only, small text buttons at the
+   bottom right — 삭제 in red, 취소 plain. */
+.exit-modal.compact {
+  text-align: left;
+  padding: 22px 22px 12px;
+}
+.exit-modal.compact .exit-title {
+  font-size: 16px;
+  line-height: 1.5;
+}
+/* Break at word / 어절 boundaries; only an over-long name wraps anywhere. */
+.exit-modal.compact .exit-title,
+.exit-modal.compact .exit-desc {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.exit-modal.compact .exit-desc {
+  margin-bottom: 12px;
+}
+.exit-modal.compact .exit-actions {
+  justify-content: flex-end;
+  gap: 4px;
+}
+.exit-modal.compact .exit-btn {
+  flex: none;
+  height: auto;
+  min-height: 0;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.exit-modal.compact .exit-btn.danger {
+  color: var(--danger);
+}
+.exit-modal.compact .exit-btn:active {
+  background: var(--bg-3);
+}
+
+/* ---------- 격자형: 2-column compact cards ----------
+   Cover on top (3:4), title (2 lines), [code] · artist (1 line), then a bar
+   split in two halves: 즐겨찾기 | 다운로드(그룹). */
+.work-grid.compact-grid,
+.browse-grid.compact-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ctile {
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  padding: 0;
+  overflow: hidden;
+}
+.ctile-thumb {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+.ctile-thumb > *,
+.ctile-thumb .thumb,
+.ctile-thumb .gcard-thumb,
+.ctile-thumb .gtile-thumb-inner {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  border-radius: 0;
+}
+.ctile-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ctile-title {
+  margin: 8px 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.ctile-meta {
+  margin: 3px 10px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctile-bar {
+  margin-top: auto;
+  display: flex;
+  height: 40px;
+  border-top: 1px solid var(--line);
+}
+.ctile-half {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ctile-half + .ctile-half {
+  border-left: 1px solid var(--line);
+}
+.ctile-half > * {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+}
+.ctile-half .seg-heart {
+  font-size: 20px;
+}
+.ctile-half .seg-dl,
+.ctile-half .grp-btn {
+  font-size: 18px;
+}
+.ctile .sel-box {
+  top: 6px;
+  left: 6px;
+}
+
+/* ---------- 목록형: 더보기 ---------- */
+.tile-bar {
+  position: relative;
+}
+.tile-more {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 8px 0 12px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tile-more .micon {
+  font-size: 18px;
+  transition: rotate 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.tile-more.open {
+  color: var(--accent);
+}
+.tile-more.open .micon {
+  rotate: 180deg;
+}
+.tile-more:active {
+  background: var(--accent-soft);
+}
+.card-more {
+  border-top: 1px solid var(--line);
+  padding: 10px 10px 8px;
+  cursor: default;
+  animation: pop-in 0.16s ease-out;
+}
+.card-more-ed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 40px;
+  margin-bottom: 10px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+.card-more-ed .micon {
+  font-size: 18px;
+  color: var(--text-dim);
+}
+.card-more-ed.on,
+.card-more-ed.on .micon {
+  color: var(--accent);
+}
+.card-more .editions-panel.inline {
+  margin: 0 0 10px;
+}
+/* 3×3 preview pages, swiped sideways one page (9) at a time. */
+.card-more-strip {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.card-more-strip::-webkit-scrollbar {
+  display: none;
+}
+.card-more-page {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  gap: 6px;
+  align-content: start;
+  min-height: 1px;
+}
+.card-more-cell {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-3);
+}
+.card-more-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.card-more-num {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+}
+.card-more-pos,
+.card-more-msg {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ctile-half .grp-btn {
+  width: 100%;
+  height: 100%;
+  border: none !important;
+  border-radius: 0;
+  background: transparent !important;
+}
+.ctile-half .grp-wrap,
+.ctile-half > span {
+  width: 100%;
+  height: 100%;
+}
+/* 1px side padding: a neighbour page's sub-pixel sliver shows blank, not image. */
+.card-more-page {
+  padding: 0 1px;
+  box-sizing: border-box;
+}
+
+/* 삭제 confirm: the work name at most 2 lines (…), the question below it. */
+.exit-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 다른 언어 작품 (phone): three narrow columns of cover + 즐겨찾기 | 다운로드. */
+.card-more .editions-panel.inline {
+  padding: 10px 8px;
+}
+.editions-panel .editions-cols {
+  gap: 8px;
+}
+.editions-panel .editions-col {
+  min-width: 0;
+}
+.editions-panel .editions-head {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.editions-panel .editions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: none;
+  overflow: visible;
+}
+.edition-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-1);
+}
+.edition-card-thumb {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  background: var(--bg-3);
+  cursor: pointer;
+}
+.edition-card-thumb img,
+.edition-card-thumb .thumb-ph {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.edition-card .ctile-bar {
+  height: 34px;
+}
+.edition-card .ctile-half .seg-heart {
+  font-size: 17px;
+}
+.edition-card .ctile-half .seg-dl {
+  font-size: 15px;
+}
+.edition-card .seg-dl.busy {
+  opacity: 0.4;
+}
+
+/* Thumbnails everywhere: fit (whole cover, letterboxed) instead of fill. */
+.lib-thumb img,
+.split-pick-thumb img,
+.edition-thumb img,
+.mtcard-img img,
+.ctile-thumb img,
+.card-more-cell img,
+.edition-card-thumb img {
+  object-fit: contain;
+}
+
+/* Two-button bars (격자형 card, 다른 언어 작품): the divider between the halves
+   is a short line that stops short of the bar's top / bottom edges. */
+.ctile-half + .ctile-half {
+  border-left: none;
+  position: relative;
+}
+.ctile-half + .ctile-half::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 25%;
+  bottom: 25%;
+  width: 1px;
+  background: var(--line);
+}
+
+/* 일반 만화 온라인: site tools behind a chevron at the chips row's right end,
+   genres behind a centered 장르 더보기. */
+.chips .tools-toggle {
+  margin-left: auto;
+}
+.tools-toggle .micon,
+.genre-more .micon {
+  transition: rotate 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.tools-toggle.open .micon,
+.genre-more.open .micon {
+  rotate: 180deg;
+}
+.toki-tools {
+  margin-top: -4px;
+  animation: pop-in 0.14s ease-out;
+}
+.genre-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin: 2px auto 6px;
+  height: 32px;
+  padding: 0 10px 0 14px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+}
+.genre-more .micon {
+  font-size: 18px;
+}
+.genre-more.open {
+  color: var(--accent);
+}
+.genre-more:active {
+  background: var(--accent-soft);
+}
+.genre-more + .genre-chips {
+  animation: pop-in 0.14s ease-out;
+}
+
+/* ---------- 관리 (phone): default flat style ----------
+   No frames on buttons / groups / cards: buttons are text with dividers,
+   groups are separated by a line, cards sit two per row. */
+.manage {
+  padding: 14px 16px 60px;
+}
+.manage-head {
+  margin-bottom: 8px;
+}
+.chips.manage-tabs {
+  flex-wrap: nowrap;
+  overflow: hidden; /* all four fit — no sideways scroll */
+  justify-content: space-between;
+}
+.chips.manage-tabs::-webkit-scrollbar {
+  display: none;
+}
+.chips.manage-tabs .chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.manage .hint {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.manage-actions.flat-group {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  margin: 8px 0 14px;
+}
+.manage .btn,
+.manage .mini {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--text);
+  padding: 6px 8px;
+  height: auto;
+  font-weight: 600;
+}
+.manage .btn.primary,
+.manage .mini.primary {
+  color: var(--accent);
+}
+.manage .btn.danger,
+.manage .mini.danger {
+  color: var(--danger);
+}
+.manage .btn:disabled,
+.manage .mini:disabled {
+  opacity: 0.4;
+}
+.manage .btn:active:not(:disabled),
+.manage .mini:active:not(:disabled) {
+  background: var(--accent-soft) !important;
+}
+.dup-group {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 0;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+.dup-group-head {
+  font-weight: 600;
+}
+.dup-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.dup-row .trans-arrow {
+  display: none;
+}
+.manage-card {
+  width: auto;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.manage-card.sel {
+  box-shadow: none;
+}
+.manage-card.sel .manage-thumb {
+  box-shadow: 0 0 0 2px var(--danger);
+}
+.manage-thumb {
+  height: auto;
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  background: var(--bg-3);
+}
+.manage-check {
+  top: 8px;
+  left: 8px;
+}
+.manage-badge {
+  top: 8px;
+  right: 8px;
+}
+.manage-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 8px 0 2px;
+}
+.manage-card-meta {
+  font-size: 12px;
+}
+.manage-card-actions.flat-group {
+  display: flex;
+  flex-wrap: nowrap;
+}
+.manage-card-actions .mini {
+  padding: 4px 4px;
+  font-size: 12px;
+}
+
+/* ---------- 작업 목록 (phone): the list only ----------
+   Full width; head = title + flat icon buttons; rows separated by lines. */
+.download {
+  display: block;
+}
+.download .dl-list {
+  width: 100%;
+  max-width: none;
+  border: none;
+  background: transparent;
+  height: 100%;
+  overflow-y: auto;
+  padding: 14px 16px 60px;
+}
+.dl-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.dl-head-btn,
+.dl-row-btn {
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.dl-head-btn:disabled {
+  opacity: 0.35;
+}
+.dl-head-btn:active:not(:disabled),
+.dl-row-btn:active {
+  color: var(--accent);
+}
+.dl-head-btn .seg-ico,
+.dl-row-btn .seg-ico {
+  width: 1em;
+  height: 1em;
+}
+.download .dl-item {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 0;
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+.download .dl-item-actions {
+  display: flex;
+  margin-left: auto;
+}
+.dl-row-btn {
+  width: 34px;
+  height: 30px;
+  font-size: 17px;
+}
+.manage .empty {
+  border: none;
+  background: transparent;
+  padding: 24px 0;
+}
+.chips.manage-tabs .chip {
+  padding: 0 8px;
+  font-size: 13.5px;
+}
+/* Tighter dividers between the tabs. */
+.chips.manage-tabs > * + * {
+  margin-left: 9px;
+}
+.chips.manage-tabs > * + *::before {
+  left: -5px;
+}
+/* The count hint after the action buttons goes on its own line. */
+.manage-actions.flat-group > .hint {
+  flex-basis: 100%;
+  margin-left: 8px !important;
+}
+.manage-actions.flat-group > .hint::before {
+  display: none;
+}
+
+/* ---------- Standard thumbnail ----------
+   Every cover box uses one ratio — that of a typical cover (338 × 480, e.g.
+   gallery 4224126) — and the image always fills the box's WIDTH: a taller
+   cover is cropped a little at the top / bottom, a wider one is letterboxed
+   top / bottom. Never empty space at the sides. */
+:root {
+  --thumb-ratio: 338 / 480;
+}
+.ctile-thumb,
+.mtcard-img,
+.card-more-cell,
+.edition-card-thumb,
+.manage-thumb {
+  aspect-ratio: var(--thumb-ratio);
+  height: auto;
+}
+.tile-body .gtile-thumb,
+.tile-body .gcard-thumb,
+.tile-body .gcard-thumb-wrap {
+  height: auto;
+  aspect-ratio: var(--thumb-ratio);
+}
+.lib-thumb,
+.lib-thumb .thumb {
+  height: auto !important;
+  aspect-ratio: var(--thumb-ratio);
+}
+:is(.ctile-thumb, .gtile-thumb, .gcard-thumb, .gcard-thumb-wrap, .lib-thumb, .mtcard-img, .card-more-cell, .edition-card-thumb, .manage-thumb) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+:is(.ctile-thumb, .gtile-thumb, .gcard-thumb-wrap, .lib-thumb, .mtcard-img, .manage-thumb) :is(.thumb, .gcard-thumb, .gtile-thumb-inner) {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+:is(.ctile-thumb, .gtile-thumb, .gcard-thumb, .gcard-thumb-wrap, .lib-thumb, .mtcard-img, .card-more-cell, .edition-card-thumb, .manage-thumb) img {
+  width: 100% !important;
+  height: auto !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: fill !important;
+  flex: none;
+}
+
+/* Touch-friendly text: number, artist and tags 1.25× the earlier phone sizes;
+   tags show up to 4 rows (TagList lines={4}) before "+N". */
+.tile-info .gtile-meta,
+.tile-info .gcard-meta {
+  font-size: 16px;
+}
+.tile-info .gtile-tags .tag,
+.tile-info .gcard-tags .tag {
+  font-size: 15px;
+  padding: 1px 9px;
+}
+.tile-info .taglist-grid .mtag {
+  line-height: 28px;
+}
+.more-clamp-btn {
+  font-size: 15px;
+  line-height: 28px;
+  padding: 0 9px;
+}
+.ctile-meta {
+  font-size: 15px;
+}
+.lib-item-meta {
+  font-size: 14px;
+}
+.lib-chips .chip-mini {
+  font-size: 12.5px;
+  padding: 1px 9px;
+}
+/* Tags (and the +N / + 태그 chips) size to the larger text — the desktop's
+   fixed 24px box made the 28px rows overlap. */
+.tile-info .gtile-tags .tag,
+.tile-info .gcard-tags .tag {
+  height: auto !important;
+  line-height: 28px;
+}
+
+/* Press on a control inside a card: only the control reacts (pressGuard.ts
+   marks the card), e.g. the tags' "+N" chip. */
+.no-press:active,
+.no-press {
+  filter: none !important;
+}
+.tag.add-tag:active,
+.more-clamp-btn:active {
+  filter: var(--press-filter);
+  background: var(--accent-soft);
+}
+
+/* Local library: the heart sat ~0.8px lower than the group (+) icon. */
+.tile-seg:has(.grp-btn) .seg-heart,
+.ctile-bar:has(.grp-btn) .seg-heart {
+  translate: 0 -0.8px;
+}
+
+/* The + wrapper (and the folded menu inside it) must not swallow touches on
+   the list behind it — only the button and the open menu take input. */
+.fab-wrap {
+  pointer-events: none;
+}
+.fab-wrap .fab,
+.fab-wrap .fab-menu.open {
+  pointer-events: auto;
+}
+.fab-wrap.fab-hidden .fab {
+  pointer-events: none;
+}
+
+/* ---------- Reader page slider (phone) ----------
+   Own track: grey base, light-purple bands for online pages already loaded,
+   purple progress up to the thumb; the native range only draws the thumb. */
+:root {
+  --page-loaded: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+.page-slider-wrap {
+  position: relative;
+  flex: 1 1 140px;
+  min-width: 120px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+}
+.page-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  overflow: hidden;
+  pointer-events: none;
+}
+.page-loaded,
+.page-progress {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+.page-loaded {
+  right: 0;
+}
+.page-progress {
+  background: var(--accent);
+  border-radius: 4px;
+}
+.page-slider-wrap .page-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  background: transparent;
+}
+.page-slider-wrap .page-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  background: transparent;
+  border: none;
+}
+.page-slider-wrap .page-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -7px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* Reader head: local works get the favorite heart (red when on). */
+.reader-head-btns .reader-fav {
+  font-size: 20px;
+}
+.reader-head-btns .reader-fav.on {
+  color: var(--danger);
+}

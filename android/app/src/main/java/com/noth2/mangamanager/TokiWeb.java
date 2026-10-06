@@ -1,0 +1,278 @@
+package com.noth2.mangamanager;
+
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
+import com.getcapacitor.JSObject;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+// The toki scraper: a second WebView that lives BEHIND the app's WebView (so it
+// lays out and runs scripts like a real, visible page), brought to the front
+// when the user has to clear a Cloudflare check or browse a backup site by
+// hand. Mobile counterpart of the desktop hidden BrowserWindow (lib/toki.ts).
+//
+// JS (backend/toki.ts) drives it: load(url) → poll eval(probe) → eval(scrape).
+final class TokiWeb {
+    interface Listener {
+        void onVisible(boolean visible);
+    }
+
+    // Main-world script run before the site's own: hide automation tells and stub
+    // WebRTC (STUN probes), same as the desktop preload/toki.ts.
+    private static final String DOC_START =
+        "try{Object.defineProperty(navigator,'webdriver',{get:()=>false})}catch(e){}" +
+        "try{class F{createDataChannel(){return null}createOffer(){return Promise.reject(new Error('disabled'))}" +
+        "setLocalDescription(){return Promise.resolve()}addEventListener(){}close(){}}" +
+        "window.RTCPeerConnection=F;window.webkitRTCPeerConnection=F}catch(e){}";
+
+    private final Activity act;
+    private final ViewGroup root;
+    private final Listener listener;
+    private final Handler ui = new Handler(Looper.getMainLooper());
+
+    private LinearLayout container;
+    private WebView web;
+    private TextView titleView;
+    private boolean visible;
+
+    // Navigation state, read by JS through state().
+    private volatile int navSeq;
+    private volatile boolean committed;
+    private volatile int errorCode;
+    private volatile String errorDesc = "";
+    private volatile String currentUrl = "";
+
+    private final Map<String, Callback> pending = new ConcurrentHashMap<>();
+
+    interface Callback {
+        void done(String json);
+    }
+
+    TokiWeb(Activity act, ViewGroup root, Listener listener) {
+        this.act = act;
+        this.root = root;
+        this.listener = listener;
+    }
+
+    @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
+    private void ensure() {
+        if (web != null) return;
+        container = new LinearLayout(act);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setBackgroundColor(Color.WHITE);
+
+        LinearLayout bar = new LinearLayout(act);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackgroundColor(Color.parseColor("#1e222c"));
+        int pad = dp(8);
+        bar.setPadding(dp(14), pad, pad, pad);
+        titleView = new TextView(act);
+        titleView.setTextColor(Color.WHITE);
+        titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        titleView.setSingleLine(true);
+        bar.addView(titleView, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // Borderless × (app-wide close control: no outline, no text label).
+        TextView close = new TextView(act);
+        close.setText("✕");
+        close.setTextColor(Color.WHITE);
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        close.setGravity(Gravity.CENTER);
+        close.setMinWidth(dp(44));
+        close.setMinHeight(dp(40));
+        close.setContentDescription("닫기");
+        close.setOnClickListener(v -> hide());
+        bar.addView(close, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        container.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        web = new WebView(act);
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(true);
+        s.setDisplayZoomControls(false);
+        // Plain mobile Chrome UA (drop the WebView "; wv" marker some sites block).
+        String ua = s.getUserAgentString().replace("; wv)", ")");
+        s.setUserAgentString(ua);
+        Net.tokiUA = ua;
+        CookieManager cm = CookieManager.getInstance();
+        cm.setAcceptCookie(true);
+        cm.setAcceptThirdPartyCookies(web, true);
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(web, DOC_START, Collections.singleton("*"));
+        }
+        web.addJavascriptInterface(new Bridge(), "MMToki");
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                currentUrl = url;
+            }
+
+            @Override
+            public void onPageCommitVisible(WebView view, String url) {
+                committed = true;
+                currentUrl = url;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                committed = true;
+                currentUrl = url;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
+                if (!req.isForMainFrame()) return;
+                errorCode = err.getErrorCode();
+                errorDesc = String.valueOf(err.getDescription());
+                committed = true;
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
+                String scheme = req.getUrl().getScheme();
+                // Keep http(s) navigation inside; drop intent:/market: etc. (ads).
+                return scheme == null || !(scheme.equals("http") || scheme.equals("https"));
+            }
+        });
+        // Behind the app's WebView: index 0 = drawn first = covered.
+        // Edge-to-edge: keep the bar and page clear of the status / navigation bars.
+        ViewCompat.setOnApplyWindowInsetsListener(container, (v, insets) -> {
+            Insets b = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(b.left, b.top, b.right, b.bottom);
+            return insets;
+        });
+        root.addView(container, 0, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        container.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        applyImageBlock();
+    }
+
+    // Hidden: skip images (the scraper only reads attributes); visible: normal page.
+    private void applyImageBlock() {
+        if (web != null) web.getSettings().setBlockNetworkImage(!visible);
+    }
+
+    private int dp(int v) {
+        return Math.round(v * act.getResources().getDisplayMetrics().density);
+    }
+
+    // ---- API (any thread) ----------------------------------------------------
+
+    // Start navigating; returns the navigation id. Progress is read via state().
+    int load(String url) {
+        final int seq = ++navSeq;
+        committed = false;
+        errorCode = 0;
+        errorDesc = "";
+        ui.post(() -> {
+            ensure();
+            web.loadUrl(url);
+        });
+        return seq;
+    }
+
+    JSObject state() {
+        JSObject o = new JSObject();
+        o.put("nav", navSeq);
+        o.put("committed", committed);
+        o.put("errorCode", errorCode);
+        o.put("errorDesc", errorDesc);
+        o.put("url", currentUrl);
+        o.put("visible", visible);
+        return o;
+    }
+
+    // Evaluate an expression (may be a Promise) in the page; cb gets the JSON
+    // {ok, v} / {ok:false, e}. The caller enforces its own timeout.
+    void eval(String expr, Callback cb) {
+        String id = UUID.randomUUID().toString();
+        pending.put(id, cb);
+        String js = "(async()=>{let r;try{r={ok:true,v:await (" + expr + ")}}catch(e){r={ok:false,e:String(e)}}" +
+            "try{MMToki.done('" + id + "',JSON.stringify(r===undefined?null:r))}catch(e){}})();void 0";
+        ui.post(() -> {
+            ensure();
+            web.evaluateJavascript(js, null);
+        });
+    }
+
+    void cancel(String id) {
+        pending.remove(id);
+    }
+
+    String currentUrl() {
+        return currentUrl;
+    }
+
+    void show(String title) {
+        ui.post(() -> {
+            ensure();
+            titleView.setText(title == null || title.isEmpty() ? "일반 만화 온라인" : title);
+            if (!visible) {
+                visible = true;
+                applyImageBlock();
+                container.bringToFront();
+                listener.onVisible(true);
+            }
+        });
+    }
+
+    void hide() {
+        ui.post(() -> {
+            if (!visible || container == null) return;
+            visible = false;
+            applyImageBlock();
+            root.removeView(container);
+            root.addView(container, 0);
+            listener.onVisible(false);
+        });
+    }
+
+    boolean isVisible() {
+        return visible;
+    }
+
+    // Back button while visible: page history first, then close the overlay.
+    boolean back() {
+        if (!visible) return false;
+        if (web != null && web.canGoBack()) web.goBack();
+        else hide();
+        return true;
+    }
+
+    private final class Bridge {
+        @JavascriptInterface
+        public void done(String id, String json) {
+            Callback cb = pending.remove(id);
+            if (cb != null) cb.done(json);
+        }
+    }
+}

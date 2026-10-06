@@ -1,18 +1,25 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
-import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, favListNames, matchesFavList, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, type SeriesGroup } from '../util'
-import type { SortMode } from '../../../shared/types'
+import { useStore, useSeriesRoots } from '../store'
+import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isTokiCode, sortSeries } from '../util'
+import type { SortMode, OnlineFav } from '../../../shared/types'
+import type { Filter } from '../store'
 import { langCategory, LANG_CAT_LABELS, type LangCat } from '../../../shared/lang'
 import Caret from './Caret'
+import { GridIcon, MenuIcon, FavoriteIcon, AddIcon, CloseIcon, SortIcon, DeleteIcon } from './icons'
+import { useSelection, SelectionProvider, SelectBar, usePullRefresh, LibraryFab } from './libraryTools'
 import Dropdown from './Dropdown'
-import WorkCard from './WorkCard'
 import WorkGridCard from './WorkGridCard'
-import SeriesCard from './SeriesCard'
 import SeriesGridCard from './SeriesGridCard'
+import OnlineFavCard from './OnlineFavCard'
+import FavDlToggle, { FavSortSelect } from './FavDlToggle'
 import TagSearchInput from './TagSearchInput'
 import Pager from './Pager'
-import ConfirmModal from './ConfirmModal'
+import ConfirmModal, { DelTitle } from './ConfirmModal'
+import { mergeFavorites, type FavEntry } from '../favorites'
+import GroupName from './GroupName'
+import { useLock } from '../lock'
+import { getFavSummary, useFavSummaries } from '../favSummaries'
 
 export default function Home(): JSX.Element {
   const works = useStore((s) => s.works)
@@ -31,6 +38,13 @@ export default function Home(): JSX.Element {
   const reshuffle = useStore((s) => s.reshuffle)
   const homeLayout = useStore((s) => s.homeLayout)
   const setHomeLayout = useStore((s) => s.setHomeLayout)
+  const onlineFavs = useStore((s) => s.onlineFavs)
+  // 기록 view: the library screen listing only what was viewed (local works by
+  // lastViewedAt + online works from the history), newest first.
+  const history = useStore((s) => s.view === 'history')
+  const onlineHistory = useStore((s) => s.onlineHistory)
+  const favDownloadedOnly = useStore((s) => s.favDownloadedOnly)
+  const setFavDownloadedOnly = useStore((s) => s.setFavDownloadedOnly)
   const popularRanks = useStore((s) => s.popularRanks)
   const setPopularRanks = useStore((s) => s.setPopularRanks)
   const showCoded = useStore((s) => s.showCoded)
@@ -95,6 +109,8 @@ export default function Home(): JSX.Element {
   // Only one classification panel (작품/언어/그룹 분류) open at a time — opening
   // one collapses whichever was open.
   const [openPanel, setOpenPanel] = useState<'cat' | 'lang' | 'group' | 'fav' | null>(null)
+  // 분류 popup (작품 / 언어 / 그룹 분류 together), opened by the + chip.
+  const [classOpen, setClassOpen] = useState(false)
   const togglePanel = (p: 'cat' | 'lang' | 'group' | 'fav'): void =>
     setOpenPanel((cur) => (cur === p ? null : p))
   // Favorite lists the user has UNchecked in the drawer (all checked by default).
@@ -104,6 +120,11 @@ export default function Home(): JSX.Element {
   const favSort = useStore((s) => s.favSort)
   const setFavSort = useStore((s) => s.setFavSort)
   const [newGroup, setNewGroup] = useState('')
+  const submitNewGroup = async (): Promise<void> => {
+    if (!newGroup.trim()) return
+    await createGroup(newGroup)
+    setNewGroup('')
+  }
   const [loadingPopular, setLoadingPopular] = useState(false)
 
   // Load site popularity ranks the first time the user sorts by 인기순.
@@ -139,7 +160,7 @@ export default function Home(): JSX.Element {
     })
   }, [])
 
-  // Only the current library's works (hitomi vs general manga).
+  // Only the current library's works (doujin vs general manga).
   const modeWorks = useMemo(
     () => works.filter((w) => (w.library ?? 'hitomi') === libraryMode),
     [works, libraryMode]
@@ -174,10 +195,22 @@ export default function Home(): JSX.Element {
   )
 
   const favActive = filter.kind === 'favorites' || filter.kind === 'favlists'
+  // General-manga: online (manga-site) favorites by normalized title — a local series
+  // with the same title is the same favorite (one unified list).
+  const onlineNormalFavKeys = useMemo(
+    () =>
+      new Set(
+        Object.values(onlineFavs)
+          .filter((f) => f.favorite && isTokiCode(f.code))
+          .map((f) => titleKey(f.title))
+          .filter(Boolean)
+      ),
+    [onlineFavs]
+  )
   const list = useMemo(() => {
     // In the favorites view, the dedicated 평점/최근 sort overrides the main sort.
     const effSort = favActive ? (favSort === 'rank' ? 'rank' : 'recent') : sort
-    const base = selectWorks(
+    let base = selectWorks(
       categoryWorks,
       search,
       filter,
@@ -186,19 +219,28 @@ export default function Home(): JSX.Element {
       settings.ignoreBracketTagsInSort,
       popularRanks ?? undefined
     )
+    // Unified favorites: also include downloaded works that are ONLINE favorites
+    // even if they were never hearted locally (so a fav is a fav everywhere).
+    if (favActive && filter.kind === 'favorites') {
+      const onlineCodes = new Set(
+        Object.values(onlineFavs)
+          .filter((f) => f.favorite && !isTokiCode(f.code))
+          .map((f) => f.code)
+      )
+      const have = new Set(base.map((w) => w.id))
+      const extra = categoryWorks.filter((w) => w.code && onlineCodes.has(w.code) && !have.has(w.id))
+      if (extra.length) base = [...base, ...extra]
+    }
     if (favActive || sortDir !== 'asc') return base
     const r = [...base].reverse()
     // Keep artist-less works last regardless of direction.
     if (sort === 'artist') return [...r.filter((w) => w.artist?.trim()), ...r.filter((w) => !w.artist?.trim())]
     return r
-  }, [categoryWorks, search, filter, favActive, favSort, sort, sortDir, seed, settings.ignoreBracketTagsInSort, popularRanks])
+  }, [categoryWorks, search, filter, favActive, favSort, sort, sortDir, seed, settings.ignoreBracketTagsInSort, popularRanks, onlineFavs])
 
   // Normal mode: collapse chapters into one entry per series.
   const normal = libraryMode === 'normal'
-  const normalRoots = useMemo(
-    () => [...(settings.normalRoots ?? []), settings.normalFavoritesDir].filter(Boolean) as string[],
-    [settings.normalRoots, settings.normalFavoritesDir]
-  )
+  const normalRoots = useSeriesRoots()
   // Whole-mode series count (ignores the fav filter) for the 전체 chip.
   const seriesTotal = useMemo(
     () => (normal ? groupSeries(modeWorks, normalRoots).length : 0),
@@ -218,7 +260,7 @@ export default function Home(): JSX.Element {
     if (favActive) {
       const favS = settings.normalFavSeries ?? []
       const favC = settings.normalFavChapters ?? []
-      const favGroups = arr.filter((s) => favS.includes(s.key))
+      const favGroups = arr.filter((s) => favS.includes(s.key) || onlineNormalFavKeys.has(titleKey(s.title)))
       const covered = new Set(favGroups.flatMap((s) => s.chapters.map((c) => c.id)))
       const chapEntries: SeriesGroup[] = []
       for (const s of arr) {
@@ -236,37 +278,7 @@ export default function Home(): JSX.Element {
       }
       arr = [...favGroups, ...chapEntries]
     }
-    const recentOf = (s: (typeof arr)[number]): number => Math.max(...s.chapters.map((c) => c.mtime))
-    const viewedOf = (s: (typeof arr)[number]): number =>
-      Math.max(0, ...s.chapters.map((c) => c.lastViewedAt ?? 0))
-    const sumViews = (s: (typeof arr)[number]): number => s.chapters.reduce((n, c) => n + c.viewCount, 0)
-    const maxRank = (s: (typeof arr)[number]): number => Math.max(0, ...s.chapters.map((c) => c.rank))
-    if (sort === 'recent') arr = [...arr].sort((a, b) => recentOf(b) - recentOf(a))
-    else if (sort === 'viewed') arr = [...arr].sort((a, b) => viewedOf(b) - viewedOf(a))
-    else if (sort === 'title')
-      arr = [...arr].sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }))
-    else if (sort === 'views') arr = [...arr].sort((a, b) => sumViews(b) - sumViews(a))
-    else if (sort === 'rank') arr = [...arr].sort((a, b) => maxRank(b) - maxRank(a))
-    else if (sort === 'artist') {
-      const artistOf = (s: (typeof arr)[number]): string => s.chapters.find((c) => c.artist)?.artist?.trim() ?? ''
-      arr = [...arr].sort((a, b) => {
-        const ka = artistOf(a)
-        const kb = artistOf(b)
-        if (!ka && !kb) return a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' })
-        if (!ka) return 1
-        if (!kb) return -1
-        return ka.localeCompare(kb, undefined, { numeric: true, sensitivity: 'base' })
-      })
-    }
-    // random / popular → natural order
-    if (sortDir === 'asc') {
-      arr = [...arr].reverse()
-      if (sort === 'artist') {
-        const has = (s: (typeof arr)[number]): boolean => !!s.chapters.find((c) => c.artist)?.artist?.trim()
-        arr = [...arr.filter(has), ...arr.filter((s) => !has(s))]
-      }
-    }
-    return arr
+    return sortSeries(arr, sort, sortDir)
   }, [
     normal,
     categoryWorks,
@@ -277,12 +289,97 @@ export default function Home(): JSX.Element {
     sortDir,
     settings.normalChapterScheme,
     settings.normalFavSeries,
-    settings.normalFavChapters
+    settings.normalFavChapters,
+    onlineNormalFavKeys
   ])
+
+  // Title keys of every local general-manga series, to drop online (manga-site)
+  // favorites that are already downloaded.
+  const localSeriesKeys = useMemo(
+    () => (normal ? new Set(groupSeries(modeWorks, normalRoots).map((g) => titleKey(g.title))) : new Set<string>()),
+    [normal, modeWorks, normalRoots]
+  )
+  // Unified favorites view: online favorites NOT in the library show as online
+  // cards next to the local ones ("다운로드한 것만" toggle hides them). Per mode:
+  // doujin = numeric codes, general manga = manga-site urls (matched by title).
+  const onlineOnlyFavs = useMemo(() => {
+    if (!favActive || favDownloadedOnly) return []
+    // Only with 기본 (the hearts) checked — imported lists show downloaded works only.
+    if (filter.kind === 'favlists' && !filter.value.includes(FAV_BASE)) return []
+    const libCodes = new Set(works.map((w) => w.code).filter(Boolean) as string[])
+    return Object.values(onlineFavs)
+      .filter(
+        (f) =>
+          f.favorite &&
+          isTokiCode(f.code) === normal &&
+          !libCodes.has(f.code) &&
+          !(normal && localSeriesKeys.has(titleKey(f.title)))
+      )
+      .sort((a, b) => (favSort === 'rank' ? b.rank - a.rank || b.addedAt - a.addedAt : b.addedAt - a.addedAt))
+  }, [favActive, favDownloadedOnly, filter, onlineFavs, works, normal, favSort, localSeriesKeys])
+  // One merged favorites list (local works / series + online-only), sorted
+  // together by favorite time (최근 추가순) or rating (평점 높은순), then paged.
+  const favMerged = useMemo(
+    () =>
+      favActive
+        ? mergeFavorites({ normal, works: list, series: seriesList, onlineOnly: onlineOnlyFavs, onlineFavs, normalFavAt: settings.normalFavAt ?? {}, sort: favSort })
+        : null,
+    [favActive, normal, list, seriesList, onlineOnlyFavs, onlineFavs, favSort, settings.normalFavAt]
+  )
+
+  // Doujin online history entries without a stored cover → fetch their summaries.
+  const sumVer = useFavSummaries(
+    history && !normal ? Object.values(onlineHistory).filter((e) => e.kind === 'hitomi' && !e.thumbUrl).map((e) => e.key) : []
+  )
+  // 기록: viewed local works / series + online history entries (not in the
+  // library), one list newest-first. Search / filters narrow the local part
+  // like the library; online entries follow the 즐겨찾기 filter and plain-word
+  // search on title / artist.
+  const historyMerged = useMemo<FavEntry[] | null>(() => {
+    if (!history) return null
+    const out: FavEntry[] = []
+    if (!normal) {
+      for (const w of list) if (w.lastViewedAt) out.push({ kind: 'local', work: w, t: w.lastViewedAt, r: w.rank })
+    } else {
+      for (const sg of seriesList) {
+        const t = Math.max(0, ...sg.chapters.map((c) => c.lastViewedAt ?? 0))
+        if (t) out.push({ kind: 'series', series: sg, t, r: Math.max(0, ...sg.chapters.map((c) => c.rank)) })
+      }
+    }
+    const libCodes = new Set(works.map((w) => w.code).filter(Boolean) as string[])
+    const words = search
+      .toLowerCase()
+      .split(/[\s,]+/)
+      .filter((w) => w && !w.includes(':'))
+    for (const e of Object.values(onlineHistory)) {
+      if ((e.kind === 'toki') !== normal) continue
+      if (normal ? localSeriesKeys.has(titleKey(e.title)) : libCodes.has(e.code)) continue
+      const f = onlineFavs[e.key]
+      if (filter.kind === 'favorites' && !f?.favorite) continue
+      if (filter.kind !== 'all' && filter.kind !== 'favorites') continue
+      const hay = `${e.title} ${e.artist ?? ''}`.toLowerCase()
+      if (words.some((w) => !hay.includes(w))) continue
+      const fav: OnlineFav = {
+        code: e.key,
+        favorite: !!f?.favorite,
+        rank: f?.rank ?? 0,
+        title: e.title,
+        artist: e.artist,
+        language: e.language,
+        pageCount: e.pageCount,
+        thumbUrl: e.thumbUrl ?? getFavSummary(e.key)?.thumbUrl ?? null,
+        addedAt: e.at
+      }
+      out.push({ kind: 'online', fav, t: e.at, r: fav.rank })
+    }
+    out.sort((a, b) => b.t - a.t)
+    return out
+  }, [history, normal, list, seriesList, works, search, onlineHistory, onlineFavs, filter, localSeriesKeys, sumVer])
+  const merged = historyMerged ?? favMerged
 
   const pageSize = settings.pageSize || 50
   const [page, setPage] = useState(() => useStore.getState().homePage)
-  const total = normal ? seriesList.length : list.length
+  const total = merged ? merged.length : normal ? seriesList.length : list.length
   const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1)
   // Persist the current page so returning to home restores it (with the scroll).
   useEffect(() => useStore.getState().setHomePage(page), [page])
@@ -308,7 +405,7 @@ export default function Home(): JSX.Element {
   // never on mount/remount, and never when works count changes (delete/scan), so
   // the scroll+page stay put. Keyed on the filter signature; a ref guards the
   // first run and StrictMode's double-invoke, both of which see an unchanged key.
-  const resetKey = JSON.stringify([search, filter, sort, seed, libraryMode])
+  const resetKey = JSON.stringify([search, filter, sort, seed, libraryMode, history])
   const prevKey = useRef<string | null>(null)
   useEffect(() => {
     if (prevKey.current === null || prevKey.current === resetKey) {
@@ -324,82 +421,174 @@ export default function Home(): JSX.Element {
   useEffect(() => {
     if (page > lastPage) setPage(lastPage)
   }, [lastPage, page])
-  const pageItems = useMemo(
-    () => list.slice(page * pageSize, page * pageSize + pageSize),
-    [list, page, pageSize]
-  )
-  const pageSeries = useMemo(
-    () => seriesList.slice(page * pageSize, page * pageSize + pageSize),
-    [seriesList, page, pageSize]
-  )
+  // The current page as card entries: the merged favorites list, or plain
+  // series (general manga) / works (doujin).
+  const pageEntries = useMemo<FavEntry[]>(() => {
+    const at = page * pageSize
+    if (merged) return merged.slice(at, at + pageSize)
+    if (normal) return seriesList.slice(at, at + pageSize).map((series) => ({ kind: 'series', series, t: 0, r: 0 }))
+    return list.slice(at, at + pageSize).map((work) => ({ kind: 'local', work, t: 0, r: 0 }))
+  }, [merged, normal, seriesList, list, page, pageSize])
 
-  const artistCount = useMemo(
-    () => new Set(modeWorks.map((w) => w.artist).filter(Boolean)).size,
-    [modeWorks]
+  // Favorites drawer: 기본 (the hearts) + imported favorite lists (gallery
+  // codes — doujin only). All checked by default; `favUnchecked` tracks the
+  // ones the user turned off, so a newly imported list shows up checked.
+  const decoy = useLock((s) => s.decoy)
+  const favLists = useMemo(
+    () => (libraryMode === 'hitomi' && !decoy ? (settings.onlineFavLists ?? []) : []),
+    [settings.onlineFavLists, libraryMode, decoy]
   )
-  // Persisted list names (settings) unioned with any present on works.
-  const favLists = useMemo(() => {
-    // Imported favlist names (settings.favLists) are a hitomi-only feature, so
-    // don't leak them into the general-manga (normal) drawer. Normal mode only
-    // shows lists actually present on its own works.
-    const imported = libraryMode === 'hitomi' ? (settings.favLists ?? []) : []
-    return [...new Set([...imported, ...favListNames(modeWorks)])].sort((a, b) => a.localeCompare(b))
-  }, [settings.favLists, modeWorks, libraryMode])
-  // All selectable favorite lists (기본 + imported). The drawer defaults to ALL
-  // checked; `favUnchecked` tracks the ones the user explicitly turned off, so a
-  // newly-imported list shows up checked automatically.
-  const allFavNames = useMemo(() => [FAV_BASE, ...favLists], [favLists])
+  const allFavNames = useMemo(() => [FAV_BASE, ...favLists.map((l) => l.name)], [favLists])
   const favSelected = useMemo(
     () => allFavNames.filter((n) => !favUnchecked.includes(n)),
     [allFavNames, favUnchecked]
   )
+  // Filter for a drawer selection: just the hearts when there are no lists,
+  // else the checked names + the union of the checked lists' codes.
+  const favFilterFor = (sel: string[]): Filter =>
+    favLists.length === 0 && sel.includes(FAV_BASE)
+      ? { kind: 'favorites' }
+      : { kind: 'favlists', value: sel, codes: favLists.filter((l) => sel.includes(l.name)).flatMap((l) => l.codes) }
   // Count reflects the checked selection (updates as lists are toggled). Normal
   // mode counts its in-app favorites (series + standalone chapters) instead.
+  // Unified favorite count: local + online favorites, each favorite counted once.
   const favCount = useMemo(() => {
-    if (normal) return (settings.normalFavSeries?.length ?? 0) + (settings.normalFavChapters?.length ?? 0)
-    return modeWorks.filter((w) => favSelected.some((n) => matchesFavList(w, n))).length
-  }, [normal, modeWorks, favSelected, settings.normalFavSeries, settings.normalFavChapters])
+    if (normal) {
+      const favS = settings.normalFavSeries ?? []
+      const keys = new Set(onlineNormalFavKeys)
+      for (const g of groupSeries(modeWorks, normalRoots)) if (favS.includes(g.key)) keys.add(titleKey(g.title))
+      return keys.size + (settings.normalFavChapters?.length ?? 0)
+    }
+    // Hearts (list entries + uncoded local hearts) plus checked lists' downloaded works.
+    const base = favSelected.includes(FAV_BASE)
+    const codes = new Set(favLists.filter((l) => favSelected.includes(l.name)).flatMap((l) => l.codes))
+    const ids = new Set<string>()
+    for (const w of modeWorks) if ((base && w.favorite) || (w.code && codes.has(w.code))) ids.add(w.code ?? w.id)
+    if (base) for (const f of Object.values(onlineFavs)) if (f.favorite && !isTokiCode(f.code)) ids.add(f.code)
+    return ids.size
+  }, [normal, modeWorks, normalRoots, favSelected, favLists, onlineFavs, onlineNormalFavKeys, settings.normalFavSeries, settings.normalFavChapters])
   const groupCounts = useMemo(() => {
     const m: Record<string, number> = {}
     for (const w of modeWorks) for (const id of w.groups ?? []) m[id] = (m[id] ?? 0) + 1
     return m
   }, [modeWorks])
 
+  // Phone tools: pull-to-refresh / + 새로고침 (page 1 + library rescan) and
+  // 작품 선택 (delete the picked local works).
+  const homeView = useStore((s) => s.view === 'home' || s.view === 'history')
+  const sel = useSelection()
+  const [delSel, setDelSel] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (!sel.selecting) setDelSel(null) // selection ended (×, back) → drop the pending confirm
+  }, [sel.selecting])
+  const refresh = async (): Promise<void> => {
+    setPage(0)
+    useStore.getState().setHomeScroll(0)
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+    await useStore.getState().scanLibraryJob()
+  }
+  const ptrSpinner = usePullRefresh(scrollRef, refresh, homeView)
+  const entryKey = (e: FavEntry): string => (e.kind === 'local' ? e.work.id : e.kind === 'series' ? e.series.key : e.fav.code)
+  // Selected keys → local work ids (a series = all its chapters; online-only
+  // entries have nothing to delete).
+  const selWorkIds = (): string[] => {
+    const ids: string[] = []
+    const byId = new Set(works.map((w) => w.id))
+    const series = new Map(seriesList.map((g) => [g.key, g]))
+    for (const k of sel.selected) {
+      if (byId.has(k)) ids.push(k)
+      else series.get(k)?.chapters.forEach((c) => ids.push(c.id))
+    }
+    return ids
+  }
+  const deleteSelected = async (ids: string[]): Promise<void> => {
+    setDelSel(null)
+    for (const id of ids) {
+      await window.api.deleteWork(id)
+      useStore.getState().removeWork(id)
+    }
+    sel.stop()
+  }
+
   return (
     <div
       className="home"
       ref={scrollRef}
       onScroll={(e) => useStore.getState().setHomeScroll(e.currentTarget.scrollTop)}
+      onClickCapture={sel.capture}
       style={{ ['--mw' as string]: `${settings.marginWidth}px` }}
     >
+      {ptrSpinner}
+      {sel.selecting && (
+        <SelectBar
+          count={sel.selected.size}
+          onAll={() => sel.setAll(pageEntries.map(entryKey))}
+          onNone={sel.clear}
+          onClose={sel.stop}
+          action={
+            <button
+              className="sel-btn"
+              title="삭제"
+              disabled={sel.selected.size === 0}
+              onClick={() => {
+                const ids = selWorkIds()
+                if (ids.length) setDelSel(ids)
+              }}
+            >
+              <DeleteIcon />
+            </button>
+          }
+        />
+      )}
+      <LibraryFab
+        active={homeView && !sel.selecting}
+        scrollRef={scrollRef}
+        onRefresh={() => void refresh()}
+        onSelect={sel.start}
+      />
+      {delSel && (
+        <ConfirmModal
+          compact
+          danger
+          title={(() => {
+            const w = works.find((x) => x.id === delSel[0])
+            const name = w ? w.path.split(/[\/]/).filter(Boolean).pop() ?? w.title : ''
+            return (
+              <DelTitle
+                name={name}
+                rest={delSel.length === 1 ? '1개 삭제하시겠습니까?' : `외 ${delSel.length - 1}개 일괄 삭제하시겠습니까?`}
+              />
+            )
+          })()}
+          desc={<>선택한 작품의 폴더가 기기에서 삭제됩니다. 되돌릴 수 없습니다.</>}
+          confirmLabel="삭제"
+          onConfirm={() => void deleteSelected(delSel)}
+          onCancel={() => setDelSel(null)}
+        />
+      )}
       <div className="home-head">
-        <div className="badge">{libraryMode === 'normal' ? 'Manga & Webtoon' : 'Doujinshi'}</div>
-        <h1>라이브러리 탐색</h1>
-
+        {/* Phone: the search box takes the whole row (Enter on the keyboard
+            searches); sort is the icon at its right end. Picking 무작위 again
+            reshuffles. */}
         <div className="search-row">
-          <Dropdown<SortMode>
-            className="field"
-            value={sort}
-            onChange={setSort}
-            options={(Object.keys(SORT_LABELS) as SortMode[])
-              .filter((m) => !(normal && m === 'popular'))
-              .map((m) => [m, SORT_LABELS[m]])}
-          />
           <TagSearchInput
             value={query}
             onChange={setQuery}
             onEnter={() => setSearch(query.trim())}
             tokens={libTokens}
-            placeholder={normal ? '시리즈 제목·태그 검색 후 Enter' : '제목, 코드, 태그, artist:작가명 / tag:태그명 으로 검색 후 Enter'}
+            placeholder="검색"
+            trailing={
+              <Dropdown<SortMode>
+                icon={<SortIcon />}
+                title="정렬"
+                value={sort}
+                onChange={(m) => (m === 'random' && sort === 'random' ? reshuffle() : setSort(m))}
+                options={(Object.keys(SORT_LABELS) as SortMode[])
+                  .filter((m) => !(normal && m === 'popular'))
+                  .map((m) => [m, SORT_LABELS[m]])}
+              />
+            }
           />
-          <button className="btn" onClick={() => setSearch(query.trim())}>
-            검색
-          </button>
-          {sort === 'random' && (
-            <button className="btn" onClick={reshuffle}>
-              ⟳
-            </button>
-          )}
         </div>
 
         <div className="chips">
@@ -408,18 +597,7 @@ export default function Home(): JSX.Element {
             onClick={() => setHomeLayout(homeLayout === 'grid' ? 'list' : 'grid')}
             title={homeLayout === 'grid' ? '격자형' : '목록형'}
           >
-            {homeLayout === 'grid' ? (
-              <span className="ic-grid" aria-hidden>
-                <i />
-                <i />
-                <i />
-                <i />
-              </span>
-            ) : (
-              <span className="ic-menu" aria-hidden>
-                ☰
-              </span>
-            )}
+            {homeLayout === 'grid' ? <GridIcon /> : <MenuIcon />}
           </button>
           <button
             className="chip layout-toggle"
@@ -429,7 +607,7 @@ export default function Home(): JSX.Element {
             <Caret up={sortDir === 'asc'} />
           </button>
           <Chip active={filter.kind === 'all'} onClick={() => setFilter({ kind: 'all' })}>
-            전체 {normal ? seriesTotal : modeWorks.length}
+            {history ? `기록 ${historyMerged?.length ?? 0}` : `전체 ${normal ? seriesTotal : modeWorks.length}`}
           </Chip>
           <div className="cat-wrap">
             <span
@@ -440,10 +618,10 @@ export default function Home(): JSX.Element {
                 onClick={() => {
                   // Show everything: re-check all lists.
                   setFavUnchecked([])
-                  setFilter({ kind: 'favorites' })
+                  setFilter(favFilterFor(allFavNames))
                 }}
               >
-                ♥ 즐겨찾기 {favCount}
+                <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favCount}
               </span>
               <span className="fav-caret" onClick={() => togglePanel('fav')} title="즐겨찾기 목록">
                 <span className={`dt ${openPanel === 'fav' ? 'up' : ''}`} />
@@ -462,13 +640,7 @@ export default function Home(): JSX.Element {
                           : [...favUnchecked, n]
                         setFavUnchecked(nextUnchecked)
                         const sel = allFavNames.filter((x) => !nextUnchecked.includes(x))
-                        // All checked → plain 'favorites' (also drives normal mode);
-                        // a subset (incl. none) → 'favlists' so unchecked lists hide.
-                        setFilter(
-                          sel.length === allFavNames.length
-                            ? { kind: 'favorites' }
-                            : { kind: 'favlists', value: sel }
-                        )
+                        setFilter(favFilterFor(sel))
                       }}
                     />
                     ★ {n}
@@ -477,135 +649,16 @@ export default function Home(): JSX.Element {
               </div>
             )}
           </div>
-          {favActive && !normal && (
-            <Dropdown<'rank' | 'recent'>
-              className="field sm"
-              value={favSort}
-              onChange={setFavSort}
-              options={[
-                ['rank', '평점 높은순'],
-                ['recent', '최근 추가순']
-              ]}
+          {favActive && (
+            <FavDlToggle
+              checked={favDownloadedOnly}
+              onChange={setFavDownloadedOnly}
+              onTitle="다운로드한 즐겨찾기만 보는 중"
+              offTitle="모든 즐겨찾기 보는 중"
             />
           )}
-          {!normal && <span className="chip-stat">작가 {artistCount}</span>}
+          {favActive && <FavSortSelect value={favSort} onChange={setFavSort} />}
 
-          {!normal && (
-          <>
-          <div className="cat-wrap">
-            <button
-              className={`chip ${!(showCoded && showUncoded) ? 'active' : ''}`}
-              onClick={() => togglePanel('cat')}
-            >
-              작품 분류 <span className={`dt ${openPanel === 'cat' ? 'up' : ''}`} />
-            </button>
-            {openPanel === 'cat' && (
-              <div className="cat-panel">
-                <label>
-                  <input type="checkbox" checked={showCoded} onChange={(e) => setShowCoded(e.target.checked)} />
-                  hitomi 번호 작품
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showUncoded}
-                    onChange={(e) => setShowUncoded(e.target.checked)}
-                  />
-                  번호 없는 작품
-                </label>
-              </div>
-            )}
-          </div>
-
-          <div className="cat-wrap">
-            <button
-              className={`chip ${!allLang ? 'active' : ''}`}
-              onClick={() => togglePanel('lang')}
-            >
-              언어 분류 <span className={`dt ${openPanel === 'lang' ? 'up' : ''}`} />
-            </button>
-            {openPanel === 'lang' && (
-              <div className="cat-panel">
-                {(['korean', 'english', 'japanese', 'other'] as LangCat[]).map((c) => (
-                  <label key={c}>
-                    <input
-                      type="checkbox"
-                      checked={langFilter[c]}
-                      onChange={(e) => setLangFilter(c, e.target.checked)}
-                    />
-                    {LANG_CAT_LABELS[c]}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          </>
-          )}
-
-          <div className="cat-wrap">
-            <button className={`chip ${!allGroups ? 'active' : ''}`} onClick={() => togglePanel('group')}>
-              그룹 분류 <span className={`dt ${openPanel === 'group' ? 'up' : ''}`} />
-            </button>
-            {openPanel === 'group' && (
-              <div className="cat-panel">
-                {modeGroups.map((g) => (
-                  <label key={g.id} className="grp-row">
-                    <input
-                      type="checkbox"
-                      checked={groupFilter[g.id] !== false}
-                      onChange={(e) => setGroupFilter(g.id, e.target.checked)}
-                    />
-                    <span className="grp-row-name">
-                      {g.name}
-                    </span>
-                    <span className="grp-row-count">({groupCounts[g.id] ?? 0})</span>
-                    <span
-                      className="grp-row-x"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setDelGroup({ id: g.id, name: g.name })
-                      }}
-                    >
-                      ×
-                    </span>
-                  </label>
-                ))}
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={showUngrouped}
-                    onChange={(e) => setShowUngrouped(e.target.checked)}
-                  />
-                  그룹 없음
-                </label>
-                <div className="grp-create">
-                  <input
-                    value={newGroup}
-                    placeholder="새 그룹 이름"
-                    onChange={(e) => setNewGroup(e.target.value)}
-                    onKeyDown={async (e) => {
-                      if (e.key === 'Enter' && newGroup.trim()) {
-                        await createGroup(newGroup)
-                        setNewGroup('')
-                      }
-                    }}
-                  />
-                  <button
-                    className="mini"
-                    onClick={async () => {
-                      if (newGroup.trim()) {
-                        await createGroup(newGroup)
-                        setNewGroup('')
-                      }
-                    }}
-                  >
-                    + 그룹 생성
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
           {sort === 'popular' && loadingPopular && <span className="chip-stat">인기순 불러오는 중…</span>}
           {filter.kind === 'artist' && (
             <Chip active onClick={() => setFilter({ kind: 'all' })}>
@@ -617,6 +670,14 @@ export default function Home(): JSX.Element {
               태그: {filter.value} ✕
             </Chip>
           )}
+          {/* 분류 (작품 / 언어 / 그룹) in one popup; tinted while any filter is narrowed. */}
+          <button
+            className={`chip layout-toggle class-btn ${(!normal && (!(showCoded && showUncoded) || !allLang)) || !allGroups ? 'active' : ''}`}
+            onClick={() => setClassOpen(true)}
+            title="분류"
+          >
+            <AddIcon />
+          </button>
         </div>
 
         {searchTokens.length > 0 && (
@@ -651,6 +712,122 @@ export default function Home(): JSX.Element {
         )}
       </div>
 
+      {classOpen && (
+        <div className="modal-overlay" onClick={() => setClassOpen(false)}>
+          <div className="modal class-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="class-modal-head">
+              <b>분류</b>
+              <button className="icon-close" onClick={() => setClassOpen(false)} title="닫기">
+                <CloseIcon />
+              </button>
+            </div>
+            {!normal && (
+              <>
+                <section className="class-sec">
+                  <h3>작품 분류</h3>
+                  <div className="cat-panel inline">
+                      <label>
+                        <input type="checkbox" checked={showCoded} onChange={(e) => setShowCoded(e.target.checked)} />
+                        hitomi 번호 작품
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={showUncoded}
+                          onChange={(e) => setShowUncoded(e.target.checked)}
+                        />
+                        번호 없는 작품
+                      </label>
+                  </div>
+                </section>
+                <section className="class-sec">
+                  <h3>언어 분류</h3>
+                  <div className="cat-panel inline">
+                      {(['korean', 'english', 'japanese', 'other'] as LangCat[]).map((c) => (
+                        <label key={c}>
+                          <input
+                            type="checkbox"
+                            checked={langFilter[c]}
+                            onChange={(e) => setLangFilter(c, e.target.checked)}
+                          />
+                          {LANG_CAT_LABELS[c]}
+                        </label>
+                      ))}
+                  </div>
+                </section>
+              </>
+            )}
+            <section className="class-sec">
+              <h3>그룹 분류</h3>
+              <div className="cat-panel grp-panel inline">
+                  {/* Bulk toggle: every group + "그룹 없음" on / off. */}
+                  <div className="cat-panel-actions">
+                    <button
+                      className="mini"
+                      onClick={() => {
+                        modeGroups.forEach((g) => setGroupFilter(g.id, true))
+                        setShowUngrouped(true)
+                      }}
+                    >
+                      전체 선택
+                    </button>
+                    <button
+                      className="mini"
+                      onClick={() => {
+                        modeGroups.forEach((g) => setGroupFilter(g.id, false))
+                        setShowUngrouped(false)
+                      }}
+                    >
+                      전체 선택 해제
+                    </button>
+                  </div>
+                  {modeGroups.map((g) => (
+                    <label key={g.id} className="grp-row">
+                      <input
+                        type="checkbox"
+                        checked={groupFilter[g.id] !== false}
+                        onChange={(e) => setGroupFilter(g.id, e.target.checked)}
+                      />
+                      <GroupName id={g.id} name={g.name} />
+                      <span className="grp-row-count">({groupCounts[g.id] ?? 0})</span>
+                      <span
+                        className="grp-row-x"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setDelGroup({ id: g.id, name: g.name })
+                        }}
+                        title="그룹 삭제"
+                      >
+                        <CloseIcon />
+                      </span>
+                    </label>
+                  ))}
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={showUngrouped}
+                      onChange={(e) => setShowUngrouped(e.target.checked)}
+                    />
+                    그룹 없음
+                  </label>
+                  <div className="grp-create">
+                    <input
+                      value={newGroup}
+                      placeholder="새 그룹 이름"
+                      onChange={(e) => setNewGroup(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && submitNewGroup()}
+                    />
+                    <button className="mini icon" onClick={submitNewGroup} title="그룹 생성">
+                      <AddIcon />
+                    </button>
+                  </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      )}
+
       {modeWorks.length === 0 && !loading && (
         <div className="empty">
           {libraryMode === 'normal' ? (
@@ -667,33 +844,23 @@ export default function Home(): JSX.Element {
         </div>
       )}
 
-      {normal ? (
-        homeLayout === 'grid' ? (
-          <div className="work-grid">
-            {pageSeries.map((s) => (
-              <SeriesGridCard key={s.key} series={s} />
-            ))}
-          </div>
-        ) : (
-          <div className="series-list">
-            {pageSeries.map((s) => (
-              <SeriesCard key={s.key} series={s} />
-            ))}
-          </div>
-        )
-      ) : homeLayout === 'grid' ? (
-        <div className="work-grid">
-          {pageItems.map((w) => (
-            <WorkGridCard key={w.id} work={w} />
-          ))}
-        </div>
-      ) : (
-        <div className="work-list">
-          {pageItems.map((w) => (
-            <WorkCard key={w.id} work={w} />
-          ))}
-        </div>
-      )}
+      {/* One card list for every view. Card type follows the entry kind; the
+          container class follows the layout (+ series list styling in normal mode). */}
+      <SelectionProvider value={sel.ctx}>
+      {/* Phone: 목록형 = one wide card per row (cover + text, 더보기 preview);
+          격자형 = 2-column compact cards. */}
+      <div className={homeLayout === 'grid' ? 'work-grid compact-grid' : 'work-grid'}>
+        {pageEntries.map((e) =>
+          e.kind === 'local' ? (
+            <WorkGridCard key={e.work.id} work={e.work} compact={homeLayout === 'grid'} />
+          ) : e.kind === 'series' ? (
+            <SeriesGridCard key={e.series.key} series={e.series} compact={homeLayout === 'grid'} />
+          ) : (
+            <OnlineFavCard key={e.fav.code} fav={e.fav} layout={homeLayout === 'grid' ? 'grid' : 'list'} />
+          )
+        )}
+      </div>
+      </SelectionProvider>
 
       {total > pageSize && (
         <Pager

@@ -1,15 +1,26 @@
 import { useEffect, useRef } from 'react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useStore, downloadMode } from '../store'
 import type { Job } from '../store'
+import { useLock } from '../lock'
 import type { HitomiProgress } from '../../../shared/ipc'
-import { PauseIcon, PlayIcon, XIcon, ConvertIcon } from './icons'
+import {
+  PauseIcon,
+  PlayIcon,
+  XIcon,
+  ConvertIcon,
+  Download2Icon,
+  ScanIcon,
+  EditIcon,
+  AddPhotoIcon,
+  FolderIcon
+} from './icons'
 
 // Unified row for the activity list: background jobs (export/scan) merged with the
 // online downloads (which also carry the avif→webp conversion on the same row).
 interface Row {
   id: string
-  icon: string
+  icon: ReactNode
   title: string
   status: 'running' | 'done' | 'error'
   done: number
@@ -20,13 +31,12 @@ interface Row {
   dl?: { code: string; phase: HitomiProgress['phase']; canStop: boolean; canRetry: boolean }
 }
 
-const KIND_ICON: Record<Job['kind'], string> = {
-  export: '📄',
-  scan: '🔄',
-  meta: '🖋',
-  thumb: '🖼',
-  organize: '🗂',
-  convert: '♻'
+const KIND_ICON: Record<Job['kind'], ReactNode> = {
+  scan: <ScanIcon />,
+  meta: <EditIcon />,
+  thumb: <AddPhotoIcon />,
+  organize: <FolderIcon />,
+  convert: <ConvertIcon />
 }
 
 const ACTIVE = new Set<HitomiProgress['phase']>(['queued', 'fetching', 'downloading', 'enriching'])
@@ -50,6 +60,8 @@ export default function ActivityBar(): JSX.Element | null {
   const startAll = useStore((s) => s.startAllDownloads)
   const listWidth = useStore((s) => s.listWidth)
   const libraryMode = useStore((s) => s.libraryMode)
+  const update = useStore((s) => s.update)
+  const installUpdate = useStore((s) => s.installUpdate)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   // Clicking anywhere outside the activity widget closes the open panel.
@@ -62,8 +74,10 @@ export default function ActivityBar(): JSX.Element | null {
     return () => document.removeEventListener('mousedown', onDown)
   }, [open, toggle])
 
-  // The bar is per-mode: hitomi vs general-manga tasks don't mix.
-  const rows: Row[] = [
+  // The bar is per-mode: doujin vs general-manga tasks don't mix.
+  // Decoy (fake-PIN) doujin library: no tasks or download history at all.
+  const hideAll = useLock((s) => s.decoy) && libraryMode === 'hitomi'
+  const rows: Row[] = hideAll ? [] : [
     ...jobs
       .filter((j) => j.mode === libraryMode)
       .map((j) => ({
@@ -80,7 +94,7 @@ export default function ActivityBar(): JSX.Element | null {
       .filter((d) => downloadMode(d.code) === libraryMode)
       .map((d) => ({
         id: `dl:${d.code}`,
-        icon: '⬇',
+        icon: <Download2Icon />,
         title: d.title,
         status: (d.phase === 'done' ? 'done' : d.phase === 'error' ? 'error' : 'running') as Row['status'],
         done: d.done,
@@ -97,13 +111,25 @@ export default function ActivityBar(): JSX.Element | null {
   ]
   rows.sort((a, b) => (a.status === 'running' ? 0 : 1) - (b.status === 'running' ? 0 : 1))
 
-  if (rows.length === 0) return null
+  // The auto-update row is global (not per-mode) and can appear on its own.
+  const showUpdate = !!update && update.state !== 'error'
+  const updateLabel = !update
+    ? ''
+    : update.state === 'downloading'
+      ? `⬆ 업데이트 다운로드 중 · ${update.percent ?? 0}%`
+      : update.state === 'downloaded'
+        ? `⬆ 업데이트 준비됨${update.version ? ` · v${update.version}` : ''} — 설치`
+        : `⬆ 새 버전 발견${update.version ? ` · v${update.version}` : ''}`
+
+  if (rows.length === 0 && !showUpdate) return null
 
   const running = rows.filter((r) => r.status === 'running')
   const cur = running[0]
-  const summary = cur
-    ? `${cur.icon} ${cur.title}${cur.total > 0 ? ` · ${pct(cur.done, cur.total)}%` : ' · 진행 중…'}`
-    : `작업 ${rows.length}개 · 진행 중 없음`
+  const summary = showUpdate
+    ? updateLabel
+    : cur
+      ? `${cur.title}${cur.total > 0 ? ` · ${pct(cur.done, cur.total)}%` : ' · 진행 중…'}`
+      : `작업 ${rows.length}개 · 진행 중 없음`
   const anyActive = downloads.some((d) => downloadMode(d.code) === libraryMode && ACTIVE.has(d.phase))
   const anyPaused = downloads.some(
     (d) => downloadMode(d.code) === libraryMode && (d.phase === 'stopped' || d.phase === 'error') && d.spec
@@ -147,6 +173,49 @@ export default function ActivityBar(): JSX.Element | null {
             </div>
           </div>
           <div className="activity-panel-list">
+            {showUpdate && update && (
+              <div className="activity-row update">
+                <span className="activity-row-icon">⬆</span>
+                <div className="activity-row-main">
+                  <div className="activity-row-title">
+                    {update.state === 'downloaded'
+                      ? '업데이트 준비됨'
+                      : update.state === 'downloading'
+                        ? '업데이트 다운로드 중'
+                        : '새 버전 발견'}
+                    {update.version ? ` · v${update.version}` : ''}
+                  </div>
+                  <div className="activity-row-sub">
+                    {update.state === 'downloaded'
+                      ? '설치를 누르면 새 버전으로 업데이트합니다.'
+                      : update.state === 'downloading'
+                        ? `${update.percent ?? 0}%`
+                        : '자동으로 다운로드를 시작합니다…'}
+                  </div>
+                  {(update.state === 'downloading' || update.state === 'downloaded') && (
+                    <div className="activity-bar-track">
+                      <div
+                        className="activity-bar-fill"
+                        style={{ width: update.state === 'downloaded' ? '100%' : `${update.percent ?? 0}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+                {update.state === 'downloaded' && (
+                  <div className="activity-row-actions">
+                    <button
+                      className="mini"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        installUpdate()
+                      }}
+                    >
+                      설치
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             {rows.map((r) => (
               <div key={r.id} className={`activity-row ${r.status} ${r.dl?.phase === 'converting' ? 'converting' : ''}`}>
                 <span className="activity-row-icon">
@@ -217,12 +286,11 @@ export default function ActivityBar(): JSX.Element | null {
         <span className="activity-bar-summary">{summary}</span>
         {running.length > 0 && <span className="activity-bar-count">{running.length}개 진행</span>}
         <span className="activity-bar-btns" onClick={(e) => e.stopPropagation()}>
-          <button className="mini icon" title="전체 일시정지" onClick={() => stopAll(libraryMode)} disabled={!anyActive}>
-            <PauseIcon />
-          </button>
-          <button className="mini icon" title="전체 시작" onClick={() => startAll(libraryMode)} disabled={!anyPaused}>
-            <PlayIcon />
-          </button>
+          {update?.state === 'downloaded' && (
+            <button className="mini" title="업데이트 설치" onClick={() => installUpdate()}>
+              설치
+            </button>
+          )}
         </span>
         <span className="activity-bar-caret">{open ? '▾' : '▴'}</span>
       </div>

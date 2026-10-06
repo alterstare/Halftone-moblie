@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from './store'
+import { isNarrow } from './mobile'
 import ExitModal from './components/ExitModal'
-import TabBar from './components/TabBar'
+import MobileTabBar from './components/MobileTabBar'
+import { popBack } from './components/libraryTools'
 import Home from './components/Home'
 import Reader from './components/Reader'
 import SplitReader from './components/SplitReader'
@@ -19,11 +21,19 @@ import ActivityBar from './components/ActivityBar'
 import GlanceOverlay from './components/GlanceOverlay'
 import ConfirmModal from './components/ConfirmModal'
 import Tooltip from './components/Tooltip'
+import EditContextMenu from './components/EditContextMenu'
+import { startExitAnimations } from './exitAnimations'
+import { comboFromEvent, shortcutCombos, type ShortcutId } from '../../shared/shortcuts'
 import { setExcluded } from './exclude'
+import { startLockGuard, markLockReady, useLock, decoyHiddenTabs } from './lock'
+import LockPrompt from './components/LockPrompt'
+import { softReload, restoreSoftReload } from './softReload'
 
 export default function App(): JSX.Element {
   const view = useStore((s) => s.view)
   const libraryMode = useStore((s) => s.libraryMode)
+  const needDownloadDir = useStore((s) => s.needDownloadDir)
+  const setNeedDownloadDir = useStore((s) => s.setNeedDownloadDir)
   const activeTabId = useStore((s) => s.activeTabId)
   const manageMode = useStore((s) => s.manageMode)
   // Online browse position — recorded into nav history so back steps through
@@ -35,7 +45,7 @@ export default function App(): JSX.Element {
   const restoreSession = useStore((s) => s.restoreSession)
   const theme = useStore((s) => s.settings.theme)
   const [showExit, setShowExit] = useState(false)
-  // First-run: prompt to enter the hitomi online address (online access is gated
+  // First-run: prompt to enter the doujin online address (online access is gated
   // on it). Shown once per session when the address hasn't been configured.
   const [askAddr, setAskAddr] = useState(false)
 
@@ -59,26 +69,78 @@ export default function App(): JSX.Element {
     }
   }, [view])
 
+  // Mode switch (동인지 ⇄ 일반 만화): replay a brief focus-out/in on the content.
+  // Re-adding the class (with a forced reflow) restarts the animation without
+  // remounting anything, so readers / lists keep their state.
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const firstMode = useRef(true)
+  useEffect(() => {
+    if (firstMode.current) {
+      firstMode.current = false
+      return
+    }
+    const el = bodyRef.current
+    if (!el) return
+    el.classList.remove('mode-switching')
+    void el.offsetWidth
+    el.classList.add('mode-switching')
+  }, [libraryMode])
+  // Same brief focus-out/in when opening the reader, 관리 or 작업 목록.
+  const prevView = useRef(view)
+  useEffect(() => {
+    const was = prevView.current
+    prevView.current = view
+    if (was === view || !['reader', 'manage', 'download'].includes(view)) return
+    const el = bodyRef.current
+    if (!el) return
+    el.classList.remove('mode-switching')
+    void el.offsetWidth
+    el.classList.add('mode-switching')
+  }, [view])
+
+  // 동인지 잠금 guard (PIN prompt on every way into doujin mode).
+  useEffect(() => startLockGuard(), [])
+  const decoy = useLock((s) => s.decoy)
+
+  // Popups fade out on close (see exitAnimations.ts).
+  useEffect(() => startExitAnimations(), [])
+
   // Boot: load persisted settings, cached works, and the previous tab session.
   useEffect(() => {
     ;(async () => {
-      const [settings, works, session, onlineFavs] = await Promise.all([
+      const [settings, works, session, onlineFavs, progress, history] = await Promise.all([
         window.api.getSettings(),
         window.api.getWorks(),
         window.api.getSession(),
-        window.api.getOnlineFavs()
+        window.api.getOnlineFavs(),
+        window.api.getReadProgress(),
+        window.api.getOnlineHistory()
       ])
       setSettings(settings)
       setExcluded(settings.excludedImageHashes)
       setWorks(works)
       restoreSession(session)
+      // F5 brings back the exact pre-reload screen; otherwise apply the start
+      // screen (settings › 스타일) instead of the last tab.
+      const start = settings.startScreen ?? 'last'
+      if (restoreSoftReload()) {
+        /* same screen as before the reload */
+      } else if (start !== 'last') {
+        const [mode, where] = start.split('-') as ['hitomi' | 'normal', 'home' | 'online']
+        useStore.setState({ activeTabId: null, libraryMode: mode, view: where === 'online' ? 'browse' : 'home' })
+      }
+      markLockReady()
       useStore.getState().setOnlineFavs(onlineFavs)
+      useStore.getState().setReadProgressAll(progress)
+      useStore.getState().setOnlineHistory(history)
     })()
   }, [setWorks, setSettings, restoreSession])
 
   // Snapshot of the persistable tab session (online tabs are transient).
   const snapshot = (): { tabs: { id: string; workId: string; scrollTop: number }[]; activeTabId: string | null } => {
-    const { tabs, activeTabId } = useStore.getState()
+    const { tabs: shown, activeTabId } = useStore.getState()
+    // Tabs the decoy library hid are still part of the real session.
+    const tabs = [...shown, ...decoyHiddenTabs()]
     const local = tabs
       .filter((t): t is typeof t & { workId: string } => !!t.workId && !t.glance)
       .map((t) => ({ id: t.id, workId: t.workId, scrollTop: t.scrollTop }))
@@ -87,6 +149,13 @@ export default function App(): JSX.Element {
 
   // Main intercepts the window X and asks us to show the styled exit modal.
   useEffect(() => window.api.onRequestClose(() => setShowExit(true)), [])
+
+  // Cloudflare auth: main pops its browser window and tells us to show a banner.
+  const [cfChallenge, setCfChallenge] = useState(false)
+  useEffect(() => window.api.onTokiChallenge((active) => setCfChallenge(active)), [])
+
+  // Auto-update progress → shown as a row in the activity bar.
+  useEffect(() => window.api.onUpdateStatus((s) => useStore.getState().setUpdate(s)), [])
 
   // Record each location change into the nav history (deduped in the store), so
   // the mouse back/forward buttons can step through it browser-style.
@@ -104,7 +173,23 @@ export default function App(): JSX.Element {
       const now = Date.now()
       if (now - lastAt.back < 250) return
       lastAt.back = now
-      useStore.getState().navBack()
+      const st = useStore.getState()
+      // Android back: close the ☰ drawer / tab grid first.
+      if (st.menuOpen) {
+        st.setMenuOpen(false)
+        return
+      }
+      if (st.tabSwitcherOpen) {
+        st.setTabSwitcherOpen(false)
+        return
+      }
+      if (popBack()) return // e.g. end 작품 선택
+      const sig = (s: typeof st): string =>
+        [s.view, s.navPos, s.activeTabId, s.tabs.length, s.libraryMode, s.pendingNav ? 1 : 0].join('|')
+      const before = sig(st)
+      st.navBack()
+      // Nothing left to go back to → toggle the exit modal (back again closes it).
+      if (sig(useStore.getState()) === before) setShowExit((v) => !v)
     }
     const forward = (): void => {
       const now = Date.now()
@@ -125,40 +210,47 @@ export default function App(): JSX.Element {
     }
     const onKey = (e: KeyboardEvent): void => {
       const st = useStore.getState()
-      const mod = e.ctrlKey || e.metaKey
-      if (e.altKey && e.key === 'ArrowLeft') {
-        e.preventDefault()
-        back()
-      } else if (e.altKey && e.key === 'ArrowRight') {
-        e.preventDefault()
-        forward()
-      } else if (mod && e.shiftKey && e.key.toLowerCase() === 't') {
-        // Ctrl+Shift+T — reopen last closed tab.
-        e.preventDefault()
-        st.reopenClosedTab()
-      } else if (mod && e.key.toLowerCase() === 'w') {
-        // Ctrl+W — close current tab (with the same collapse animation).
-        e.preventDefault()
-        if (st.activeTabId) st.requestCloseTab(st.activeTabId)
-      } else if (mod && e.key === 'Tab') {
-        // Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs.
-        e.preventDefault()
+      const combo = comboFromEvent(e)
+      if (!combo) return
+      const is = (id: ShortcutId): boolean => shortcutCombos(st.settings.shortcuts, id).includes(combo)
+      // Combos are user-editable (설정 › 단축키); defaults in shared/shortcuts.ts.
+      const goTab = (n: number): void => {
         const list = st.tabs.filter((t) => !t.glance)
-        if (list.length > 1) {
-          const i = list.findIndex((t) => t.id === st.activeTabId)
-          const n = e.shiftKey ? (i - 1 + list.length) % list.length : (i + 1) % list.length
-          st.activateTab(list[n].id)
-        }
-      } else if (mod && /^[1-9]$/.test(e.key)) {
-        // Ctrl+1..9 — jump to the Nth tab (9 = last).
-        e.preventDefault()
+        const t = n < 0 ? list[list.length - 1] : list[n]
+        if (t) st.activateTab(t.id)
+      }
+      const actions: [ShortcutId, () => void][] = [
+        ['focusSearch', () => focusSearch()],
+        ['switchMode', () => st.setLibraryMode(st.libraryMode === 'normal' ? 'hitomi' : 'normal')],
+        ['navBack', back],
+        ['navForward', forward],
+        ['reopenTab', () => st.reopenClosedTab()],
+        ['closeTab', () => st.activeTabId && st.requestCloseTab(st.activeTabId)],
+        ['nextTab', () => cycleTab(1)],
+        ['prevTab', () => cycleTab(-1)],
+        ['goLibrary', () => st.goHome()],
+        ['goOnline', () => st.goBrowse()],
+        // Ctrl+1/2 are the 라이브러리/온라인 buttons, so content tabs start at 3.
+        ['tab3', () => goTab(0)],
+        ['tab4', () => goTab(1)],
+        ['tab5', () => goTab(2)],
+        ['tab6', () => goTab(3)],
+        ['tab7', () => goTab(4)],
+        ['tab8', () => goTab(5)],
+        ['tabLast', () => goTab(-1)],
+        ['reload', () => softReload()]
+      ]
+      function cycleTab(dir: 1 | -1): void {
         const list = st.tabs.filter((t) => !t.glance)
-        const n = e.key === '9' ? list.length - 1 : Number(e.key) - 1
-        if (list[n]) st.activateTab(list[n].id)
-      } else if (e.key === 'F5') {
-        // F5 — plain reload (like a browser); session is restored on load.
+        if (list.length < 2) return
+        const i = list.findIndex((t) => t.id === st.activeTabId)
+        st.activateTab(list[(i + dir + list.length) % list.length].id)
+      }
+      for (const [id, run] of actions) {
+        if (!is(id)) continue
         e.preventDefault()
-        window.location.reload()
+        run()
+        return
       }
     }
     window.addEventListener('mouseup', onMouse)
@@ -185,9 +277,9 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app">
-      <TabBar />
+      <MobileTabBar />
       <MenuDrawer />
-      <div className="body">
+      <div className="body" ref={bodyRef}>
         {view === 'settings' ? (
           <Settings />
         ) : view === 'download' ? (
@@ -205,22 +297,29 @@ export default function App(): JSX.Element {
             className="browse-keepalive"
             style={{ display: view === 'browse' ? 'block' : 'none' }}
           >
-            {libraryMode === 'normal' ? <TokiBrowse /> : <Browse />}
+            {libraryMode === 'normal' ? <TokiBrowse /> : decoy ? <div className="empty">온라인 목록이 없습니다.</div> : <Browse />}
           </div>
         )}
       </div>
       <ActivityBar />
       <Tooltip />
+      <EditContextMenu />
       <GlanceOverlay />
+      <LockPrompt />
+      {cfChallenge && (
+        <div className="cf-banner">
+          🔒 사이트 인증이 필요합니다. 방금 뜬 창에서 “사람인지 확인”을 완료해 주세요. 완료되면 자동으로 진행됩니다.
+        </div>
+      )}
       {showExit && <ExitModal onChoose={onExit} />}
       {askAddr && (
         <ConfirmModal
           icon="🌐"
-          title={libraryMode === 'normal' ? '만화 사이트 온라인 주소를 입력하세요' : '히토미 온라인 주소를 입력하세요'}
+          title={libraryMode === 'normal' ? '만화 사이트 온라인 주소를 입력하세요' : '동인지 온라인 주소를 입력하세요'}
           desc={
             libraryMode === 'normal'
               ? '온라인 둘러보기·검색·다운로드를 사용하려면 설정 → 네트워크에서 만화 사이트 온라인 주소를 입력해야 합니다. 지금 설정을 열까요?'
-              : '온라인 둘러보기·검색·다운로드를 사용하려면 설정 → 네트워크에서 히토미 온라인 주소를 입력해야 합니다. 지금 설정을 열까요?'
+              : '온라인 둘러보기·검색·다운로드를 사용하려면 설정 → 네트워크에서 동인지 온라인 주소를 입력해야 합니다. 지금 설정을 열까요?'
           }
           confirmLabel="설정 열기"
           cancelLabel="나중에"
@@ -229,6 +328,24 @@ export default function App(): JSX.Element {
             useStore.getState().goSettings()
           }}
           onCancel={() => setAskAddr(false)}
+        />
+      )}
+      {needDownloadDir && (
+        <ConfirmModal
+          icon="📁"
+          title="저장 폴더가 없습니다"
+          desc={
+            libraryMode === 'normal'
+              ? '다운로드를 저장하려면 설정 → 일반 만화에서 다운로드 폴더(또는 라이브러리 폴더)를 먼저 지정하세요.'
+              : '다운로드를 저장하려면 설정 → 폴더에서 다운로드 폴더(또는 라이브러리 폴더)를 먼저 지정하세요.'
+          }
+          confirmLabel="설정 열기"
+          cancelLabel="나중에"
+          onConfirm={() => {
+            setNeedDownloadDir(false)
+            useStore.getState().goSettings()
+          }}
+          onCancel={() => setNeedDownloadDir(false)}
         />
       )}
     </div>
@@ -251,6 +368,13 @@ function ReaderSplit(): JSX.Element {
   // General-manga list keeps its own (narrower) width; both stay resizable.
   const paneWidth = activeNormal ? normalListWidth : listWidth
 
+  // Phone: the list is an overlay drawer over the reader — close it whenever a
+  // work is opened (from the list or elsewhere) so the page is visible.
+  const openedKey = activeTab ? `${activeTab.id}|${activeTab.workId ?? ''}|${activeTab.online?.code ?? ''}` : ''
+  useEffect(() => {
+    if (isNarrow() && !useStore.getState().listCollapsed) useStore.getState().toggleListCollapsed()
+  }, [openedKey])
+
   useEffect(() => {
     const activeIsNormal = (): boolean => {
       const st = useStore.getState()
@@ -258,7 +382,7 @@ function ReaderSplit(): JSX.Element {
     }
     // While dragging, resize the pane by writing its width DIRECTLY to the DOM —
     // no store update per frame. Committing to the store each mousemove re-renders
-    // the whole left list (the hitomi library list can be thousands of rows),
+    // the whole left list (the doujin library list can be thousands of rows),
     // which made resizing very laggy. We commit once on mouseup instead.
     const onMove = (e: MouseEvent): void => {
       if (!dragging.current || !paneRef.current) return
@@ -296,8 +420,17 @@ function ReaderSplit(): JSX.Element {
       >
         {activeToki ? <TokiChapterList /> : activeOnline ? <OnlineList /> : <LibraryList />}
       </div>
+      {/* Phone drawer open: touching the reader (tap / swipe) closes it. */}
+      {isNarrow() && (
+        <div
+          className={`list-scrim ${listCollapsed ? '' : 'open'}`}
+          onTouchStart={() => !useStore.getState().listCollapsed && toggleListCollapsed()}
+          onMouseDown={() => !useStore.getState().listCollapsed && toggleListCollapsed()}
+        />
+      )}
       <div
         className={`divider ${listCollapsed ? 'collapsed' : ''}`}
+        style={{ ['--pane-w' as string]: `${listCollapsed ? 0 : paneWidth}px` }}
         onMouseDown={() => {
           if (listCollapsed) return
           dragging.current = true
@@ -326,4 +459,19 @@ function ReaderSplit(): JSX.Element {
       </div>
     </div>
   )
+}
+
+// Focus the search box of the current view: a visible input.search, preferring
+// one in the same pane as the current focus (split view), else the first.
+function focusSearch(): boolean {
+  const boxes = Array.from(document.querySelectorAll<HTMLInputElement>('input.search')).filter(
+    (el) => el.offsetParent !== null
+  )
+  if (!boxes.length) return false
+  const act = document.activeElement
+  const pane = act?.closest('.split-pane, .pane, .reader')
+  const el = (pane && boxes.find((b) => pane.contains(b))) || boxes[0]
+  el.focus()
+  el.select()
+  return true
 }

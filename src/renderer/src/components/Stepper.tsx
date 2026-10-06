@@ -1,7 +1,9 @@
 import type { JSX } from 'react'
+import { ArrowUpIcon, ArrowDownIcon } from './icons'
 
-// Compact number stepper: [ − | value | + ]. Replaces the raw number spinner so
-// the page-count pickers look consistent (Settings auto-merge + per-artist merge).
+// Compact number stepper: a toggle-sized value pill with ▲/▼ stacked on its
+// right. Replaces the raw number spinner so number settings look consistent
+// (Settings, auto-merge, per-artist merge).
 export default function Stepper({
   value,
   onChange,
@@ -22,14 +24,6 @@ export default function Stepper({
   const clamp = (v: number): number => Math.max(min, max != null ? Math.min(max, v) : v)
   return (
     <span className="stepper" title={title}>
-      <button
-        type="button"
-        className="stepper-btn"
-        disabled={value <= min}
-        onClick={() => onChange(clamp(value - step))}
-      >
-        −
-      </button>
       <input
         className="stepper-val"
         type="number"
@@ -39,14 +33,26 @@ export default function Stepper({
         style={width ? { width } : undefined}
         onChange={(e) => onChange(clamp(Number(e.target.value) || 0))}
       />
-      <button
-        type="button"
-        className="stepper-btn"
-        disabled={max != null && value >= max}
-        onClick={() => onChange(clamp(value + step))}
-      >
-        +
-      </button>
+      <span className="stepper-arrows">
+        <button
+          type="button"
+          className="stepper-btn"
+          disabled={max != null && value >= max}
+          onClick={() => onChange(clamp(value + step))}
+          aria-label="올리기"
+        >
+          <ArrowUpIcon />
+        </button>
+        <button
+          type="button"
+          className="stepper-btn"
+          disabled={value <= min}
+          onClick={() => onChange(clamp(value - step))}
+          aria-label="내리기"
+        >
+          <ArrowDownIcon />
+        </button>
+      </span>
     </span>
   )
 }

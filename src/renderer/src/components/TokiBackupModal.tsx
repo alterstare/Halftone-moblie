@@ -2,9 +2,7 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import type { TokiChapter, HitomiProgress } from '../../../shared/ipc'
-
-const DEFAULT_URL =
-  'https://update.spotv24.com/bbs/board.php?bo_table=toon_c&tablename=%EC%9D%B8%EA%B8%B0%EB%A7%8C%ED%99%94'
+import { ChapterPicker, DownloadStatus } from './DownloadParts'
 
 // Backup (gnuboard-style) site downloader. The site isn't scraped into our
 // browse UI — the user opens it as a plain web page, navigates to a chapter LIST
@@ -12,7 +10,8 @@ const DEFAULT_URL =
 // via the hidden window) to the general-manga folder.
 export default function TokiBackupModal({ onClose }: { onClose: () => void }): JSX.Element {
   const startDownload = useStore((s) => s.startDownload)
-  const [url, setUrl] = useState(DEFAULT_URL)
+  // No built-in address — the user enters the backup site themselves.
+  const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
   const [chapters, setChapters] = useState<TokiChapter[] | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -30,7 +29,13 @@ export default function TokiBackupModal({ onClose }: { onClose: () => void }): J
   }, [title])
 
   const openSite = (): void => {
-    window.api.tokiOpenSite(url.trim() || DEFAULT_URL)
+    const u = url.trim()
+    if (!u) {
+      setErr('백업 사이트 주소를 입력하세요.')
+      return
+    }
+    setErr(null)
+    window.api.tokiOpenSite(/^https?:\/\//i.test(u) ? u : `https://${u}`)
   }
 
   const loadList = async (): Promise<void> => {
@@ -50,23 +55,6 @@ export default function TokiBackupModal({ onClose }: { onClose: () => void }): J
       setLoading(false)
     }
   }
-
-  const total = chapters?.length ?? 0
-  const toggle = (u: string): void =>
-    setSelected((s) => {
-      const n = new Set(s)
-      if (n.has(u)) n.delete(u)
-      else n.add(u)
-      return n
-    })
-  const all = (): void => setSelected(new Set((chapters ?? []).map((c) => c.url)))
-  const none = (): void => setSelected(new Set())
-  const invert = (): void =>
-    setSelected((s) => {
-      const n = new Set<string>()
-      for (const c of chapters ?? []) if (!s.has(c.url)) n.add(c.url)
-      return n
-    })
 
   const download = async (): Promise<void> => {
     if (!chapters || !selected.size) return
@@ -112,7 +100,7 @@ export default function TokiBackupModal({ onClose }: { onClose: () => void }): J
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="백업 사이트 주소"
               />
-              <button className="btn" onClick={openSite}>
+              <button className="btn" onClick={openSite} disabled={!url.trim()}>
                 사이트 열기
               </button>
             </div>
@@ -138,73 +126,27 @@ export default function TokiBackupModal({ onClose }: { onClose: () => void }): J
 
             {chapters && chapters.length > 0 && (
               <>
-                <div className="dl-select-bar">
-                  <button className="mini" onClick={all}>
-                    전체 선택
-                  </button>
-                  <button className="mini" onClick={none}>
-                    전체 해제
-                  </button>
-                  <button className="mini" onClick={invert}>
-                    선택 반전
-                  </button>
-                  <span className="hint" style={{ margin: 0 }}>
-                    {selected.size}/{total} 선택
-                  </span>
-                </div>
-                <div className="dl-chapter-list">
-                  {chapters.map((c) => (
-                    <label key={c.url} className={`dl-chapter ${selected.has(c.url) ? 'sel' : ''}`}>
-                      <input type="checkbox" checked={selected.has(c.url)} onChange={() => toggle(c.url)} />
-                      <span className="dl-chapter-title">{c.title || c.url}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="dl-select-foot">
-                  <button className="btn" onClick={onClose}>
-                    취소
-                  </button>
-                  <button className="btn primary" disabled={!selected.size} onClick={download}>
-                    다운로드 ({selected.size}화)
-                  </button>
-                </div>
+                <ChapterPicker
+                  chapters={chapters}
+                  selected={selected}
+                  setSelected={setSelected}
+                  onCancel={onClose}
+                  onConfirm={download}
+                  confirmLabel={`다운로드 (${selected.size}화)`}
+                />
               </>
             )}
           </div>
         )}
 
-        {phase === 'downloading' && (
-          <div className="dl-progress-box">
-            <div className="dl-bar">
-              <div
-                className="dl-bar-fill"
-                style={{ width: prog?.total ? `${(prog.done / prog.total) * 100}%` : '10%' }}
-              />
-            </div>
-            <p className="hint">
-              다운로드 중… {prog ? `${prog.done}/${prog.total}` : ''} {prog?.label ?? ''}
-            </p>
-            <p className="hint">닫아도 백그라운드로 계속됩니다.</p>
-          </div>
-        )}
-
-        {phase === 'done' && (
-          <div className="dl-progress-box">
-            <p className="dl-done-msg">✓ 다운로드 완료</p>
-            <button className="btn primary" onClick={onClose}>
-              닫기
-            </button>
-          </div>
-        )}
-
-        {phase === 'error' && (
-          <div className="dl-progress-box">
-            <div className="warn err">{err}</div>
-            <button className="btn" onClick={() => setPhase('setup')}>
-              돌아가기
-            </button>
-          </div>
-        )}
+        <DownloadStatus
+          phase={phase}
+          prog={prog}
+          err={err}
+          note="닫아도 백그라운드로 계속됩니다."
+          onClose={onClose}
+          onBack={() => setPhase('setup')}
+        />
       </div>
     </div>
   )

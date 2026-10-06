@@ -8,11 +8,13 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "esModuleInterop": true,
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
     "types": ["node"],
     "baseUrl": ".",
     "paths": { "@/*": ["src/renderer/src/*"] },
     "outDir": "./out/types-web"
   },
-  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/index.d.ts"]
+  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/backend/**/*"]
 }

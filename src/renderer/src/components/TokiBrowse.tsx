@@ -1,15 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { useStore, useSeriesRoots, lastReadKey } from '../store'
 import type { TokiListSource, TokiSummary, TokiSort, TokiType } from '../../../shared/ipc'
 import type { OnlineFav } from '../../../shared/types'
 import Stars from './Stars'
-import Dropdown from './Dropdown'
+import MoreClamp from './MoreClamp'
+import { ArtistLinks } from './ArtistLinks'
+import TileBar from './TileBar'
+import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab } from './libraryTools'
 import TokiDownloadModal from './TokiDownloadModal'
 import type { TokiSeriesRef } from './TokiDownloadModal'
 import TokiBackupModal from './TokiBackupModal'
 import OnlineThumb from './OnlineThumb'
 import { getOnlineImages } from '../images'
+import { FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon, ArrowDownIcon } from './icons'
+import { BypassToggle, OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
+import Pager from './Pager'
+import { groupSeries, titleKey, isTokiCode } from '../util'
+import { useTokiStatus } from './useTokiStatus'
+import SearchClear from './SearchClear'
+import Dropdown from './Dropdown'
+import ContextMenu from './ContextMenu'
 
 const SORTS: [TokiSort, string][] = [
   ['date', '최신순'],
@@ -24,21 +35,29 @@ const TYPES: [TokiType, string][] = [
   ['webtoon', '웹툰']
 ]
 
-// Meta cached alongside a toki online favorite (keyed by the series url).
+// Meta cached alongside a manga-site online favorite (keyed by the series url).
 function favMeta(g: TokiSummary, artist: string | null): Partial<OnlineFav> {
   return { title: g.title, artist, thumbUrl: g.thumb, language: null, pageCount: 0 }
 }
 
-// General-manga online browse (toki-family mirror). Full-screen, mirrors the
-// hitomi Browse. Clicking a series fetches its chapters and opens chapter 1.
+// General-manga online browse (manga-site-family mirror). Full-screen, mirrors the
+// doujin Browse. Clicking a series fetches its chapters and opens chapter 1.
 // Favorites/ratings reuse the online-fav store, keyed by the series url (http),
-// which keeps them separate from hitomi's numeric-code favorites.
+// which keeps them separate from the doujin numeric-code favorites.
+const NO_GENRES: string[] = []
+
 export default function TokiBrowse(): JSX.Element {
+  const tokiStatus = useTokiStatus()
   const openToki = useStore((s) => s.openToki)
   const openTokiBackground = useStore((s) => s.openTokiBackground)
   const openGlance = useStore((s) => s.openGlance)
   const onlineFavs = useStore((s) => s.onlineFavs)
-  const toggleOnlineFav = useStore((s) => s.toggleOnlineFav)
+  const toggleNormalUnifiedFav = useStore((s) => s.toggleNormalUnifiedFav)
+  const favOnlineOnly = useStore((s) => s.favOnlineOnly)
+  const works = useStore((s) => s.works)
+  const openTab = useStore((s) => s.openTab)
+  const roots = useSeriesRoots()
+  const normalFavSeries = useStore((s) => s.settings.normalFavSeries)
   const setOnlineRank = useStore((s) => s.setOnlineRank)
   const authorSeed = useStore((s) => s.tokiAuthorSeed)
   const browseTopNonce = useStore((s) => s.browseTopNonce)
@@ -46,6 +65,10 @@ export default function TokiBrowse(): JSX.Element {
   // Bumped to force a fresh fetch even when source/page are unchanged (used by
   // the 🌐 double-press reset when already on the first page).
   const [reloadKey, setReloadKey] = useState(0)
+  // Phone: 인증창 / 주소 / 비상용 and the genre list stay folded until asked for.
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [genreOpen, setGenreOpen] = useState(false)
+  const refreshWaiters = useRef<(() => void)[]>([]) // pull-to-refresh waits for the fetch
   const tokiBaseUrl = useStore((s) => s.settings.tokiBaseUrl)
   const setSettings = useStore((s) => s.setSettings)
   const [addrOpen, setAddrOpen] = useState(false)
@@ -67,16 +90,25 @@ export default function TokiBrowse(): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [opening, setOpening] = useState<string | null>(null)
+  // Right-click menu on a card (open / background / 제목 복사).
+  const [cardMenu, setCardMenu] = useState<{ x: number; y: number; g: TokiSummary } | null>(null)
   const [dlSeries, setDlSeries] = useState<TokiSeriesRef | null>(null)
   const [backupOpen, setBackupOpen] = useState(false)
   const [favMode, setFavMode] = useState(false)
-  const [favSort, setFavSort] = useState<'rank' | 'recent'>('rank')
+  const [favSort, setFavSort] = useState<'rank' | 'recent'>('recent')
 
   // The browse view is kept mounted (hidden) once first opened, so this effect
   // only re-runs on an actual source/page/base change or a forced reload
   // (🌐 double-press / reloadKey) — returning to the view does NOT refetch.
+  // Set when a typed jump overshoots the last page: the site lands on its last
+  // page, we sync `page` to it — that state change must not refetch.
+  const skipFetch = useRef(false)
   useEffect(() => {
     if (favMode) return
+    if (skipFetch.current) {
+      skipFetch.current = false
+      return
+    }
     let alive = true
     setLoading(true)
     setError(null)
@@ -87,11 +119,18 @@ export default function TokiBrowse(): JSX.Element {
         if (!alive) return
         setItems(r.items)
         setHasNext(r.hasNext)
+        if (r.page !== page) {
+          skipFetch.current = true
+          setPage(r.page)
+        }
         // Use the genre chips the live page actually offers (per type).
         if (r.genres && r.genres.length) setGenres(['전체', ...r.genres.filter((g) => g !== '전체')])
       })
       .catch((e) => alive && setError(String(e?.message ?? e)))
-      .finally(() => alive && setLoading(false))
+      .finally(() => {
+        if (alive) setLoading(false)
+        refreshWaiters.current.splice(0).forEach((r) => r())
+      })
     return () => {
       alive = false
     }
@@ -160,27 +199,82 @@ export default function TokiBrowse(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorSeed?.nonce])
 
-  // Favorited toki series (url codes), rendered as cards like the live list.
+  // Local general-manga series (downloaded), keyed by normalized title — links a
+  // local series with its online manga-site counterpart (they share only the title).
+  const localSeries = useMemo(() => {
+    const m = new Map<string, { key: string; title: string; repId: string; artist: string | null }>()
+    for (const g of groupSeries(works.filter((w) => (w.library ?? 'hitomi') === 'normal'), roots)) {
+      const k = titleKey(g.title)
+      if (k && !m.has(k))
+        m.set(k, { key: g.key, title: g.title, repId: g.chapters[0]?.id ?? '', artist: g.chapters.find((c) => c.artist)?.artist ?? null })
+    }
+    return m
+  }, [works, roots])
+  // Title keys favorited locally (series hearts in the library).
+  const localFavKeys = useMemo(() => {
+    const set = new Set<string>()
+    for (const [k, v] of localSeries) if ((normalFavSeries ?? []).includes(v.key)) set.add(k)
+    return set
+  }, [localSeries, normalFavSeries])
+  const isFavTitle = (g: TokiSummary): boolean =>
+    !!onlineFavs[g.url]?.favorite || localFavKeys.has(titleKey(g.title))
+
+  // Unified favorites: online manga-site favorites + locally-favorited series that have
+  // no online favorite yet (url `local:<key>` → opens the downloaded series).
+  const normalFavAt = useStore((s) => s.settings.normalFavAt)
   const favGalleries = useMemo<TokiSummary[]>(() => {
-    const arr = Object.values(onlineFavs).filter((f) => f.favorite && /^https?:/.test(f.code))
-    arr.sort((a, b) =>
-      favSort === 'rank' ? b.rank - a.rank || b.addedAt - a.addedAt : b.addedAt - a.addedAt
-    )
-    return arr.map((f) => ({
-      url: f.code,
-      title: f.title,
-      thumb: f.thumbUrl,
-      artist: f.artist,
-      genre: null,
-      chapter: null
-    }))
-  }, [onlineFavs, favSort])
-  const gallery = favMode ? favGalleries : items
+    const rows: { g: TokiSummary; t: number; r: number }[] = []
+    const seen = new Set<string>()
+    for (const f of Object.values(onlineFavs)) {
+      if (!f.favorite || !isTokiCode(f.code)) continue
+      seen.add(titleKey(f.title))
+      rows.push({ g: { url: f.code, title: f.title, thumb: f.thumbUrl, artist: f.artist, genre: null, chapter: null }, t: f.addedAt, r: f.rank })
+    }
+    for (const k of localFavKeys) {
+      if (seen.has(k)) continue
+      const v = localSeries.get(k)
+      if (v)
+        rows.push({
+          g: { url: `local:${v.key}`, title: v.title, thumb: null, artist: v.artist, genre: null, chapter: null },
+          t: normalFavAt?.[v.key] ?? 0,
+          r: 0
+        })
+    }
+    rows.sort((x, y) => (favSort === 'rank' ? y.r - x.r || y.t - x.t : y.t - x.t))
+    return rows.map((x) => x.g)
+  }, [onlineFavs, favSort, localFavKeys, localSeries, normalFavAt])
+  // Excluded genres (right-click a genre chip): hide cards carrying any of them.
+  const excludeGenres = useStore((s) => s.settings.tokiExcludeGenres) ?? NO_GENRES
+  const toggleExclude = (g: string): void => {
+    const st = useStore.getState()
+    const cur = st.settings.tokiExcludeGenres ?? []
+    const next = cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g]
+    const s = { ...st.settings, tokiExcludeGenres: next }
+    useStore.setState({ settings: s })
+    void window.api.saveSettings(s)
+  }
+  const shownItems = useMemo(() => {
+    if (!excludeGenres.length) return items
+    const ex = new Set(excludeGenres)
+    return items.filter((it) => !(it.genre ?? '').split(',').some((g) => ex.has(g.trim())))
+  }, [items, excludeGenres])
+  // "온라인만" toggle hides the local-only entries.
+  const gallery = favMode
+    ? favOnlineOnly
+      ? // not downloaded yet: drop library-only entries and series already in the library
+        favGalleries.filter((g) => !g.url.startsWith('local:') && !localSeries.has(titleKey(g.title)))
+      : favGalleries
+    : shownItems
 
   const openSeries = async (
     g: TokiSummary,
     target: 'tab' | 'glance' | 'background' = 'tab'
   ): Promise<void> => {
+    if (g.url.startsWith('local:')) {
+      const v = localSeries.get(titleKey(g.title))
+      if (v?.repId) openTab(v.repId)
+      return
+    }
     setOpening(g.url)
     try {
       const chapters = await window.api.tokiChapters(g.url)
@@ -194,7 +288,10 @@ export default function TokiBrowse(): JSX.Element {
         window.api.tokiSeriesTitle(g.url).catch(() => null)
       ])
       if (author) setAuthors((a) => ({ ...a, [g.url]: author }))
-      const first = chapters[0]
+      // 이어보기: open the most recently read chapter instead of the first.
+      const st = useStore.getState()
+      const lastUrl = st.settings.resumeReading !== false ? lastReadKey(st.readProgress, chapters.map((c) => c.url)) : null
+      const first = chapters.find((c) => c.url === lastUrl) ?? chapters[0]
       const payload = {
         code: first.url,
         title: seriesTitle || g.title,
@@ -213,49 +310,88 @@ export default function TokiBrowse(): JSX.Element {
     }
   }
 
-  return (
-    <div className="browse" ref={rootRef}>
-      <div className="browse-head">
-        <div className="badge">Manga & Webtoon online</div>
-        <h1>일반 만화 온라인</h1>
+  // Phone tools: pull-to-refresh / + 새로고침 (page 1, fresh fetch) and
+  // 작품 선택 (download the picked series, one after another).
+  const browseView = useStore((s) => s.view === 'browse')
+  const sel = useSelection()
+  const refresh = (): Promise<void> =>
+    new Promise((res) => {
+      refreshWaiters.current.push(res)
+      if (rootRef.current) rootRef.current.scrollTop = 0
+      setPage(0)
+      setReloadKey((k) => k + 1)
+      setTimeout(res, 30000) // never spin forever
+    })
+  const ptrSpinner = usePullRefresh(rootRef, refresh, browseView)
+  const startDownload = useStore((s) => s.startDownload)
+  const downloadSelected = (): void => {
+    const picked = gallery.filter((g) => sel.selected.has(g.url))
+    sel.stop()
+    void (async () => {
+      for (const g of picked) await startDownload({ kind: 'toki', seriesUrl: g.url, title: g.title }).catch(() => null)
+    })()
+  }
 
+  return (
+    <div className="browse" ref={rootRef} onClickCapture={sel.capture}>
+      {ptrSpinner}
+      {sel.selecting && (
+        <SelectBar
+          count={sel.selected.size}
+          onAll={() => sel.setAll(gallery.map((g) => g.url))}
+          onNone={sel.clear}
+          onClose={sel.stop}
+          action={
+            <button className="sel-btn" title="다운로드" disabled={sel.selected.size === 0} onClick={downloadSelected}>
+              <DownloadIcon />
+            </button>
+          }
+        />
+      )}
+      <LibraryFab active={browseView && !sel.selecting} scrollRef={rootRef} onRefresh={() => void refresh()} onSelect={sel.start} />
+      <div className="browse-head">
+        {/* Phone: full-width search box (Enter searches) — 제목/작가 filter icon
+            at its left end, sort icon at its right end. */}
         <div className="search-row">
-          <select
-            className="sort"
-            value={sort}
-            onChange={(e) => {
-              const v = e.target.value as TokiSort
-              setSort(v)
-              applySource({ sort: v })
-            }}
-          >
-            {SORTS.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-          <select
-            className="sort"
-            value={field}
-            onChange={(e) => setField(e.target.value as 'title' | 'author')}
-          >
-            <option value="title">제목</option>
-            <option value="author">작가</option>
-          </select>
-          <input
-            className="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && run()}
-            placeholder={field === 'author' ? '작가 검색 후 Enter' : '제목 검색 후 Enter (비우면 둘러보기)'}
-          />
-          <button className="btn primary" onClick={run}>
-            적용
-          </button>
+          <div className="search-ac has-leading has-trailing">
+            <span className="search-leading">
+              <Dropdown<'title' | 'author'>
+                icon={<FilterAltIcon />}
+                title="검색 대상"
+                align="left"
+                value={field}
+                onChange={setField}
+                options={[
+                  ['title', '제목'],
+                  ['author', '작가']
+                ]}
+              />
+            </span>
+            <input
+              className="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && run()}
+              placeholder={field === 'author' ? '작가 검색' : '제목 검색'}
+            />
+            <SearchClear value={query} onClear={() => setQuery('')} />
+            <span className="search-trailing">
+              <Dropdown<TokiSort>
+                icon={<SortIcon />}
+                title="정렬"
+                value={sort}
+                onChange={(v) => {
+                  setSort(v)
+                  applySource({ sort: v })
+                }}
+                options={SORTS}
+              />
+            </span>
+          </div>
         </div>
 
         <div className="chips">
+          <BypassToggle onApplied={() => !favMode && setReloadKey((k) => k + 1)} />
           {TYPES.map(([v, l]) => (
             <button
               key={v}
@@ -273,41 +409,38 @@ export default function TokiBrowse(): JSX.Element {
             title="즐겨찾기"
             onClick={() => setFavMode((v) => !v)}
           >
-            ♥ 즐겨찾기
+            <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favGalleries.length}
           </button>
-          {favMode && (
-            <Dropdown<'rank' | 'recent'>
-              className="field sm"
-              value={favSort}
-              onChange={setFavSort}
-              options={[
-                ['rank', '평점 높은순'],
-                ['recent', '최근 추가순']
-              ]}
-            />
-          )}
+          {favMode && <OnlineOnlyToggle />}
+          {favMode && <FavSortSelect value={favSort} onChange={setFavSort} />}
+          {/* Site tools (인증창 / 주소 / 비상용) fold out from the chevron. */}
           <button
-            className="chip"
-            onClick={() => window.api.tokiOpenSite()}
+            className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
+            title={toolsOpen ? '접기' : '사이트 도구'}
+            onClick={() => setToolsOpen((v) => !v)}
           >
-            인증창
-          </button>
-          <button
-            className={`chip ${addrOpen ? 'active' : ''}`}
-            onClick={() => {
-              setAddr(tokiBaseUrl)
-              setAddrOpen((v) => !v)
-            }}
-          >
-            주소
-          </button>
-          <button
-            className="chip"
-            onClick={() => setBackupOpen(true)}
-          >
-            비상용
+            <ArrowDownIcon />
           </button>
         </div>
+        {toolsOpen && (
+          <div className="chips toki-tools">
+            <button className="chip" onClick={() => window.api.tokiOpenSite()}>
+              인증창
+            </button>
+            <button
+              className={`chip ${addrOpen ? 'active' : ''}`}
+              onClick={() => {
+                setAddr(tokiBaseUrl)
+                setAddrOpen((v) => !v)
+              }}
+            >
+              주소
+            </button>
+            <button className="chip" onClick={() => setBackupOpen(true)}>
+              비상용
+            </button>
+          </div>
+        )}
 
         {addrOpen && (
           <div className="search-row">
@@ -329,25 +462,52 @@ export default function TokiBrowse(): JSX.Element {
         )}
 
         {!favMode && (
+          <button className={`genre-more ${genreOpen ? 'open' : ''}`} onClick={() => setGenreOpen((v) => !v)}>
+            <span>{genreOpen ? '장르 접기' : genre && genre !== '전체' ? `장르 · ${genre}` : '장르 더보기'}</span>
+            <ArrowDownIcon />
+          </button>
+        )}
+        {!favMode && genreOpen && (
           <div className="genre-chips">
             {genres.map((g) => (
               <span
                 key={g}
-                className={`tag ${genre === g ? 'fav-tag' : ''}`}
+                className={`tag ${genre === g ? 'fav-tag' : ''} ${excludeGenres.includes(g) ? 'excluded' : ''}`}
+                title={g === '전체' ? undefined : excludeGenres.includes(g) ? '우클릭: 제외 해제' : '클릭: 이 장르만 · 우클릭: 이 장르 제외'}
                 onClick={() => {
                   setGenre(g)
                   applySource({ genre: g })
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  if (g !== '전체') toggleExclude(g)
                 }}
               >
                 {g}
               </span>
             ))}
+            {excludeGenres.length > 0 && (
+              <span className="genre-ex-info">
+                제외 {excludeGenres.length}개
+                {items.length > shownItems.length && ` · 이 쪽에서 ${items.length - shownItems.length}개 숨김`}
+                <span
+                  className="mini"
+                  onClick={() => {
+                    const s = { ...useStore.getState().settings, tokiExcludeGenres: [] }
+                    useStore.setState({ settings: s })
+                    void window.api.saveSettings(s)
+                  }}
+                >
+                  해제
+                </span>
+              </span>
+            )}
           </div>
         )}
       </div>
 
       {error && !favMode && <div className="warn err">{error} — 설정의 온라인 주소를 확인하세요.</div>}
-      {loading && !favMode && <div className="reader-loading">불러오는 중…</div>}
+      {loading && !favMode && <div className="reader-loading">{tokiStatus ?? '불러오는 중…'}</div>}
       {favMode && gallery.length === 0 && (
         <div className="empty">즐겨찾기한 일반 만화 온라인 작품이 없습니다.</div>
       )}
@@ -362,7 +522,12 @@ export default function TokiBrowse(): JSX.Element {
           return (
             <div
               key={g.url}
-              className="gcard"
+              className={`gcard${sel.selecting ? (sel.selected.has(g.url) ? ' sel-mode sel-on' : ' sel-mode') : ''}`}
+              data-sel={g.url}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setCardMenu({ x: e.clientX, y: e.clientY, g })
+              }}
               // Alt+click anywhere on the card → Glance (capture beats children).
               onClickCapture={(e) => {
                 if (window.getSelection()?.toString()) return e.stopPropagation()
@@ -373,93 +538,95 @@ export default function TokiBrowse(): JSX.Element {
                 }
               }}
             >
-              <div
-                onClick={() => openSeries(g)}
-                onMouseDown={(e) => {
-                  if (e.button === 1) e.preventDefault() // block middle-click autoscroll
-                }}
-                onAuxClick={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault()
-                    void openSeries(g, 'background')
-                  }
-                }}
-              >
-                <OnlineThumb
-                  thumbUrl={g.thumb}
-                  getImgs={async () => {
-                    // toki: series URL → first chapter → its images.
-                    const ch = await window.api.tokiChapters(g.url)
-                    return ch[0] ? getOnlineImages(ch[0].url) : []
+              {sel.selecting && <SelBox on={sel.selected.has(g.url)} />}
+              {/* Phone grid: cover left, text right, favorite | rating | download bar. */}
+              <div className="tile-body">
+                <div
+                  className="gcard-thumb-wrap"
+                  onClick={() => openSeries(g)}
+                  onMouseDown={(e) => {
+                    if (e.button === 1) e.preventDefault() // block middle-click autoscroll
+                  }}
+                  onAuxClick={(e) => {
+                    if (e.button === 1) {
+                      e.preventDefault()
+                      void openSeries(g, 'background')
+                    }
                   }}
                 >
-                  {opening === g.url && <div className="gcard-loading">여는 중…</div>}
-                </OnlineThumb>
-              </div>
-              <div className="gcard-foot">
-                <Stars rank={f?.rank ?? 0} onChange={(r) => setOnlineRank(g.url, r, favMeta(g, artist))} size={15} />
-                <span
-                  className={`gcard-heart ${f?.favorite ? 'on' : ''}`}
-                  title="즐겨찾기"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    toggleOnlineFav(g.url, favMeta(g, artist))
-                  }}
-                >
-                  {f?.favorite ? '♥' : '♥'}
-                </span>
-              </div>
-              <div
-                className="gcard-title selectable"
-                onClick={() => openSeries(g)}
-              >
-                {g.title}
-              </div>
-              <div className="gcard-meta">
-                {g.chapter && <span>{g.chapter}</span>}
-                {g.genre && <div className="gcard-genre">{g.genre}</div>}
-                {artist && (
-                  <div
-                    className="gcard-artist"
-                    title={`작가 "${artist}" 검색`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      searchAuthor(artist)
+                  <OnlineThumb
+                    thumbUrl={g.thumb}
+                    localWorkId={localSeries.get(titleKey(g.title))?.repId || undefined}
+                    getImgs={async () => {
+                      // manga-site: series URL → first chapter → its images.
+                      const ch = await window.api.tokiChapters(g.url)
+                      return ch[0] ? getOnlineImages(ch[0].url) : []
                     }}
                   >
-                    {artist}
+                    {opening === g.url && <div className="gcard-loading">여는 중…</div>}
+                  </OnlineThumb>
+                </div>
+                <div className="tile-info" onClick={() => openSeries(g)}>
+                  <div className="gcard-title selectable">{g.title}</div>
+                  <div className="gcard-meta">
+                    {g.chapter && <span>{g.chapter}</span>}
+                    {g.genre && <div className="gcard-genre">{g.genre}</div>}
                   </div>
-                )}
+                  {artist && (
+                    <MoreClamp className="gcard-meta gcard-artist-line">
+                      <ArtistLinks artist={artist} onPick={(a) => searchAuthor(a)} onMenu={() => {}} />
+                    </MoreClamp>
+                  )}
+                </div>
               </div>
-              <button
-                className="gcard-dl"
-                title="다운로드"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setDlSeries({ url: g.url, title: g.title })
-                }}
-              >
-                ⬇ 다운로드
-              </button>
+              <TileBar
+                fav={
+                  <span
+                    className={`seg-heart ${isFavTitle(g) ? 'on' : ''}`}
+                    title="즐겨찾기"
+                    onClick={() =>
+                      void toggleNormalUnifiedFav({
+                        title: g.title,
+                        url: g.url.startsWith('local:') ? undefined : g.url,
+                        meta: favMeta(g, artist)
+                      })
+                    }
+                  >
+                    <FavoriteIcon filled={isFavTitle(g)} />
+                  </span>
+                }
+                rating={<Stars rank={f?.rank ?? 0} onChange={(r) => setOnlineRank(g.url, r, favMeta(g, artist))} />}
+                action={
+                  <span className="seg-dl" title="다운로드" onClick={() => setDlSeries({ url: g.url, title: g.title })}>
+                    <DownloadIcon />
+                  </span>
+                }
+              />
             </div>
           )
         })}
       </div>
 
       {!favMode && (
-        <div className="pager">
-          <button className="btn" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
-            ‹ 이전
-          </button>
-          <span className="pager-cur">{page + 1}</span>
-          <button className="btn" disabled={!hasNext} onClick={() => setPage((p) => p + 1)}>
-            다음 ›
-          </button>
-        </div>
+        // Total page count isn't exposed by the site → no "/ N"; type any page
+        // and Enter (overshooting lands on the last page).
+        <Pager page={page} lastPage={-1} hasNext={hasNext} onPage={(p) => setPage(Math.max(0, p))} />
       )}
 
       {dlSeries && <TokiDownloadModal series={dlSeries} onClose={() => setDlSeries(null)} />}
       {backupOpen && <TokiBackupModal onClose={() => setBackupOpen(false)} />}
+      {cardMenu && (
+        <ContextMenu
+          x={cardMenu.x}
+          y={cardMenu.y}
+          items={[
+            { label: '새 탭에서 열기', onClick: () => void openSeries(cardMenu.g) },
+            { label: '백그라운드에서 열기', onClick: () => void openSeries(cardMenu.g, 'background') },
+            { label: '제목 복사', onClick: () => void window.api.clipboardWriteText(cardMenu.g.title) }
+          ]}
+          onClose={() => setCardMenu(null)}
+        />
+      )}
     </div>
   )
 }

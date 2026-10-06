@@ -6,9 +6,11 @@
     "moduleResolution": "Bundler",
     "esModuleInterop": true,
     "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "skipLibCheck": true,
-    "types": ["node", "electron-vite/node"],
+    "types": ["node"],
     "outDir": "./out/types-node"
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "electron.vite.config.ts"]
+  "include": ["vite.config.ts", "capacitor.config.ts"]
 }

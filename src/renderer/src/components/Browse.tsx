@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { useLibraryCodes, useStore } from '../store'
 import type { GallerySummary, OnlineSort, SearchSort } from '../../../shared/ipc'
 import Pager from './Pager'
 import TagSearchInput from './TagSearchInput'
@@ -9,12 +9,21 @@ import TagList from './TagList'
 import { getOnlineImages } from '../images'
 import CopyCode from './CopyCode'
 import ContextMenu from './ContextMenu'
+import { useTagMenu } from './useTagMenu'
 import Stars from './Stars'
 import { favMeta, tagTokens, tagToken, tokenLabel, FAV_BASE } from '../util'
+import { useFavSummaries } from '../favSummaries'
 import Caret from './Caret'
 import Dropdown from './Dropdown'
-import { CheckIcon, PauseIcon, PlayIcon } from './icons'
+import { CheckIcon, PauseIcon, PlayIcon, SyncIcon, GridIcon, MenuIcon, FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon } from './icons'
+import { OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
+import { hitomiFavCodes, hitomiFavGalleries } from '../favorites'
 import type { OnlineGallery } from '../store'
+import MoreClamp from './MoreClamp'
+import { ArtistLinks } from './ArtistLinks'
+import TileBar, { CompactBar } from './TileBar'
+import CardMore from './CardMore'
+import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab } from './libraryTools'
 
 const LANGS = [
   ['all', '전체'],
@@ -40,21 +49,19 @@ export default function Browse(): JSX.Element {
   const openSplitOnline = useStore((s) => s.openSplitOnline)
   const splitOpen = useStore((s) => !!s.tabs.find((t) => t.id === s.activeTabId)?.split)
   const onlineFavs = useStore((s) => s.onlineFavs)
-  const toggleOnlineFav = useStore((s) => s.toggleOnlineFav)
+  const toggleUnifiedFav = useStore((s) => s.toggleUnifiedFav)
   const setOnlineRank = useStore((s) => s.setOnlineRank)
   const startDownload = useStore((s) => s.startDownload)
   const stopDownload = useStore((s) => s.stopDownload)
   const retryDownload = useStore((s) => s.retryDownload)
   const pushSearchHistory = useStore((s) => s.pushSearchHistory)
-  const searchLocal = useStore((s) => s.searchLocal)
-  const addFavoriteTag = useStore((s) => s.addFavoriteTag)
   const searchHistory = useStore((s) => s.settings.searchHistory ?? [])
   const favoriteSearches = useStore((s) => s.settings.favoriteSearches ?? [])
   const favoriteTags = useStore((s) => s.settings.favoriteTags ?? [])
   const downloads = useStore((s) => s.downloads)
   const works = useStore((s) => s.works)
   const [favMode, setFavMode] = useState(false)
-  const [favSort, setFavSort] = useState<'rank' | 'recent'>('rank')
+  const [favSort, setFavSort] = useState<'rank' | 'recent'>('recent')
   const onlineFavLists = useStore((s) => s.settings.onlineFavLists ?? [])
   const pageSize = useStore((s) => s.settings.pageSize || 50)
   const marginWidth = useStore((s) => s.settings.marginWidth)
@@ -78,6 +85,7 @@ export default function Browse(): JSX.Element {
   // Bumped to force a fresh fetch even when source/page are unchanged (used by
   // the 🌐 double-press reset when already on the first page).
   const [reloadKey, setReloadKey] = useState(0)
+  const refreshWaiters = useRef<(() => void)[]>([]) // pull-to-refresh waits for the fetch
   // Tag autocomplete for the search box (replaces the old tag-builder row).
   const libTokens = useMemo(() => tagTokens(works), [works])
   const [lang, setLang] = useState<string>(activeSource.language ?? 'all')
@@ -94,7 +102,19 @@ export default function Browse(): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; g: OnlineGallery } | null>(null)
-  const [crossMenu, setCrossMenu] = useState<{ x: number; y: number; query: string; raw: string } | null>(null)
+  // List view: which card's 다른 언어판 panel is open (like the local 한국어 ▾).
+  const [edOpen, setEdOpen] = useState<string | null>(null)
+  const { openTagMenu, tagMenu } = useTagMenu('local')
+
+  // Descending sort must reverse the WHOLE list, not just the visible page, so
+  // page N (user-facing) maps to the mirrored source page (lastPage - N) and its
+  // items are reversed. Only for the online browse (favorites paginate locally).
+  // total is 0 until the first fetch; then fetchPage recomputes and self-corrects.
+  const lastSrcPage = Math.max(0, Math.ceil(total / pageSize) - 1)
+  const fetchPage = !favMode && reverse && total > 0 ? Math.max(0, lastSrcPage - page) : page
+  // Reset the known total when the source changes so the reverse page-mirror
+  // doesn't briefly use the previous source's page count.
+  useEffect(() => setTotal(0), [activeSource])
 
   // The browse view is kept mounted (hidden) once first opened, so this effect
   // only re-runs on an actual source/page change or a forced reload (🌐 double-
@@ -105,18 +125,21 @@ export default function Browse(): JSX.Element {
     setError(null)
     setItems([]) // drop the previous page so it doesn't linger under the loader
     window.api
-      .hitomiList(activeSource, page)
+      .hitomiList(activeSource, fetchPage)
       .then((r) => {
         if (!alive) return
         setItems(r.items)
         setTotal(r.total)
       })
       .catch((e) => alive && setError(String(e?.message ?? e)))
-      .finally(() => alive && setLoading(false))
+      .finally(() => {
+        if (alive) setLoading(false)
+        refreshWaiters.current.splice(0).forEach((r) => r())
+      })
     return () => {
       alive = false
     }
-  }, [activeSource, page, reloadKey])
+  }, [activeSource, fetchPage, reloadKey])
 
   // Comma-separated tokens so multi-word tags (e.g. "female:sole female") survive.
   // A lone multi-word token (no comma to separate it) is quoted so the backend
@@ -195,25 +218,18 @@ export default function Browse(): JSX.Element {
 
   const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1)
 
-  // "내 즐겨찾기" view: render the persisted online favorites instead of hitomi
+  // "내 즐겨찾기" view: render the persisted online favorites instead of doujin
   // results, sorted by rank or recency.
-  const favGalleries = useMemo<GallerySummary[]>(() => {
-    // Numeric codes only — http codes belong to the general-manga (toki) mode.
-    const arr = Object.values(onlineFavs).filter((f) => f.favorite && !/^https?:/.test(f.code))
-    arr.sort((a, b) =>
-      favSort === 'rank' ? b.rank - a.rank || b.addedAt - a.addedAt : b.addedAt - a.addedAt
-    )
-    return arr.map((f) => ({
-      code: f.code,
-      title: f.title,
-      artists: f.artist ? [f.artist] : [],
-      tags: [],
-      language: f.language,
-      type: null,
-      pageCount: f.pageCount,
-      thumbUrl: f.thumbUrl
-    }))
-  }, [onlineFavs, favSort])
+  // Favorites are stored without tags → fetch their gallery summaries (cached).
+  const favCodes = useMemo(() => hitomiFavCodes(onlineFavs), [onlineFavs])
+  const sumVer = useFavSummaries(favMode ? favCodes : [])
+  // Unified favorites (online + locally favorited coded works), sorted by
+  // favorite time or rating. sumVer re-runs it as summaries (tags) arrive.
+  const favGalleries = useMemo(
+    () => hitomiFavGalleries(onlineFavs, works, favSort),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onlineFavs, favSort, works, sumVer]
+  )
   // Checked online lists → fetch their gallery summaries (union of codes). '기본'
   // has no codes (it's the app's own online favorites), so it isn't fetched.
   useEffect(() => {
@@ -245,21 +261,25 @@ export default function Browse(): JSX.Element {
     const seen = new Set<string>()
     return [...base, ...listGallery].filter((g) => !seen.has(g.code) && seen.add(g.code))
   }, [favMode, favSelected, items, favGalleries, listGallery])
+  // Library lookups by gallery code (downloaded? local cover? local heart?).
+  const { libCodes, codeWorkId, localFavCodes } = useLibraryCodes()
 
-  // Favorites view paginates client-side (items-per-page is configurable).
-  const favLastPage = Math.max(0, Math.ceil(gallery.length / pageSize) - 1)
-  useEffect(() => setFavPage(0), [favMode, favSort, favSelected, gallery.length])
-  const base = favMode ? gallery : items
+  // Online favorites view: "ALL" (unified: online favs + local favorites) vs
+  // "온라인만" (only actual online favorites, hiding local-only merged entries).
+  const favOnlineOnly = useStore((s) => s.favOnlineOnly)
+  const setOnlineListFav = useStore((s) => s.setOnlineListFav)
+  // Remember whether the reader's left online list should show favorites: it
+  // mirrors the view the user opened a work from (favorites vs plain browse).
+  useEffect(() => setOnlineListFav(favMode), [favMode, setOnlineListFav])
+  const base = favMode
+    ? favOnlineOnly
+      ? gallery.filter((g) => !libCodes.has(g.code)) // not downloaded yet
+      : gallery
+    : items
+  const favLastPage = Math.max(0, Math.ceil(base.length / pageSize) - 1)
+  useEffect(() => setFavPage(0), [favMode, favSort, favSelected, base.length])
   const ordered = reverse ? [...base].reverse() : base
   const shown = favMode ? ordered.slice(favPage * pageSize, favPage * pageSize + pageSize) : ordered
-
-  // Codes already present in the local library — regardless of whether they were
-  // downloaded in-app or moved in from elsewhere. Used to show a card as "already
-  // downloaded" (✓ + full bar) even without an active download job.
-  const libCodes = useMemo(
-    () => new Set(works.map((w) => w.code).filter(Boolean) as string[]),
-    [works]
-  )
 
   // Direct download from a card (feature 10). Progress shows in the shared
   // download manager (fed by the hitomiProgress channel).
@@ -273,16 +293,55 @@ export default function Browse(): JSX.Element {
     }
   }
 
-  return (
-    <div className="browse" ref={rootRef} style={{ ['--mw' as string]: `${marginWidth}px` }}>
-      <div className="browse-head">
-        <div className="badge">Doujinshi online</div>
-        <h1>온라인 둘러보기</h1>
+  // Phone tools: pull-to-refresh / + 새로고침 (page 1, fresh fetch) and
+  // 작품 선택 (download the picked galleries, one after another).
+  const browseView = useStore((s) => s.view === 'browse')
+  const sel = useSelection()
+  const refresh = (): Promise<void> =>
+    new Promise((res) => {
+      refreshWaiters.current.push(res)
+      if (rootRef.current) rootRef.current.scrollTop = 0
+      setBrowsePage(0)
+      setReloadKey((k) => k + 1)
+      setTimeout(res, 15000) // never spin forever
+    })
+  const ptrSpinner = usePullRefresh(rootRef, refresh, browseView)
+  const downloadSelected = (): void => {
+    const picked = shown.filter((g) => sel.selected.has(g.code))
+    sel.stop()
+    void (async () => {
+      for (const g of picked) await download(g.code, g.title)
+    })()
+  }
 
+  return (
+    <div className="browse" ref={rootRef} style={{ ['--mw' as string]: `${marginWidth}px` }} onClickCapture={sel.capture}>
+      {ptrSpinner}
+      {sel.selecting && (
+        <SelectBar
+          count={sel.selected.size}
+          onAll={() => sel.setAll(shown.map((g) => g.code))}
+          onNone={sel.clear}
+          onClose={sel.stop}
+          action={
+            <button className="sel-btn" title="다운로드" disabled={sel.selected.size === 0} onClick={downloadSelected}>
+              <DownloadIcon />
+            </button>
+          }
+        />
+      )}
+      <LibraryFab active={browseView && !sel.selecting} scrollRef={rootRef} onRefresh={() => void refresh()} onSelect={sel.start} />
+      <div className="browse-head">
+        {/* Phone: full-width search box (Enter searches) — 언어 filter icon at its
+            left end, sort icon at its right end. */}
         <div className="search-row">
-          <Dropdown<string> className="field" value={lang} onChange={setLang} options={LANGS} />
-          <Dropdown<OnlineSort> className="field" value={sort} onChange={changeSort} options={SORTS} />
           <TagSearchInput
+            leading={
+              <Dropdown<string> icon={<FilterAltIcon />} title="언어" align="left" value={lang} onChange={setLang} options={LANGS} />
+            }
+            trailing={
+              <Dropdown<OnlineSort> icon={<SortIcon />} title="정렬" value={sort} onChange={changeSort} options={SORTS} />
+            }
             value={query}
             onChange={setQuery}
             onEnter={() => runSearch()}
@@ -306,18 +365,8 @@ export default function Browse(): JSX.Element {
                 return p ? `${p}, ${fav}` : fav
               })
             }}
-            placeholder="제목, 코드, 태그, artist:작가명 / tag:태그명 으로 검색 후 Enter"
+            placeholder="검색"
           />
-          <button className="btn primary" onClick={() => runSearch()}>
-            검색
-          </button>
-          <button
-            className="btn"
-            title="랜덤 페이지"
-            onClick={() => lastPage > 0 && setBrowsePage(Math.floor(Math.random() * (lastPage + 1)))}
-          >
-            🎲
-          </button>
         </div>
 
         <div className="chips">
@@ -326,18 +375,7 @@ export default function Browse(): JSX.Element {
             onClick={() => setBrowseLayout((l) => (l === 'grid' ? 'list' : 'grid'))}
             title={browseLayout === 'grid' ? '격자형' : '목록형'}
           >
-            {browseLayout === 'grid' ? (
-              <span className="ic-grid" aria-hidden>
-                <i />
-                <i />
-                <i />
-                <i />
-              </span>
-            ) : (
-              <span className="ic-menu" aria-hidden>
-                ☰
-              </span>
-            )}
+            {browseLayout === 'grid' ? <GridIcon /> : <MenuIcon />}
           </button>
           <button
             className="chip layout-toggle"
@@ -365,7 +403,7 @@ export default function Browse(): JSX.Element {
                 }}
                 title="즐겨찾기"
               >
-                ♥ 즐겨찾기
+                <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favGalleries.length}
               </span>
               <span className="fav-caret" onClick={() => setFavPanel((v) => !v)} title="즐겨찾기 목록">
                 <span className={`dt ${favPanel ? 'up' : ''}`} />
@@ -392,17 +430,8 @@ export default function Browse(): JSX.Element {
               </div>
             )}
           </div>
-          {favMode && (
-            <Dropdown<'rank' | 'recent'>
-              className="field sm"
-              value={favSort}
-              onChange={setFavSort}
-              options={[
-                ['rank', '평점 높은순'],
-                ['recent', '최근 추가순']
-              ]}
-            />
-          )}
+          {favMode && <OnlineOnlyToggle />}
+          {favMode && <FavSortSelect value={favSort} onChange={setFavSort} />}
         </div>
       </div>
 
@@ -421,7 +450,7 @@ export default function Browse(): JSX.Element {
         </div>
       )}
 
-      {error && !favMode && <div className="warn err">{error} — hitomi 접속/태그 경로를 확인하세요.</div>}
+      {error && !favMode && <div className="warn err">{error} — 온라인 접속/태그 경로를 확인하세요.</div>}
       {loading && !favMode && <div className="reader-loading">불러오는 중…</div>}
       {favMode && listLoading && <div className="reader-loading">목록 불러오는 중…</div>}
       {favMode && !listLoading && gallery.length === 0 && (
@@ -430,7 +459,9 @@ export default function Browse(): JSX.Element {
         </div>
       )}
 
-      <div className={`browse-grid ${browseLayout === 'list' ? 'list' : ''}`}>
+      {/* Phone: 목록형 = wide cards (cover + text, 더보기 preview); 격자형 =
+          2-column compact cards. */}
+      <div className={`browse-grid ${browseLayout === 'grid' ? 'compact-grid' : ''}`}>
         {shown.map((g) => {
           const f = onlineFavs[g.code]
           const d = dlOf(g.code)
@@ -442,10 +473,69 @@ export default function Browse(): JSX.Element {
           const dlErr = phase === 'error'
           const dlPct = d?.total ? Math.round((d.done / d.total) * 100) : 0
           const have = libCodes.has(g.code) || phase === 'done'
+          const thumb = (
+            <OnlineThumb getImgs={() => getOnlineImages(g.code)} thumbUrl={g.thumbUrl} localWorkId={codeWorkId.get(g.code)}>
+              {(dlActive || dlPaused || have) && (
+                <div className="gcard-dlbar">
+                  <div
+                    className={`gcard-dlbar-fill ${have ? 'done' : ''} ${dlPaused ? 'paused' : ''}`}
+                    style={{ width: have ? '100%' : `${dlPct}%` }}
+                  />
+                </div>
+              )}
+            </OnlineThumb>
+          )
+          const stars = (size?: number): JSX.Element => (
+            <Stars rank={f?.rank ?? 0} onChange={(r) => setOnlineRank(g.code, r, favMeta(g))} size={size} />
+          )
+          const heart = (
+            <span
+              className={`seg-heart ${f?.favorite || localFavCodes.has(g.code) ? 'on' : ''}`}
+              title="즐겨찾기"
+              onClick={() => toggleUnifiedFav(g.code, favMeta(g))}
+            >
+              <FavoriteIcon filled={!!f?.favorite || localFavCodes.has(g.code)} />
+            </span>
+          )
+          const dlBtn = (
+            <span
+              className={`seg-dl ${have ? 'ok' : ''} ${dlErr ? 'err' : ''} ${dlPaused ? 'paused' : ''}`}
+              title={
+                dlActive
+                  ? `다운로드 중 ${dlPct}% — 클릭 시 일시정지`
+                  : dlPaused
+                    ? `일시정지됨 (${dlPct}%) — 클릭 시 이어받기`
+                    : dlErr
+                      ? '실패 — 클릭 시 다시 시도'
+                      : have
+                        ? '이미 라이브러리에 있음 (다시 받기)'
+                        : '이 작품 다운로드'
+              }
+              onClick={() => {
+                if (dlActive) stopDownload(g.code)
+                else if (dlPaused || dlErr) retryDownload(g.code)
+                else download(g.code, g.title)
+              }}
+            >
+              {dlActive ? <PauseIcon /> : dlPaused ? <PlayIcon /> : have ? <CheckIcon /> : dlErr ? <SyncIcon /> : <DownloadIcon />}
+            </span>
+          )
+          const title = <div className="gcard-title selectable">{g.title}</div>
+          const tagList = (grid: boolean): JSX.Element => (
+            <TagList
+              tags={g.tags.filter((t) => !t.startsWith('language:'))}
+              favoriteTags={favoriteTags}
+              onTagClick={(t) => addToken(tagToken(t))}
+              onTagContext={(t, e) => openTagMenu(e, tagToken(t), t)}
+              lines={grid ? 4 : undefined}
+              fluid={grid}
+            />
+          )
           return (
+          <Fragment key={g.code}>
           <div
-            key={g.code}
-            className="gcard"
+            className={`gcard${browseLayout === 'grid' ? ' ctile' : ''}${sel.selecting ? (sel.selected.has(g.code) ? ' sel-mode sel-on' : ' sel-mode') : ''}`}
+            data-sel={g.code}
             onClickCapture={(e) => {
               if (window.getSelection()?.toString()) return e.stopPropagation()
               if (e.altKey) {
@@ -473,93 +563,54 @@ export default function Browse(): JSX.Element {
               })
             }}
           >
-            <OnlineThumb getImgs={() => getOnlineImages(g.code)} thumbUrl={g.thumbUrl}>
-              {(dlActive || dlPaused || have) && (
-                <div className="gcard-dlbar">
-                  <div
-                    className={`gcard-dlbar-fill ${have ? 'done' : ''} ${dlPaused ? 'paused' : ''}`}
-                    style={{ width: have ? '100%' : `${dlPct}%` }}
+            {sel.selecting && <SelBox on={sel.selected.has(g.code)} />}
+            {browseLayout === 'grid' ? (
+              // 격자형: cover, title, [code] · artist, 즐겨찾기 | 다운로드.
+              <>
+                <div className="ctile-thumb">{thumb}</div>
+                <div className="ctile-title">{g.title}</div>
+                <div className="ctile-meta">{[`[${g.code}]`, g.artists.join(', ')].filter(Boolean).join(' · ')}</div>
+                <CompactBar fav={heart} action={dlBtn} />
+              </>
+            ) : (
+              // 목록형: thumb left, text right, rating | 더보기 | favorite · download bar.
+              <>
+                <div className="tile-body">
+                  {thumb}
+                  <div className="tile-info">
+                    {title}
+                    <div className="gcard-meta">
+                      {g.pageCount}p · <CopyCode code={g.code} />
+                      {g.language && ` · ${g.language}`}
+                    </div>
+                    {g.artists.length > 0 && (
+                      <MoreClamp className="gcard-meta gcard-artist-line">
+                        <ArtistLinks
+                          artist={g.artists.join(', ')}
+                          onPick={(a) => runSearch(a.includes(' ') ? `artist:"${a}"` : `artist:${a}`)}
+                          onMenu={(a, e) => openTagMenu(e, tagToken(`artist:${a}`), a)}
+                        />
+                      </MoreClamp>
+                    )}
+                    <div className="gcard-tags">{tagList(true)}</div>
+                  </div>
+                </div>
+                <TileBar
+                  fav={heart}
+                  rating={stars()}
+                  action={dlBtn}
+                  more={{ open: edOpen === g.code, onToggle: () => setEdOpen((c) => (c === g.code ? null : g.code)) }}
+                />
+                {edOpen === g.code && (
+                  <CardMore
+                    getImgs={() => getOnlineImages(g.code)}
+                    editions={{ code: g.code, artist: g.artists[0] ?? null, title: g.title, language: g.language }}
                   />
-                </div>
-              )}
-            </OnlineThumb>
-            <div className="gcard-foot">
-              <Stars rank={f?.rank ?? 0} onChange={(r) => setOnlineRank(g.code, r, favMeta(g))} size={15} />
-              <span className="seg" style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-                <span
-                  className={`seg-heart ${f?.favorite ? 'on' : ''}`}
-                  title="즐겨찾기"
-                  onClick={() => toggleOnlineFav(g.code, favMeta(g))}
-                >
-                  ♥
-                </span>
-                <span
-                  className={`seg-dl ${have ? 'ok' : ''} ${dlErr ? 'err' : ''} ${dlPaused ? 'paused' : ''}`}
-                  title={
-                    dlActive
-                      ? `다운로드 중 ${dlPct}% — 클릭 시 일시정지`
-                      : dlPaused
-                        ? `일시정지됨 (${dlPct}%) — 클릭 시 이어받기`
-                        : dlErr
-                          ? '실패 — 클릭 시 다시 시도'
-                          : have
-                            ? '이미 라이브러리에 있음 (다시 받기)'
-                            : '이 작품 다운로드'
-                  }
-                  onClick={() => {
-                    if (dlActive) stopDownload(g.code)
-                    else if (dlPaused || dlErr) retryDownload(g.code)
-                    else download(g.code, g.title)
-                  }}
-                >
-                  {dlActive ? (
-                    <PauseIcon />
-                  ) : dlPaused ? (
-                    <PlayIcon />
-                  ) : have ? (
-                    <CheckIcon />
-                  ) : dlErr ? (
-                    '↻'
-                  ) : (
-                    '⬇'
-                  )}
-                </span>
-              </span>
-            </div>
-            <div className="gcard-title selectable">{g.title}</div>
-            <div className="gcard-meta">
-              {g.pageCount}p · <CopyCode code={g.code} />
-              {g.language && ` · ${g.language}`}
-              {g.artists.length > 0 && ' · '}
-              {g.artists.length > 0 && (
-                <div
-                  className="gcard-artist"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const a = g.artists[0]
-                    runSearch(a.includes(' ') ? `artist:"${a}"` : `artist:${a}`)
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    setCrossMenu({ x: e.clientX, y: e.clientY, query: tagToken(`artist:${g.artists[0]}`), raw: g.artists[0] })
-                  }}
-                >
-                  {g.artists.join(', ')}
-                </div>
-              )}
-            </div>
-            <div className="gcard-tags">
-              <TagList
-                tags={g.tags.filter((t) => !t.startsWith('language:'))}
-                favoriteTags={favoriteTags}
-                onTagClick={(t) => addToken(tagToken(t))}
-                onTagContext={(t, e) => setCrossMenu({ x: e.clientX, y: e.clientY, query: tagToken(t), raw: t })}
-                singleLine={browseLayout === 'list'}
-                max={6}
-              />
-            </div>
+                )}
+              </>
+            )}
           </div>
+          </Fragment>
           )
         })}
       </div>
@@ -577,22 +628,13 @@ export default function Browse(): JSX.Element {
             { label: '새 탭에서 열기', onClick: () => openOnline(menu.g) },
             { label: '백그라운드에서 열기', onClick: () => openOnlineBackground(menu.g) },
             { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplitOnline(menu.g) },
-            { label: '⬇ 다운로드', onClick: () => download(menu.g.code, menu.g.title) }
+            { label: '다운로드', onClick: () => download(menu.g.code, menu.g.title) },
+            { label: '제목 복사', onClick: () => void window.api.clipboardWriteText(menu.g.title) }
           ]}
           onClose={() => setMenu(null)}
         />
       )}
-      {crossMenu && (
-        <ContextMenu
-          x={crossMenu.x}
-          y={crossMenu.y}
-          items={[
-            { label: '로컬에서 검색', onClick: () => searchLocal(crossMenu.query) },
-            { label: '즐겨찾는 태그로 추가', onClick: () => addFavoriteTag(crossMenu.raw) }
-          ]}
-          onClose={() => setCrossMenu(null)}
-        />
-      )}
+      {tagMenu}
     </div>
   )
 }

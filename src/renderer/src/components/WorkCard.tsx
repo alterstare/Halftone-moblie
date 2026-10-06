@@ -3,35 +3,30 @@ import type { JSX } from 'react'
 import type { Work } from '../../../shared/types'
 import { useStore } from '../store'
 import { allTags, tagToken } from '../util'
-import { invalidate } from '../images'
 import Thumb from './Thumb'
+import { ArtistLinks } from './ArtistLinks'
 import Stars from './Stars'
 import TagList from './TagList'
-import KoreanFinder from './KoreanFinder'
+import EditionsPanel from './EditionsPanel'
 import FavGroup from './FavGroup'
-import ContextMenu from './ContextMenu'
+import { useWorkCard } from './useWorkCard'
+import { useSel } from './libraryTools'
 import ConfirmModal from './ConfirmModal'
 
+// List row for a local work on the home library: thumb, title + favorite,
+// meta line (pages · code · language · artist), tags, and the action row
+// (rating, 메타 채우기, folder, delete, editions finder). Card behavior
+// (clicks, favorite, tags, menus) is shared with the grid tile via useWorkCard.
 export default function WorkCard({ work }: { work: Work }): JSX.Element {
-  const openTab = useStore((s) => s.openTab)
-  const openTabBackground = useStore((s) => s.openTabBackground)
-  const openGlance = useStore((s) => s.openGlance)
-  const openSplit = useStore((s) => s.openSplit)
-  const startDownload = useStore((s) => s.startDownload)
-  const searchOnline = useStore((s) => s.searchOnline)
-  const addFavoriteTag = useStore((s) => s.addFavoriteTag)
-  const splitOpen = useStore((s) => !!s.tabs.find((t) => t.id === s.activeTabId)?.split)
   const setFilter = useStore((s) => s.setFilter)
   const addSearchToken = useStore((s) => s.addSearchToken)
   const upsertWork = useStore((s) => s.upsertWork)
   const removeWork = useStore((s) => s.removeWork)
   const favoriteTags = useStore((s) => s.settings.favoriteTags)
-  const [adding, setAdding] = useState(false)
-  const [newTag, setNewTag] = useState('')
+  const c = useWorkCard(work)
+  const sel = useSel(work.id)
   const [findKo, setFindKo] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [crossMenu, setCrossMenu] = useState<{ x: number; y: number; query: string; raw: string } | null>(null)
   const [confirmDel, setConfirmDel] = useState(false)
 
   const copyCode = (e: React.MouseEvent): void => {
@@ -44,62 +39,15 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
 
   const tags = allTags(work)
 
-  const toggleFav = async (e: React.MouseEvent): Promise<void> => {
-    e.stopPropagation()
-    const updated = await window.api.setFavorite(work.id, !work.favorite)
-    invalidate(work.id)
-    upsertWork(updated)
-  }
-
-  const setRank = async (rank: number): Promise<void> => {
-    upsertWork(await window.api.setRank(work.id, rank))
-  }
-
-  const addTag = async (): Promise<void> => {
-    const t = newTag.trim()
-    if (t) upsertWork(await window.api.addManualTag(work.id, t))
-    setNewTag('')
-    setAdding(false)
-  }
-
-  const removeTag = async (tag: string): Promise<void> => {
-    upsertWork(await window.api.removeManualTag(work.id, tag))
-  }
-
   return (
     <div className="work-card-wrap">
-    <div
-      className="work-card"
-      // Alt+click anywhere (capture) → Glance, before child (artist/tag) handlers.
-      onClickCapture={(e) => {
-        // Dragging to select/copy text (e.g. the title) must not open a tab.
-        if (window.getSelection()?.toString()) return e.stopPropagation()
-        if (e.altKey) {
-          e.preventDefault()
-          e.stopPropagation()
-          openGlance({ workId: work.id })
-        }
-      }}
-      onClick={() => openTab(work.id)}
-      onMouseDown={(e) => {
-        if (e.button === 1) e.preventDefault() // block middle-click autoscroll
-      }}
-      onAuxClick={(e) => {
-        if (e.button === 1) {
-          e.preventDefault()
-          openTabBackground(work.id)
-        }
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        setMenu({ x: e.clientX, y: e.clientY })
-      }}
-    >
+    <div className={`work-card${sel.cls}`} {...c.cardEvents} {...sel.attr}>
+      {sel.box}
       <Thumb workId={work.id} />
       <div className="work-info">
         <div className="work-title-row">
           <span className="work-title selectable">{work.title}</span>
-          <FavGroup favorite={work.favorite} onToggle={toggleFav} work={work} />
+          <FavGroup favorite={c.isFav} onToggle={c.toggleFav} work={work} />
         </div>
 
         <div className="work-meta">
@@ -114,21 +62,14 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
           )}
           {work.language && ` · ${work.language}`}
           {work.artist && (
-            <span
-              className="artist-link"
-              onClick={(e) => {
-                e.stopPropagation()
-                setFilter({ kind: 'artist', value: work.artist! })
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setCrossMenu({ x: e.clientX, y: e.clientY, query: tagToken(`artist:${work.artist}`), raw: work.artist! })
-              }}
-            >
+            <>
               {' · '}
-              {work.artist}
-            </span>
+              <ArtistLinks
+                artist={work.artist}
+                onPick={(a) => setFilter({ kind: 'artist', value: a })}
+                onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
+              />
+            </>
           )}
         </div>
 
@@ -138,28 +79,15 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
             favoriteTags={favoriteTags}
             manualTags={work.manualTags}
             onTagClick={(t) => addSearchToken(tagToken(t))}
-            onTagContext={(t, e) =>
-              setCrossMenu({ x: e.clientX, y: e.clientY, query: tagToken(t), raw: t })
-            }
-            onRemove={removeTag}
-            onAddClick={adding ? undefined : () => setAdding(true)}
+            onTagContext={(t, e) => c.openTagMenu(e, tagToken(t), t)}
+            onRemove={c.removeTag}
+            onAddClick={c.adding ? undefined : c.startAddTag}
           />
-          {adding && (
-            <input
-              autoFocus
-              className="tag-input"
-              value={newTag}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setNewTag(e.target.value)}
-              onBlur={addTag}
-              onKeyDown={(e) => e.key === 'Enter' && addTag()}
-              placeholder="태그…"
-            />
-          )}
+          {c.tagInput}
         </div>
 
         <div className="work-actions">
-          <Stars rank={work.rank} onChange={setRank} />
+          <Stars rank={work.rank} onChange={c.setRank} />
           {work.code && (
             <button
               className="mini"
@@ -200,12 +128,14 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
               setFindKo((v) => !v)
             }}
           >
-            한국어 {findKo ? '▴' : '▾'}
+            다른 언어 <span className={`dt ${findKo ? 'up' : ''}`} />
           </button>
         </div>
       </div>
     </div>
-    {findKo && <KoreanFinder work={work} />}
+    {findKo && (
+      <EditionsPanel inline code={work.code} artist={work.artist} title={work.title} language={work.language} />
+    )}
     {confirmDel && (
       <div onClick={(e) => e.stopPropagation()}>
         <ConfirmModal
@@ -224,32 +154,8 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
         />
       </div>
     )}
-    {menu && (
-      <ContextMenu
-        x={menu.x}
-        y={menu.y}
-        items={[
-          { label: '새 탭에서 열기', onClick: () => openTab(work.id) },
-          { label: '백그라운드에서 열기', onClick: () => openTabBackground(work.id) },
-          { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(work.id) },
-          ...(work.code && (work.library ?? 'hitomi') === 'hitomi'
-            ? [{ label: '다시 다운로드', onClick: () => startDownload({ kind: 'hitomi' as const, input: work.code! }) }]
-            : [])
-        ]}
-        onClose={() => setMenu(null)}
-      />
-    )}
-    {crossMenu && (
-      <ContextMenu
-        x={crossMenu.x}
-        y={crossMenu.y}
-        items={[
-          { label: '온라인에서 검색', onClick: () => searchOnline(crossMenu.query) },
-          { label: '즐겨찾는 태그로 추가', onClick: () => addFavoriteTag(crossMenu.raw) }
-        ]}
-        onClose={() => setCrossMenu(null)}
-      />
-    )}
+    {c.workMenu}
+    {c.tagMenu}
     </div>
   )
 }

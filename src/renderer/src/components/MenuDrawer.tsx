@@ -1,8 +1,10 @@
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useStore } from '../store'
+import { useLock } from '../lock'
+import { HomeIcon, LanguageIcon, MenuIcon, SettingsIcon, DownloadIcon, FavoriteIcon, AssignmentIcon, HistoryIcon, CompareArrowsIcon } from './icons'
 
 // Left slide-in navigation drawer (☰). Surfaces every screen plus the
-// hitomi ⇄ general-manga mode toggle. Existing tab-bar buttons still work; this
+// doujin ⇄ general-manga mode toggle. Existing tab-bar buttons still work; this
 // is an additional, consolidated entry point. Width is narrow and the rest of
 // the window stays visible behind a transparent click-catcher that closes it.
 function Item({
@@ -11,7 +13,7 @@ function Item({
   active,
   onClick
 }: {
-  icon: string
+  icon: ReactNode
   label: string
   active?: boolean
   onClick: () => void
@@ -29,12 +31,14 @@ export default function MenuDrawer(): JSX.Element {
   const setMenuOpen = useStore((s) => s.setMenuOpen)
   const view = useStore((s) => s.view)
   const libraryMode = useStore((s) => s.libraryMode)
+  const decoy = useLock((s) => s.decoy)
   const setLibraryMode = useStore((s) => s.setLibraryMode)
   const goHome = useStore((s) => s.goHome)
   const goBrowse = useStore((s) => s.goBrowse)
   const goDownload = useStore((s) => s.goDownload)
   const goManage = useStore((s) => s.goManage)
   const goSettings = useStore((s) => s.goSettings)
+  const goHistory = useStore((s) => s.goHistory)
   const setFilter = useStore((s) => s.setFilter)
   const setSort = useStore((s) => s.setSort)
   const setSearch = useStore((s) => s.setSearch)
@@ -57,7 +61,7 @@ export default function MenuDrawer(): JSX.Element {
 
   const normal = libraryMode === 'normal'
   // Both modes route to the browse view; App renders TokiBrowse in normal mode,
-  // hitomi Browse otherwise.
+  // doujin Browse otherwise.
   const onlineClick = (): void => go(goBrowse)
 
   return (
@@ -66,39 +70,44 @@ export default function MenuDrawer(): JSX.Element {
       <nav className="menu-drawer">
         <div className="menu-head">
           <button className="menu-close" onClick={close}>
-            ☰
+            <MenuIcon />
           </button>
           <span className="menu-brand">메뉴</span>
         </div>
 
         <button
           className="menu-mode"
-          onClick={() => go(() => setLibraryMode(normal ? 'hitomi' : 'normal'))}
+          onClick={() =>
+            go(() => setLibraryMode(normal ? 'hitomi' : 'normal'))
+          }
         >
-          <span className="menu-item-ico">⇄</span>
-          {normal ? '히토미 뷰어로 전환' : '일반 만화 뷰어로 전환'}
+          <span className="menu-item-ico"><CompareArrowsIcon /></span>
+          {normal ? '동인지 뷰어로 전환' : '일반 만화 뷰어로 전환'}
         </button>
-        <div className="menu-mode-cur">현재: {normal ? '일반 만화' : '히토미'}</div>
+        <div className="menu-mode-cur">현재: {normal ? '일반 만화' : '동인지'}</div>
 
         <div className="menu-sep" />
-        <Item icon="▤" label="라이브러리" active={view === 'home'} onClick={libraryClick} />
-        <Item icon="◍" label="온라인" active={view === 'browse'} onClick={onlineClick} />
-        <Item icon="♡" label="즐겨찾기" onClick={() => go(() => setFilter({ kind: 'favorites' }))} />
+        <Item icon={<HomeIcon />} label="라이브러리" active={view === 'home'} onClick={libraryClick} />
+        {!decoy && <Item icon={<LanguageIcon />} label="온라인" active={view === 'browse'} onClick={onlineClick} />}
+        <Item icon={<FavoriteIcon />} label="즐겨찾기" onClick={() => go(() => setFilter({ kind: 'favorites' }))} />
+        {/* 기록: everything viewed — local and online — in the library layout. */}
         <Item
-          icon="↺"
-          label="최근 본"
+          icon={<HistoryIcon />}
+          label="기록"
+          active={view === 'history'}
           onClick={() =>
             go(() => {
-              setSort('viewed')
+              setSearch('')
               setFilter({ kind: 'all' })
+              goHistory()
             })
           }
         />
 
         <div className="menu-sep" />
-        <Item icon="☰" label="작업 목록" active={view === 'download'} onClick={() => go(goDownload)} />
-        <Item icon="▥" label="관리" active={view === 'manage'} onClick={() => go(() => goManage('duplicates'))} />
-        <Item icon="⚙" label="설정" active={view === 'settings'} onClick={() => go(goSettings)} />
+        <Item icon={<DownloadIcon />} label="작업 목록" active={view === 'download'} onClick={() => go(goDownload)} />
+        <Item icon={<AssignmentIcon />} label="관리" active={view === 'manage'} onClick={() => go(() => goManage('duplicates'))} />
+        <Item icon={<SettingsIcon />} label="설정" active={view === 'settings'} onClick={() => go(goSettings)} />
       </nav>
     </div>
   )

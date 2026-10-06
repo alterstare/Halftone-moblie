@@ -1,15 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { useStore, lastReadKey } from '../store'
 import { getTokiChapters } from '../toki'
 import type { TokiChapter } from '../../../shared/ipc'
 import type { OnlineFav } from '../../../shared/types'
 import Stars from './Stars'
+import { FavoriteIcon, AutoStoriesIcon } from './icons'
+import { useTokiStatus } from './useTokiStatus'
+import SearchClear from './SearchClear'
+import { useTabState } from './useTabState'
 
-// Left list shown while reading a toki chapter: the sibling chapters of the active
+// Left list shown while reading a manga-site chapter: the sibling chapters of the active
 // tab's series. Mirrors the local general-manga left list (LibraryList) so the
 // reader chrome is identical between local and online in general-manga mode.
 export default function TokiChapterList(): JSX.Element {
+  const tokiStatus = useTokiStatus()
   const replaceTabOnline = useStore((s) => s.replaceTabOnline)
   const goHome = useStore((s) => s.goHome)
   const onlineFavs = useStore((s) => s.onlineFavs)
@@ -32,8 +37,8 @@ export default function TokiChapterList(): JSX.Element {
   const [chapters, setChapters] = useState<TokiChapter[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [input, setInput] = useState('')
-  const [applied, setApplied] = useState('')
+  const [input, setInput] = useTabState('input', '')
+  const [applied, setApplied] = useTabState('applied', '')
 
   useEffect(() => {
     if (!seriesUrl) {
@@ -55,6 +60,8 @@ export default function TokiChapterList(): JSX.Element {
   const apply = (): void => setApplied(input.trim())
   const q = applied.toLowerCase()
   const list = q ? chapters.filter((c) => c.title.toLowerCase().includes(q)) : chapters
+  const readProgress = useStore((s) => s.readProgress)
+  const lastUrl = useMemo(() => lastReadKey(readProgress, chapters.map((c) => c.url)), [readProgress, chapters])
 
   return (
     <div className="lib-list">
@@ -63,20 +70,20 @@ export default function TokiChapterList(): JSX.Element {
           ← 홈
         </button>
         <span className="lib-series-label">
-          📖 시리즈 · {chapters.length}화
+          <AutoStoriesIcon /> 시리즈 · {chapters.length}화
         </span>
       </div>
       <div className="lib-search-row">
-        <input
-          className="search sm"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && apply()}
-          placeholder="검색 후 Enter"
-        />
-        <button className="mini" onClick={apply}>
-          검색
-        </button>
+        <div className="search-ac">
+          <input
+            className="search sm"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && apply()}
+            placeholder="검색"
+          />
+          <SearchClear value={input} onClear={() => setInput('')} />
+        </div>
       </div>
       {applied && (
         <div className="applied-row">
@@ -94,13 +101,13 @@ export default function TokiChapterList(): JSX.Element {
       )}
       <div className="lib-list-scroll compact">
         {error && <div className="warn err">{error}</div>}
-        {loading && <div className="reader-loading">불러오는 중…</div>}
+        {loading && <div className="reader-loading">{tokiStatus ?? '불러오는 중…'}</div>}
         {list.map((c) => {
           const fav = onlineFavs[c.url]
           return (
             <div
               key={c.url}
-              className={`chapter-row ${c.url === online?.code ? 'active' : ''}`}
+              className={`chapter-row ${c.url === online?.code ? 'active' : ''} ${c.url === lastUrl ? 'last-read' : ''}`}
               onClick={() =>
                 active &&
                 replaceTabOnline(active.id, {
@@ -127,7 +134,7 @@ export default function TokiChapterList(): JSX.Element {
                     toggleOnlineFav(c.url, chapterMeta(c))
                   }}
                 >
-                  {fav?.favorite ? '♥' : '♥'}
+                  <FavoriteIcon filled={!!fav?.favorite} />
                 </span>
               </div>
             </div>

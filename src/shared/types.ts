@@ -11,14 +11,15 @@ export interface Work {
   path: string // absolute path to the work folder
   title: string
   artist: string | null
-  code: string | null // hitomi.la gallery id, when present in folder name
+  code: string | null // the site gallery id, when present in folder name
   language: string | null
   pageCount: number
-  tags: string[] // tags parsed from metadata (hitomi / rules)
+  tags: string[] // tags parsed from metadata (doujin / rules)
   manualTags: string[] // tags the user added by hand
   favorite: boolean
   homePath: string | null // original location, set when moved into favorites dir
   rank: number // 0 = unranked, 1-5
+  favoritedAt?: number // when it was last favorited (unified favorites "recent" order)
   viewCount: number
   lastViewedAt: number | null
   addedAt: number
@@ -39,6 +40,25 @@ export interface Work {
   sources?: string[]
 }
 
+// When a general-manga chapter was last opened (store.readProgress).
+// One online work in the 기록 (viewing history): doujin gallery (key = code) or
+// manga-site series (key = series url). Local works use Work.lastViewedAt.
+export interface OnlineHistoryEntry {
+  key: string
+  kind: 'hitomi' | 'toki'
+  code: string // doujin: gallery code; manga-site: last opened chapter url
+  title: string
+  artist: string | null
+  thumbUrl: string | null
+  language: string | null
+  pageCount: number
+  at: number // last viewed (ms)
+}
+
+export interface ReadProgress {
+  at: number // ms timestamp
+}
+
 // A user-defined merge: several work folders shown as one "collection" work.
 // Survives rescans because it lives in settings (works.json is rebuilt on scan).
 export interface ManualCollection {
@@ -51,7 +71,7 @@ export interface ManualCollection {
 export interface WorkGroup {
   id: string
   name: string
-  // Which library the group belongs to; groups are scoped per mode so hitomi
+  // Which library the group belongs to; groups are scoped per mode so doujin
   // group names don't appear in the general-manga view. Missing = 'hitomi'.
   mode?: 'hitomi' | 'normal'
 }
@@ -78,14 +98,19 @@ export interface HitomiMeta {
 
 export interface Settings {
   libraryRoots: string[]
+  // Doujin favorites folder. With favoriteMoveToFolder, hearting a work moves its
+  // folder in here (and back on unheart). A work newly found in this folder by a
+  // scan is added to the favorites. The heart itself is NOT derived from the
+  // location — see the favorites model in main/lib/favoriteSync.ts.
   favoritesDir: string | null
+  favoriteMoveToFolder: boolean
   downloadDir: string | null
-  // Preferred image encoding when downloading hitomi galleries. webp is more
+  // Preferred image encoding when downloading doujin galleries. webp is more
   // widely supported by other viewers; avif is smaller. Falls back per-page when
   // the preferred encoding isn't offered for a file.
   downloadImageFormat: 'avif' | 'webp'
   // General-manga ("normal") library: separate folders scanned as the normal
-  // library. Works found here are stamped library:'normal' (no hitomi metadata).
+  // library. Works found here are stamped library:'normal' (no doujin metadata).
   normalRoots: string[]
   // "Artist folder" roots: each immediate child folder of one of these names an
   // artist. Every work found beneath that child folder is stamped with that
@@ -97,18 +122,14 @@ export interface Settings {
   flattenCollectThreshold: number
   // Manual merges the user made in the collection manager (survive rescans).
   manualCollections: ManualCollection[]
-  normalFavoritesDir: string | null
-  // Where general-manga online downloads land. Kept separate from the hitomi
-  // downloadDir so online manga/webtoon don't leak into the hitomi library.
-  // Falls back to normalFavoritesDir / first normalRoot when unset.
+  // Where general-manga online downloads land. Kept separate from the doujin
+  // downloadDir so online manga/webtoon don't leak into the doujin library.
+  // Falls back to the first normalRoot when unset.
   normalDownloadDir: string | null
-  // Where extracted-text (.txt) exports are written. When unset, exporting errors
-  // and asks the user to pick a folder in Settings.
-  textExportDir: string | null
-  // Where hitomi-coded works that no longer exist on hitomi (deleted) are swept to
+  // Where doujin-coded works that no longer exist on doujin (deleted) are swept to
   // when the user runs "삭제된 작품 분류". Unset → the classify action errors.
   deletedDir: string | null
-  // General-manga online source (toki-family mirror, e.g. sbxh9.com). The site
+  // General-manga online source (manga-site-family mirror, e.g. sbxh9.com). The site
   // bot-blocks raw requests, so we scrape it through a hidden BrowserWindow. The
   // domain rotates, so it is configurable; selectors live in main/lib/toki.ts.
   tokiBaseUrl: string
@@ -123,7 +144,7 @@ export interface Settings {
   ignoreBracketTagsInSort: boolean
   marginWidth: number
   defaultSort: SortMode
-  autoEnrichOnScan: boolean // fetch hitomi metadata for coded works after a scan
+  autoEnrichOnScan: boolean // fetch doujin metadata for coded works after a scan
   listPaneWidth: number // px width of the left list pane in reader view
   normalListPaneWidth: number // px width of the left list pane in general-manga mode
   readerPageGap: boolean // scroll mode: leave a gap between pages
@@ -142,9 +163,21 @@ export interface Settings {
   dnsMode: 'system' | 'doh' // 'system' lets tools like Unicorn HTTPS intercept DNS
   dohServer: string // DNS-over-HTTPS endpoint when dnsMode = 'doh'
   proxyServer: string // optional proxy rules (e.g. 'socks5://127.0.0.1:1080'), '' = direct
-  hitomiBaseUrl: string // hitomi content/CDN host (e.g. 'gold-usergeneratedcontent.net'); '' = online disabled
+  // Route the general-manga site through the built-in green-tunnel proxy
+  // (ClientHello fragmentation + DoH) to get past SNI-based blocking.
+  bypassTunnel: boolean
+  // 이어보기: clicking a general-manga series opens its last-read chapter
+  // (store.readProgress) instead of the first.
+  resumeReading: boolean
+  // General-manga online: genres hidden from browse/search results (client-side;
+  // the site has no exclude filter). Matched against each card's genre list.
+  tokiExcludeGenres: string[]
+  // Keyboard shortcut overrides (설정 › 단축키): action id → combos. Missing =
+  // the defaults in shared/shortcuts.ts; an empty list = disabled.
+  shortcuts: Partial<Record<string, string[]>>
+  hitomiBaseUrl: string // doujin content/CDN host (e.g. 'gold-usergeneratedcontent.net'); '' = online disabled
   readerMode: 'scroll' | 'paged' | 'spread'
-  // Last-used reader mode, remembered separately per library so hitomi and
+  // Last-used reader mode, remembered separately per library so doujin and
   // general-manga keep their own preferred view across restarts. Falls back to
   // readerMode when unset.
   lastReaderMode: { hitomi: 'scroll' | 'paged' | 'spread'; normal: 'scroll' | 'paged' | 'spread' }
@@ -160,16 +193,16 @@ export interface Settings {
   // page. 'right' = click the right half to go forward (default), 'left' = click
   // the left half to go forward.
   pagedFlipSide: 'left' | 'right'
+  // Scroll mode: tap the lower half of the page to scroll one screen down
+  // ('bottom'), or scrolling only ('off').
+  scrollTapFlip: 'bottom' | 'off'
   homeLayout: 'list' | 'grid'
   // Hover a thumbnail to pop a large preview (wheel pages it). Toggleable.
   thumbHoverPreview: boolean
   // UI color theme. 'light' = Kraken light (default), 'dark' = dark variant.
   theme: 'light' | 'dark'
-  // Names of imported favorite lists (favlist:<name> tag). Persisted so the list
-  // shows in Settings / the home favorites drawer even before any match.
-  favLists: string[]
-  // Imported ONLINE favorite lists: each file → { name, codes }. Browsed in the
-  // online view, filtered by list (codes not necessarily in the local library).
+  // Favorite lists imported from files: { name, gallery codes }. The online
+  // favorites view shows every code; the library view shows the downloaded ones.
   onlineFavLists: { name: string; codes: string[] }[]
   // Tags auto-excluded from every online SEARCH. Stored as tokens (`female:x`,
   // `tag:y`, …, spaces→'_'). Applied silently as negative (-) tokens — they are
@@ -184,35 +217,11 @@ export interface Settings {
   // multi-tag combo, comma-separated tokens). Shown at the top of the search-box
   // dropdown so the user can pick a saved tag/combo to run.
   favoriteSearches: string[]
-  // When set (hitomi setting), the other mode's tabs are also shown in the tab
+  // When set (doujin setting), the other mode's tabs are also shown in the tab
   // bar, bundled into a collapsible cluster (like a tab group).
   unifyTabsAcrossModes: boolean
   groups: WorkGroup[] // user-defined collections
-  // Translation (in-place) — pluggable engine.
-  translateProvider: 'cloud' | 'localServer'
-  // Which engine drives translation:
-  //  'papago' = Papago Image(Text): paid, accurate OCR+translate in one call.
-  //  'free'   = local Tesseract OCR + a free translator (google/deepl).
-  //  'gemini' = Gemini Flash multimodal: OCR + translate + boxes in one call,
-  //             generous free tier (Google AI Studio).
-  //  'llm'    = any OpenAI-compatible vision API (Groq / OpenRouter / Mistral /
-  //             custom). Same one-call OCR+translate+boxes; most have a no-card
-  //             free tier.
-  translateEngine: 'papago' | 'free' | 'gemini' | 'llm'
-  freeTranslator: 'google' | 'deepl' // used when translateEngine === 'free'
-  deeplApiKey: string // DeepL Free API key (api-free.deepl.com), for freeTranslator 'deepl'
-  geminiApiKey: string // Google AI Studio key, for translateEngine 'gemini'
-  geminiModel: string // e.g. 'gemini-2.0-flash'
-  // Generic OpenAI-compatible vision engine (translateEngine === 'llm').
-  llmProvider: 'groq' | 'openrouter' | 'mistral' | 'custom'
-  llmBaseUrl: string // e.g. 'https://api.groq.com/openai/v1'
-  llmModel: string // e.g. 'meta-llama/llama-4-scout-17b-16e-instruct'
-  llmApiKey: string
-  papagoClientId: string // Naver Cloud Papago (OCR+translate via Image Translation)
-  papagoClientSecret: string
-  papagoImageEndpoint: string // Papago Image Translation(Text) endpoint
-  translateServerUrl: string // local manga-image-translator server (provider B)
-  // Per-mode overrides for the "split" keys (SPLIT_SETTING_KEYS) so hitomi and
+  // Per-mode overrides for the "split" keys (SPLIT_SETTING_KEYS) so doujin and
   // general-manga keep independent display/reader/sort preferences even when the
   // setting name is shared. The active mode's overlay is merged over the base.
   perMode?: Partial<Record<'hitomi' | 'normal', Partial<Settings>>>
@@ -221,19 +230,31 @@ export interface Settings {
   // a single-chapter favorite stores the work id (opens that chapter directly).
   normalFavSeries: string[]
   normalFavChapters: string[]
+  // Screen shown when the app starts. 'last' = restore the last open tab (else
+  // the doujin library); the others always open that screen (tabs still restored).
+  // 동인지 잠금: PIN to enter doujin mode; decoy PIN opens an empty library.
+  // Salted SHA-256 hashes only (never the PIN itself).
+  doujinLock: { enabled: boolean; pinHash: string; decoyHash: string; salt: string }
+  startScreen: 'last' | 'hitomi-home' | 'hitomi-online' | 'normal-home' | 'normal-online'
+  // When each general-manga favorite (series key / chapter work id) was added.
+  normalFavAt?: Record<string, number>
   // One-time flag: existing folder-moved normal favorites were un-favorited and
   // moved back to their origin when migrating to the in-app list system.
   normalFavMigrated: boolean
-  // User-defined hitomi folder-name patterns for locating the gallery id. Tokens:
+  // One-time flag: local hearts were copied into the favorites list, favlist:
+  // tags converted to code lists and the old general-manga favorites folder
+  // setting dropped (main/lib/favoriteSync.ts migrateFavorites).
+  favoritesUnified: boolean
+  // User-defined doujin folder-name patterns for locating the gallery id. Tokens:
   //   -id-     gallery id (digits) — REQUIRED; a pattern without it is ignored
   //   -title-  work title   -artist- artist   -group- circle/group
-  // A folder is a hitomi work only if it matches one of these AND the -id- slot
+  // A folder is a doujin work only if it matches one of these AND the -id- slot
   // holds digits — so an incidental 7-digit number in the title no longer looks
   // like a code. Patterns are tried in order (first match wins). Empty = defaults.
   hitomiNamePatterns: string[]
   // Index into hitomiNamePatterns of the pattern used to name downloaded folders.
   hitomiDownloadPatternIdx: number
-  // Max number of online works (hitomi galleries / toki series) downloading at
+  // Max number of online works (doujin galleries / manga-site series) downloading at
   // once. Extra downloads queue until a slot frees. 0 = unlimited.
   maxConcurrentDownloads: number
 }
@@ -249,7 +270,6 @@ export const DEFAULT_HITOMI_PATTERNS = [
 // Settings whose value is tracked independently per library mode. Everything else
 // is shared. The active-mode overlay in Settings.perMode wins over the base value.
 export const SPLIT_SETTING_KEYS = [
-  'theme',
   'marginWidth',
   'pageSize',
   'thumbHoverPreview',
@@ -257,11 +277,12 @@ export const SPLIT_SETTING_KEYS = [
   'pagedWheelFlip',
   'spreadNextSide',
   'pagedFlipSide',
+  'scrollTapFlip',
   'defaultSort',
   'ignoreBracketTagsInSort'
 ] as const
 
-// Persisted favorite/rank for an online (hitomi) gallery, keyed by code. Display
+// Persisted favorite/rank for an online (doujin) gallery, keyed by code. Display
 // meta is cached so the favorites list renders without re-fetching.
 export interface OnlineFav {
   code: string
@@ -302,15 +323,14 @@ export interface ParsedName {
 export const DEFAULT_SETTINGS: Settings = {
   libraryRoots: [],
   favoritesDir: null,
+  favoriteMoveToFolder: true,
   downloadDir: null,
   downloadImageFormat: 'avif',
   normalRoots: [],
   flattenRoots: [],
   flattenCollectThreshold: 1,
   manualCollections: [],
-  normalFavoritesDir: null,
   normalDownloadDir: null,
-  textExportDir: null,
   deletedDir: null,
   tokiBaseUrl: '', // '' = online disabled until the user enters the current site address
   organizeByLanguage: false,
@@ -335,6 +355,10 @@ export const DEFAULT_SETTINGS: Settings = {
   dnsMode: 'system',
   dohServer: 'https://cloudflare-dns.com/dns-query',
   proxyServer: '',
+  bypassTunnel: false,
+  resumeReading: true,
+  tokiExcludeGenres: [],
+  shortcuts: {},
   hitomiBaseUrl: '',
   readerMode: 'scroll',
   lastReaderMode: { hitomi: 'scroll', normal: 'scroll' },
@@ -342,10 +366,10 @@ export const DEFAULT_SETTINGS: Settings = {
   lastZoom: { hitomi: 1, normal: 1 },
   spreadNextSide: 'left',
   pagedFlipSide: 'right',
+  scrollTapFlip: 'off',
   homeLayout: 'grid',
   thumbHoverPreview: true,
   theme: 'light',
-  favLists: [],
   onlineFavLists: [],
   onlineExcludeTags: [],
   searchHistoryEnabled: true,
@@ -354,24 +378,13 @@ export const DEFAULT_SETTINGS: Settings = {
   favoriteSearches: [],
   unifyTabsAcrossModes: false,
   groups: [],
-  translateProvider: 'cloud',
-  translateEngine: 'papago',
-  freeTranslator: 'google',
-  deeplApiKey: '',
-  geminiApiKey: '',
-  geminiModel: 'gemini-2.0-flash',
-  llmProvider: 'groq',
-  llmBaseUrl: 'https://api.groq.com/openai/v1',
-  llmModel: 'meta-llama/llama-4-scout-17b-16e-instruct',
-  llmApiKey: '',
-  papagoClientId: '',
-  papagoClientSecret: '',
-  papagoImageEndpoint: 'https://papago.apigw.ntruss.com/image-to-text/v1/translate',
-  translateServerUrl: 'http://127.0.0.1:5003',
   perMode: {},
   normalFavSeries: [],
   normalFavChapters: [],
+  startScreen: 'last',
+  doujinLock: { enabled: false, pinHash: '', decoyHash: '', salt: '' },
   normalFavMigrated: false,
+  favoritesUnified: false,
   hitomiNamePatterns: [...DEFAULT_HITOMI_PATTERNS],
   hitomiDownloadPatternIdx: 0,
   maxConcurrentDownloads: 2

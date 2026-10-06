@@ -1,14 +1,35 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
+import { isTouch } from '../mobile'
 
 // Global themed tooltip. Replaces the browser's white native tooltip: on hover of
 // any element with a `title`, we stash+strip the attribute (so the native bubble
 // never shows) and render our own styled box, restoring `title` on leave.
 export default function Tooltip(): JSX.Element | null {
-  const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null)
+  // x = anchor center, y = below the anchor, top = the anchor's top (for flipping up).
+  const [tip, setTip] = useState<{ x: number; y: number; top: number; text: string } | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+
+  // Place the box after it renders at its natural size: centered under the
+  // anchor, but shifted to stay inside the window (near an edge it used to be
+  // squeezed into a narrow column — "설/명"), and flipped above the anchor when
+  // there's no room below.
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (!tip || !el) return setPos(null)
+    const M = 8
+    const w = el.offsetWidth
+    const h = el.offsetHeight
+    const left = Math.max(M, Math.min(tip.x - w / 2, window.innerWidth - w - M))
+    const below = tip.y + h + M <= window.innerHeight
+    setPos({ left, top: below ? tip.y : Math.max(M, tip.top - 6 - h) })
+  }, [tip])
 
   useEffect(() => {
+    // Touch screens synthesize mouseover on tap → tooltips would stick. Off.
+    if (isTouch()) return
     let timer: number | undefined
     let cur: HTMLElement | null = null
 
@@ -32,7 +53,7 @@ export default function Tooltip(): JSX.Element | null {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         const r = el.getBoundingClientRect()
-        setTip({ x: r.left + r.width / 2, y: r.bottom + 6, text })
+        setTip({ x: r.left + r.width / 2, y: r.bottom + 6, top: r.top, text })
       }, 350)
     }
 
@@ -73,7 +94,12 @@ export default function Tooltip(): JSX.Element | null {
 
   if (!tip) return null
   return createPortal(
-    <div className="tooltip" style={{ left: tip.x, top: tip.y }}>
+    <div
+      ref={boxRef}
+      className="tooltip"
+      // Measured off-screen first (hidden), then placed by the layout effect.
+      style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}
+    >
       {tip.text}
     </div>,
     document.body

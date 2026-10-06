@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import type { Work } from '../../../shared/types'
-import { useStore } from '../store'
+import { useStore, useSeriesRoots } from '../store'
 import { findDuplicateGroups, findTranslationPairs, pickKeeper } from '../dups'
 import { groupSeries } from '../util'
 import type { SeriesGroup } from '../util'
@@ -14,15 +14,13 @@ import Stepper from './Stepper'
 export default function Manage(): JSX.Element {
   const mode = useStore((s) => s.manageMode)
   const goManage = useStore((s) => s.goManage)
-  const goHome = useStore((s) => s.goHome)
 
   return (
     <div className="manage">
       <div className="manage-head">
-        <button className="btn" onClick={goHome}>
-          ← 홈
-        </button>
-        <div className="manage-tabs">
+        {/* Phone: no ← 홈 (the tab bar has 라이브러리); tabs = the flat
+            divider row like the library's chips. */}
+        <div className="chips manage-tabs">
           <button
             className={`chip ${mode === 'duplicates' ? 'active' : ''}`}
             onClick={() => goManage('duplicates')}
@@ -69,12 +67,7 @@ function MergeSeries(): JSX.Element {
   const works = useStore((s) => s.works)
   const upsertWork = useStore((s) => s.upsertWork)
   const openTab = useStore((s) => s.openTab)
-  const normalRootsSetting = useStore((s) => s.settings.normalRoots)
-  const normalFav = useStore((s) => s.settings.normalFavoritesDir)
-  const roots = useMemo(
-    () => [...(normalRootsSetting ?? []), normalFav].filter(Boolean) as string[],
-    [normalRootsSetting, normalFav]
-  )
+  const roots = useSeriesRoots()
   const [busy, setBusy] = useState<string | null>(null)
 
   const candidates = useMemo(() => {
@@ -113,7 +106,7 @@ function MergeSeries(): JSX.Element {
         같은 제목인데 여러 폴더로 나뉜 일반 만화 시리즈를 찾습니다. “하나로 병합”하면 각 화 폴더가
         하나의 시리즈 폴더(루트/제목) 아래로 이동합니다.
       </p>
-      <div className="manage-actions">
+      <div className="manage-actions flat-group">
         <span className="hint" style={{ margin: 0 }}>
           병합 후보 {candidates.length}개
         </span>
@@ -176,7 +169,7 @@ async function scanCoverHashes(
 function Duplicates(): JSX.Element {
   const allWorks = useStore((s) => s.works)
   const libraryMode = useStore((s) => s.libraryMode)
-  // Only dedupe within the current library mode — hitomi and general manga are
+  // Only dedupe within the current library mode — doujin and general manga are
   // separate collections and must not appear mixed here.
   const works = useMemo(
     () => allWorks.filter((w) => (w.library ?? 'hitomi') === libraryMode),
@@ -236,7 +229,7 @@ function Duplicates(): JSX.Element {
         같은 표지(첫 장) 또는 같은 제목인 작품을 중복으로 묶습니다. 페이지수는 참고용. 표지 비교는
         먼저 “표지 해시 생성”이 필요합니다(작품당 첫 장 1회 계산, 캐시됨).
       </p>
-      <div className="manage-actions">
+      <div className="manage-actions flat-group">
         <button className="btn primary" onClick={scanHashes} disabled={prog !== null}>
           {prog ? `표지 해시 생성… ${prog.done}/${prog.total}` : `표지 해시 생성${missing ? ` (${missing}개 남음)` : ' (완료)'}`}
         </button>
@@ -328,7 +321,7 @@ function Translations(): JSX.Element {
         작가 동일(작가 미상 작품 제외) + 제목 유사도 또는 같은 표지 기준. 표지 비교를 쓰려면 아래
         “표지 해시 생성”을 먼저 실행하세요.
       </p>
-      <div className="manage-actions">
+      <div className="manage-actions flat-group">
         <button className="btn primary" onClick={scan} disabled={prog !== null}>
           {prog ? `표지 해시 생성… ${prog.done}/${prog.total}` : `표지 해시 생성${missing ? ` (${missing}개 남음)` : ' (완료)'}`}
         </button>
@@ -539,7 +532,7 @@ function Collections(): JSX.Element {
         직접 폴더를 골라 합칠 수 있습니다. 실제 파일은 옮기지 않고 보기에서만 묶습니다.
       </p>
       {roots.length === 0 && (
-        <div className="empty">설정 → 히토미 → “작가 폴더”에서 폴더를 먼저 지정하세요.</div>
+        <div className="empty">설정 → 동인지 → “작가 폴더”에서 폴더를 먼저 지정하세요.</div>
       )}
 
       {collections.length > 0 && (
@@ -578,7 +571,7 @@ function Collections(): JSX.Element {
               <span className="coll-caret">{isOpen ? '▾' : '▸'}</span>
               {g.name} · {g.works.length}개 폴더
               {isOpen && (
-                <span className="coll-actions" onClick={(e) => e.stopPropagation()}>
+                <span className="coll-actions flat-group" onClick={(e) => e.stopPropagation()}>
                   <button className="mini primary" disabled={busy} onClick={() => mergeGroup(g)}>
                     {busy ? '처리 중…' : selCount >= 2 ? `선택 ${selCount}개 병합` : '전체 병합'}
                   </button>
@@ -661,7 +654,7 @@ function ManageCard({
         {work.language && ` · ${work.language}`}
         {work.artist && ` · ${work.artist}`}
       </div>
-      <div className="manage-card-actions">
+      <div className="manage-card-actions flat-group">
         <button className="mini" onClick={open}>
           열기
         </button>

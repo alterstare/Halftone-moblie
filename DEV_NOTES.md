@@ -1,8 +1,8 @@
 # manga-viewer-2 — Developer / AI Handoff Notes
 
-Windows Electron manga viewer. Two independent library modes: **hitomi** (coded
-doujinshi galleries, downloaded from hitomi.la) and **normal** (general manga /
-webtoons scraped from "toki"-family sites + a gnuboard "backup" site). This file
+Windows Electron manga viewer. Two independent library modes: **doujin** (coded
+doujinshi galleries, downloaded from the site) and **normal** (general manga /
+webtoons scraped from manga-site family sites + a gnuboard "backup" site). This file
 documents the conventions, architecture, and design tokens needed to keep coding
 in a fresh context without re-deriving everything.
 
@@ -33,25 +33,32 @@ in a fresh context without re-deriving everything.
 
 ---
 
-## 2. IPC pattern (follow exactly when adding a channel)
+## 2. Main process layout & IPC pattern
 
-Three files move in lockstep:
+`src/main/index.ts` is ONLY app lifecycle (window, single-instance lock,
+auto-update, startup migrations) and registers the IPC modules:
 
-1. **`src/shared/ipc.ts`**
-   - Add the channel string to the `IPC` const map: `myThing: 'ns:myThing'`.
-   - Add the typed method signature to the `Api` interface:
-     `myThing: (arg: X) => Promise<Y>`.
-   - Shared DTO interfaces (e.g. `HitomiProgress`, `TokiChapter`, `GallerySummary`)
-     live here too.
-2. **`src/preload/index.ts`** — expose it:
-   `myThing: (arg) => ipcRenderer.invoke(IPC.myThing, arg)`.
-   - Event channels (main→renderer) use the `on...` + `ipcRenderer.on` + returned
-     unsubscribe pattern (see `onHitomiProgress`).
-3. **`src/main/index.ts`** — handle it inside `registerIpc()`:
-   `ipcMain.handle(IPC.myThing, (_e, arg: X) => ...)`.
-   - `store` (the `Store` instance) and `mainWindow` are module-level and in scope.
+| file | handles |
+|---|---|
+| `main/context.ts` | shared `store`, `appState` (closing/quitting), `getMainWindow`, `sendToRenderer` |
+| `main/ipc/library.ts` | settings, scan, works (rank/groups/tags/views), folders, thumbnails, translation, exports, exit/reset |
+| `main/ipc/favorites.ts` | hearts by code, favorites file (export/import/merge), favorite lists, gallery summaries |
+| `main/ipc/hitomi.ts` | doujin browse/search, metadata enrich, deleted-sweep, cover regen, download |
+| `main/ipc/toki.ts` | general-manga online: list/chapters/images/author/cover, downloads |
+| `main/downloads.ts` | `runDownload(code, title, task)` — slot gate, stop, progress for ALL downloads |
+| `main/lib/media.ts` | `mangaimg://` protocol, url encoders, thumbnail cache files |
+| `main/lib/favoriteSync.ts` | the favorites model (see §10) |
 
-Renderer calls everything via `window.api.*` (typed by the `Api` interface).
+Adding a channel — three files move in lockstep:
+
+1. **`src/shared/ipc.ts`** — channel string in the `IPC` map (`myThing: 'ns:myThing'`)
+   and the typed method in the `Api` interface. Shared DTOs live here too.
+2. **`src/preload/index.ts`** — `myThing: (arg) => ipcRenderer.invoke(IPC.myThing, arg)`.
+   Events main→renderer use the `on...` + returned-unsubscribe pattern.
+3. **`src/main/ipc/<domain>.ts`** — `ipcMain.handle(IPC.myThing, (_e, arg) => ...)`
+   inside that module's `register…Ipc()`. Push events with `sendToRenderer`.
+
+Renderer calls everything via `window.api.*` (typed by `Api`).
 
 ---
 
@@ -62,7 +69,7 @@ Renderer calls everything via `window.api.*` (typed by the `Api` interface).
 - **`settings` in the store is EFFECTIVE settings** (per-mode overlay already
   merged). `effectiveSettings(raw, mode)` overlays `settings.perMode[mode]` onto the
   base. Keys listed in `SPLIT_SETTING_KEYS` are per-mode; everything else is shared.
-  - When adding a setting: if it should differ between hitomi/normal, add its key to
+  - When adding a setting: if it should differ between doujin/normal, add its key to
     `SPLIT_SETTING_KEYS`; otherwise it's shared (the common case).
 - `works: Work[]`, `downloads: DownloadItem[]`, `jobs: Job[]`, `tabs`, etc.
 - `addWork(w)` upserts into `works`. `mergeScanPartial` (main side) merges scan
@@ -81,7 +88,7 @@ type DownloadSpec =
   | { kind: 'toki'; seriesUrl: string; title: string; chapterUrls?: string[] }
   | { kind: 'generic'; title: string; chapters: TokiChapter[]; only?: string[] }
 ```
-- `specCode(spec)` derives the progress code (hitomi numeric code / toki seriesUrl /
+- `specCode(spec)` derives the progress code (doujin numeric code / manga-site seriesUrl /
   `backup:<title>`) — must match the `code` main emits on the progress channel.
 - `startDownload` seeds a `DownloadItem` (phase `queued`, stores `spec` for
   retry), invokes the right IPC, `addWork`s results, returns `Work[]` — or **`null`
@@ -97,22 +104,19 @@ type DownloadSpec =
 
 ## 4. Downloads: queue, concurrency, cancellation (main)
 
-- **Concurrency gate** in `src/main/index.ts`: `acquireDownloadSlot(signal?)`.
-  Limit = `settings.maxConcurrentDownloads` (0 = unlimited), read live per acquire.
-  Waiters released FIFO; also wakes on abort.
-- **Per-download abort**: `dlControllers: Map<code, AbortController>`. `download:stop`
-  IPC aborts by code. Each of the 3 download handlers (`hitomiDownload`,
-  `runTokiDownload`, `tokiDownloadGeneric`) creates a controller, emits `queued`
-  before acquiring a slot, threads `controller.signal` into the lib function, and on
-  abort emits phase `stopped` + throws `new Error(STOP_MSG)` (`'DOWNLOAD_STOPPED'`).
-- Lib functions take an optional `signal?: AbortSignal` and call
-  `signal?.throwIfAborted()` at each loop iteration:
-  `downloadGallery` (hitomi.ts), `tokiDownloadSeries` + `downloadGenericChapters`
-  (toki.ts). Hitomi checks per-image (near-instant stop); toki checks per-chapter
-  (stop lands at the next chapter boundary — 4 parallel image workers per chapter).
-- **`HitomiProgress.phase`** union (shared/ipc.ts):
-  `'queued' | 'fetching' | 'downloading' | 'enriching' | 'done' | 'error' | 'stopped'`.
-  Progress channel is reused for toki + generic (code = seriesUrl / `backup:<title>`).
+- Every download (doujin gallery, manga-site series, backup-site chapters) runs through
+  **`runDownload(code, title, task)`** in `main/downloads.ts`: waits for a slot
+  (`settings.maxConcurrentDownloads`, 0 = unlimited, read per acquire, FIFO),
+  wires the stop button to an `AbortSignal`, and reports `queued → fetching →
+  (task reports downloading/done) | stopped | error` on the hitomiProgress channel.
+  The task only reports its own `downloading`/`done`.
+- Stop = `stopDownload(code)` (IPC `download:stop`) → abort → `stopped` + rejects
+  with `STOP_MSG` (`'DOWNLOAD_STOPPED'`), which the renderer treats as non-error.
+- Lib functions take `signal?` and `signal?.throwIfAborted()` per loop step
+  (doujin per image, manga-site per chapter). Manga-site chapter images save 4 at a time
+  and are resumable (files already on disk are skipped).
+- `HitomiProgress.phase`: `'queued' | 'fetching' | 'downloading' | 'enriching' |
+  'done' | 'error' | 'stopped'`. Code = doujin code / manga-site seriesUrl / `backup:<title>`.
 
 ---
 
@@ -120,11 +124,11 @@ type DownloadSpec =
 
 - `scanRoot` / `scanOne` stamp `work.library = 'hitomi' | 'normal'` based on **which
   root the folder lives under** (`normalRoots(settings)`), NOT by code presence.
-- Hitomi gallery-id detection is **pattern-driven** (`src/main/lib/parser.ts`
+- Doujin gallery-id detection is **pattern-driven** (`src/main/lib/parser.ts`
   `parseName(folderName, patterns)`):
   - User patterns in `settings.hitomiNamePatterns` (shared setting), tokens
     `-id-` `-title-` `-artist-` `-group-` `-language-`. `-id-` compiles to `(\d{4,})`
-    and is **required** — a folder is a hitomi work only if a pattern matches AND the
+    and is **required** — a folder is a doujin work only if a pattern matches AND the
     id slot has digits. Prevents incidental 7-digit numbers in titles being read as
     codes.
   - `DEFAULT_HITOMI_PATTERNS` is the fallback list. Patterns tried in order.
@@ -176,7 +180,7 @@ In `src/renderer/src/components/`:
 - **`Toggle`** — `checked` / `onChange` switch.
 - **`Stepper`** — numeric +/- input.
 - **`SettingRow`** — `title` + `desc` + children (the control). Standard settings row.
-- **`RadioCards`** (local to Settings.tsx) — mutually-exclusive description cards.
+- **`RadioCards`** (`settings/parts.tsx`) — mutually-exclusive description cards.
 - **`Pager`**, **`ContextMenu`**, **`ConfirmModal`**, **`Stars`**, **`CopyCode`**,
   **`Caret`**, **`TagPickInput`**.
 - Buttons: `.btn` (`.btn.primary`, `.btn.block`, `.btn.danger`) and `.mini` (compact,
@@ -190,16 +194,17 @@ in-progress, `✓`/`✗`/`■`/`▶`/`⏸`/`⬇` glyph prefixes for status/actio
 
 ---
 
-## 7. Settings screen (`components/Settings.tsx`)
+## 7. Settings screen
 
-- Categories via `CATS` array (`{ id, label, modes }`). Current order (folder first):
-  `folder` ('폴더·저장') → `fav` → `style` → `translate` → `network`
-  ('네트워크·다운로드') → `manage`. Default selected cat = `'folder'`.
-- Each `<section data-cat="...">` is shown/hidden by selected cat. Many rows are
-  gated by `isHitomi` (mode).
-- Works on a **`draft`** copy; `patch({ key: value })` updates draft; saved via the
-  store. Live preview examples render from `draft` (e.g. pattern preview with
-  `fillNamePattern(p, SAMPLE_FIELDS)`).
+- `components/Settings.tsx` = shell only: draft, unsaved-change guard, save /
+  leave-confirm, category tabs. Sections live in `components/settings/`:
+  `FolderSection`, `TagSection` (incl. 즐겨찾기 box), `StyleSection`,
+  `TranslateSection`, `NetworkSection`, `ManageSection`; shared rows in
+  `settings/parts.tsx` (`RadioCards`, `RootList`, `FolderRow`, `ChipList`).
+- Sections read/edit through `useSettings()` (`settings/context.ts`):
+  `draft`, `patch`, `applySaved`, `isHitomi`, `notify`, `pickDir`, `rescan`.
+- All categories render at once; CSS (`.settings-inner[data-show]`) shows the
+  active one, so section state and running jobs survive tab switches.
 
 ---
 
@@ -211,7 +216,7 @@ in-progress, `✓`/`✗`/`■`/`▶`/`⏸`/`⬇` glyph prefixes for status/actio
 - **`cd` into the project** before npm (cwd resets outside it).
 - Typecheck is strict about unused locals — when replacing a selector (e.g. swapping
   `addWork` for `startDownload`), remove the old one.
-- Sandbox blocks hitomi network in some contexts; real downloads run in the packaged
+- Sandbox blocks doujin network in some contexts; real downloads run in the packaged
   app / normal dev run.
 - Online list pagination: clear items (`setItems([])`) before fetching the next page
   so the previous page doesn't linger under the loader (Browse.tsx, TokiBrowse.tsx,
@@ -226,20 +231,45 @@ in-progress, `✓`/`✗`/`■`/`▶`/`⏸`/`⬇` glyph prefixes for status/actio
 | area | file |
 |---|---|
 | IPC contract + DTOs | `src/shared/ipc.ts` |
-| Settings type + defaults + patterns | `src/shared/types.ts` |
-| Folder-name pattern util | `src/shared/pattern.ts` |
-| Main process / all handlers | `src/main/index.ts` (`registerIpc()`) |
-| Hitomi download + online browse | `src/main/lib/hitomi.ts` |
-| Toki/general-manga scrape + download | `src/main/lib/toki.ts` |
-| Folder-name → id/title/artist parser | `src/main/lib/parser.ts` |
-| Scanner (library stamping) | `src/main/lib/scanner.ts` |
-| Preload bridge | `src/preload/index.ts` |
-| Renderer store | `src/renderer/src/store.ts` |
+| Settings type + defaults | `src/shared/types.ts` |
+| Folder-name pattern util / title matching | `src/shared/pattern.ts`, `src/shared/title.ts` |
+| App lifecycle | `src/main/index.ts` |
+| IPC handlers | `src/main/ipc/*.ts` (§2) |
+| Favorites model | `src/main/lib/favoriteSync.ts` |
+| Doujin client (DoH, gg.js, download) | `src/main/lib/hitomi.ts` |
+| Manga-site scraper (hidden window) | `src/main/lib/toki.ts` |
+| Scanner / parser | `src/main/lib/scanner.ts`, `src/main/lib/parser.ts` |
+| Renderer store (sections marked) | `src/renderer/src/store.ts` |
+| Favorites list builders | `src/renderer/src/favorites.ts` |
+| Card behavior hooks | `components/useWorkCard.tsx`, `useSeriesCard.tsx`, `useTagMenu.tsx` |
+| Thumbnails | `src/renderer/src/thumbs.ts`, `components/Thumb.tsx` |
+| Reader | `components/Reader.tsx` + `components/reader/` |
+| Settings | `components/Settings.tsx` + `components/settings/` |
 | Styles + theme tokens | `src/renderer/src/styles.css` |
-| Settings UI | `src/renderer/src/components/Settings.tsx` |
-| Download manager UI (stop/retry/all) | `src/renderer/src/components/Download.tsx` |
-| Online lists | `Browse.tsx` (hitomi), `TokiBrowse.tsx`, `OnlineList.tsx` |
-| Reader | `src/renderer/src/components/Reader.tsx` |
-| Download modals | `TokiDownloadModal.tsx`, `TokiBackupModal.tsx` |
-</content>
-</invoke>
+
+---
+
+## 10. Favorites model (2026-10)
+
+- ONE heart per gallery: works with a doujin code → the favorites list
+  (`store.onlineFavs`, keyed by code); every local copy's `Work.favorite`
+  mirrors it. Uncoded works keep `Work.favorite`. General manga uses in-app
+  lists (`settings.normalFavSeries` / `normalFavChapters`), linked to online manga-site
+  favorites (keyed by series url) by normalized title (`titleKey`).
+- All heart changes go through main `setFavoriteByCode` / `setWorkFavorite`
+  (renderer: `store.toggleUnifiedFav`, `setWorkFavorite`).
+- `settings.favoriteMoveToFolder` (default on): heart moves the folder into
+  `favoritesDir` (remembers `homePath`), unheart moves it back. A scan only
+  ADDS a heart for a work newly found inside `favoritesDir`; it never removes one.
+- Favorite lists = `settings.onlineFavLists` ({name, codes}); one favorites
+  file format (Pupil-compatible `{favorites, favorite_tags, ranks}`).
+
+## 11. Verifying changes
+
+No test suite. Typecheck + build, then drive the built app over the Chrome
+DevTools Protocol: `./node_modules/.bin/electron . --remote-debugging-port=9333`
+(if the user's packaged app is running, also set
+`ELECTRON_RENDERER_URL=file:///…/out/renderer/index.html` to skip the
+single-instance lock), connect to the page target and click / call
+`window.api.*`. It uses the real userData — back up `works.json`,
+`settings.json`, `online.json` before anything that writes.

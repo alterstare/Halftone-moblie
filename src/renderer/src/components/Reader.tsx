@@ -1,124 +1,45 @@
+// One reader pane (a tab, or one side of a split tab) for a local work or an
+// online gallery/chapter. Three modes:
+//   scroll — virtualized vertical strip (only a window of pages is mounted;
+//            spacers use measured / estimated page heights)
+//   paged  — one page, click/keys/wheel to flip
+//   spread — two pages side by side
+// plus fit modes and Ctrl+wheel zoom (anchored at the cursor), page
+// chapter navigation (general manga, local + manga-site) and
+// continuous reading into the next/previous work of the left list.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { useStore, useSeriesRoots } from '../store'
 import { getImages, getOnlineImages } from '../images'
 import { getTokiChapters } from '../toki'
 import { analyzeSeries, seriesOf } from '../util'
 import type { TokiChapter } from '../../../shared/ipc'
 import type { FitMode } from '../../../shared/types'
 import { filterExcluded, getExcluded, hasExclusions } from '../exclude'
-import TranslatedImage from './TranslatedImage'
+import PageImage from './PageImage'
+import ContextMenu from './ContextMenu'
+import type { MenuItem } from './ContextMenu'
+import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, fitStyle, fitHeight } from './reader/fit'
+import { prefetchOrdered } from './reader/prefetch'
+import PageSlot from './reader/PageSlot'
+import { useTokiStatus } from './useTokiStatus'
+import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
+import {
+  DownloadIcon,
+  ScrollModeIcon,
+  PageModeIcon,
+  SpreadModeIcon,
+  ArrowBackIcon,
+  FavoriteIcon,
+  CheckMarkIcon,
+  LanguageIcon,
+  MoreVertIcon,
+  TouchAppIcon
+} from './icons'
 
+// (tab, pane, work) combos whose view was already counted this session, so a
+// re-render / remount of the same open work doesn't bump viewCount again.
 const counted = new Set<string>()
-
-// Fit modes: how a page is sized in the pane. The bottom button cycles them.
-const FIT_LABEL: Record<FitMode, string> = {
-  width: '↔ 폭 맞춤',
-  height: '↕ 길이 맞춤',
-  contain: '⊡ 화면 맞춤',
-  cover: '⛶ 화면 채움'
-}
-const FIT_ORDER: FitMode[] = ['contain', 'width', 'height', 'cover']
-
-// <img> style for a fit mode given the (zoom-scaled) pane box. `sw`/`sh` are the
-// available width/height in px. width/height fit one axis; contain fits inside
-// the box (letterbox); cover fills it (cropping the overflow).
-function fitStyle(fit: FitMode, sw: number, sh: number): React.CSSProperties {
-  switch (fit) {
-    case 'width':
-      return { width: sw, height: 'auto', maxWidth: 'none', maxHeight: 'none' }
-    case 'height':
-      return { height: sh, width: 'auto', maxWidth: 'none', maxHeight: 'none' }
-    case 'cover':
-      return { width: sw, height: sh, objectFit: 'cover' }
-    default:
-      return { maxWidth: sw, maxHeight: sh, width: 'auto', height: 'auto' }
-  }
-}
-
-// Displayed page height for the virtualizer, from the decoded aspect ratio
-// r = naturalHeight / naturalWidth and the fit mode.
-function fitHeight(fit: FitMode, r: number, sw: number, sh: number): number {
-  switch (fit) {
-    case 'width':
-      return sw * r
-    case 'height':
-    case 'cover':
-      return sh
-    default:
-      return Math.min(sh, sw * r)
-  }
-}
-
-// Decode `order` (indexes into `srcs`) off-DOM with at most `concurrency`
-// decodes in flight, so the FIRST pages finish fast instead of competing with
-// the whole list (fixes the long "load everything up front" stall). Pages paint
-// from the warm decode cache the instant their <img> mounts (no black frame).
-// `onDims` reports each decoded natural size for height estimation; refs are
-// pushed into `sink` so decoded bytes aren't GC'd before display. Returns a
-// cancel fn.
-function prefetchOrdered(
-  srcs: string[],
-  order: number[],
-  concurrency: number,
-  sink: HTMLImageElement[],
-  onDims: (i: number, w: number, h: number) => void
-): () => void {
-  let cancelled = false
-  let next = 0
-  const step = (): void => {
-    if (cancelled) return
-    const k = next++
-    if (k >= order.length) return
-    const i = order[k]
-    const im = new Image()
-    im.decoding = 'async'
-    im.src = srcs[i]
-    sink.push(im)
-    const after = (): void => {
-      if (cancelled) return
-      if (im.naturalWidth > 0) onDims(i, im.naturalWidth, im.naturalHeight)
-      step() // pull the next page only when this one is done → bounded pressure
-    }
-    const p = im.decode?.()
-    if (p) p.then(after, after)
-    else {
-      im.onload = after
-      im.onerror = after
-    }
-  }
-  for (let c = 0; c < Math.min(concurrency, order.length); c++) step()
-  return () => {
-    cancelled = true
-  }
-}
-
-// Wraps one rendered page and reports its measured height to the virtualizer.
-function PageSlot({
-  index,
-  onMeasure,
-  children
-}: {
-  index: number
-  onMeasure: (i: number, h: number) => void
-  children: React.ReactNode
-}): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const report = (): void => onMeasure(index, el.offsetHeight)
-    report()
-    const ro = new ResizeObserver(report)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [index, onMeasure])
-  return (
-    <div ref={ref} className="page-slot">
-      {children}
-    </div>
-  )
-}
 
 export default function Reader({
   tabId,
@@ -127,12 +48,15 @@ export default function Reader({
   tabId: string
   side?: 'left' | 'right'
 }): JSX.Element {
+  const tokiStatus = useTokiStatus()
   const tab = useStore((s) => s.tabs.find((t) => t.id === tabId))
   // Which work/online this pane shows depends on the side of the (split) tab.
   const paneWorkId = side === 'right' ? tab?.rightWorkId : tab?.workId
   const paneOnline = side === 'right' ? tab?.rightOnline : tab?.online
   const savedScroll = (side === 'right' ? tab?.rightScrollTop : tab?.scrollTop) ?? 0
   const work = useStore((s) => s.works.find((w) => w.id === paneWorkId))
+  // Unified favorite (local heart, or the online favorite of the same code).
+  const workFav = useStore((s) => !!work && (work.favorite || !!(work.code && s.onlineFavs[work.code]?.favorite)))
   const setTabScroll = useStore((s) => s.setTabScroll)
   const setTabRightScroll = useStore((s) => s.setTabRightScroll)
   const upsertWork = useStore((s) => s.upsertWork)
@@ -148,9 +72,13 @@ export default function Reader({
   const setLastZoom = useStore((s) => s.setLastZoom)
   const spreadNextSide = useStore((s) => s.settings.spreadNextSide)
   const pagedFlipSide = useStore((s) => s.settings.pagedFlipSide)
+  const scrollTapFlip = useStore((s) => s.settings.scrollTapFlip ?? 'off')
+  const setTapFlip = useStore((s) => s.setTapFlip)
+  const setWorkFavorite = useStore((s) => s.setWorkFavorite)
   const setTabReader = useStore((s) => s.setTabReader)
-  // Which library this pane belongs to (toki online = general-manga). Used to
-  // restore + remember the reader mode separately for hitomi vs general-manga.
+  const markRead = useStore((s) => s.markRead)
+  // Which library this pane belongs to (manga-site online = general-manga). Used to
+  // restore + remember the reader mode separately for doujin vs general-manga.
   const libMode: 'hitomi' | 'normal' = paneOnline
     ? paneOnline.kind === 'toki'
       ? 'normal'
@@ -168,18 +96,25 @@ export default function Reader({
   }
   // Fit mode (page sizing). Tab's own value wins, else this library's last-used,
   // else contain. Persisted per library, survives restart.
-  const fit: FitMode = (side === 'right' ? tab?.rightFit : tab?.fit) ?? lastFit?.[libMode] ?? 'contain'
+  const storedFit: FitMode = (side === 'right' ? tab?.rightFit : tab?.fit) ?? lastFit?.[libMode] ?? 'contain'
+  const fit: FitMode =
+    mode === 'scroll' && !SCROLL_FIT_ORDER.includes(storedFit)
+      ? storedFit === 'cover'
+        ? 'width'
+        : 'height'
+      : storedFit
+  const fitOrder = mode === 'scroll' ? SCROLL_FIT_ORDER : FIT_ORDER
+  // Spread + cover: natural aspect (h/w) of the shown pages, to size them by hand.
+  const [spreadRatios, setSpreadRatios] = useState<Record<string, number>>({})
   const onlineProgress = useStore((s) => s.onlineProgress)
   const setOnlineProgress = useStore((s) => s.setOnlineProgress)
   const reloadNonce = useStore((s) => s.reloadNonce)
   const pageGap = useStore((s) => s.settings.readerPageGap)
   const works = useStore((s) => s.works)
-  const normalRootsSetting = useStore((s) => s.settings.normalRoots)
-  const normalFav = useStore((s) => s.settings.normalFavoritesDir)
+  const seriesRootList = useSeriesRoots()
   const chapterScheme = useStore((s) => s.settings.normalChapterScheme)
   const replaceTabWork = useStore((s) => s.replaceTabWork)
   const replaceTabOnline = useStore((s) => s.replaceTabOnline)
-  const searchTokiAuthor = useStore((s) => s.searchTokiAuthor)
   const goBack = useStore((s) => s.goBack)
   const continueReading = useStore((s) => s.continueReading)
   const clearStartAtBottom = useStore((s) => s.clearStartAtBottom)
@@ -213,6 +148,22 @@ export default function Reader({
     return (side === 'right' ? t?.rightZoom : t?.zoom) ?? st.settings.lastZoom?.[libMode] ?? 1
   })
   const [pane, setPane] = useState({ w: 800, h: 600 })
+  // Phone chrome: the title bar + bottom bar float over the pages and slide away
+  // while reading (a scroll / page flip); a tap on the bottom 15% brings them
+  // back. The bottom bar's extra row (mode / fit / 넘김) opens from ⋮ or a swipe
+  // up on the bar.
+  const [barsHidden, setBarsHidden] = useState(false)
+  // Long-press popup (title: copy title / number; page: save image).
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
+  const longPressAt = useRef(0) // the finger lifting after a long-press isn't a tap
+  const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const headRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const [barH, setBarH] = useState({ top: 0, bottom: 0 })
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  const pinchEndAt = useRef(0) // a pinch's lifting fingers must not count as a tap
+  const barSwipe = useRef<number | null>(null)
 
   const online = paneOnline
   const key = online ? `online:${online.code}` : paneWorkId
@@ -221,17 +172,17 @@ export default function Reader({
   const isNormalWork = !!work && (work.library ?? 'hitomi') === 'normal'
   const chapters = useMemo(() => {
     if (!isNormalWork || !work) return []
-    const roots = [...(normalRootsSetting ?? []), normalFav].filter(Boolean) as string[]
+    const roots = seriesRootList
     const group = seriesOf(work, works, roots)
     return analyzeSeries(group.chapters, group.title, chapterScheme).map((ci) => ci.work)
-  }, [isNormalWork, work, works, normalRootsSetting, normalFav, chapterScheme])
+  }, [isNormalWork, work, works, seriesRootList, chapterScheme])
   const chIdx = work ? chapters.findIndex((c) => c.id === work.id) : -1
   const goChapter = (delta: number): void => {
     const n = chapters[chIdx + delta]
     if (n) replaceTabWork(tabId, side, n.id)
   }
 
-  // Online (toki) chapter navigation: same series' sibling chapters, loaded in
+  // Online (manga-site) chapter navigation: same series' sibling chapters, loaded in
   // place (same tab) via the shared chapter cache. Left pane only.
   const [tokiChs, setTokiChs] = useState<TokiChapter[]>([])
   useEffect(() => {
@@ -316,7 +267,8 @@ export default function Reader({
     heightsRef.current = [] // fresh work → drop measured heights
     ratioRef.current = [] // …and decoded aspect ratios
     // Online galleries remember the page you were on across close/reopen.
-    setPageIdx(online ? onlineProgress[online.code]?.pageIdx ?? 0 : 0)
+    const pp = side === 'right' ? tab.rightPagePos : tab.pagePos
+    setPageIdx(online ? onlineProgress[online.code]?.pageIdx ?? 0 : pp && pp.workId === paneWorkId ? pp.idx : 0)
     // NB: zoom is NOT reset here — prev/next-chapter (same tab) keeps the zoom.
     const loader = online ? getOnlineImages(online.code) : work ? getImages(work.id) : Promise.resolve([])
     loader.then((imgs) => {
@@ -425,6 +377,7 @@ export default function Reader({
     }
   }, [online, work?.id, readingQueue])
 
+  // Count a view (조회수 / 최근 본) once per opening of a local work.
   useEffect(() => {
     if (!tab || !work || online) return
     const ck = `${tabId}:${side}:${work.id}`
@@ -438,7 +391,7 @@ export default function Reader({
   const computeCurrentFromScroll = useCallback((): void => {
     const el = contentRef.current
     if (!el) return
-    const target = el.scrollTop + el.clientHeight / 3
+    const target = (el.scrollTop + el.clientHeight / 3) / vz.current.s // pinch zoom → layer px
     let acc = 0
     let idx = 0
     for (let i = 0; i < images.length; i++) {
@@ -488,6 +441,12 @@ export default function Reader({
     requestAnimationFrame(pin)
   }, [images, mode, computeCurrentFromScroll])
 
+  // Remember which general-manga chapter was opened last (이어보기 / list mark).
+  const progKey = online ? online.code : work?.id
+  useEffect(() => {
+    if (libMode === 'normal' && progKey) markRead(progKey)
+  }, [libMode, progKey, markRead])
+
   useEffect(() => {
     if (mode !== 'scroll') return
     const el = contentRef.current
@@ -497,9 +456,10 @@ export default function Reader({
     // every frame re-rendered the Reader (window math) + TabBar each frame and
     // capped the framerate; this keeps scrolling render-free.
     const save = (): void => {
-      if (online) setOnlineProgress(online.code, { scrollTop: el.scrollTop, pageIdx: pageIdxRef.current })
-      else if (side === 'right') setTabRightScroll(tabId, el.scrollTop)
-      else setTabScroll(tabId, el.scrollTop)
+      const top = el.scrollTop / vz.current.s // saved unzoomed (pinch zoom isn't kept)
+      if (online) setOnlineProgress(online.code, { scrollTop: top, pageIdx: pageIdxRef.current })
+      else if (side === 'right') setTabRightScroll(tabId, top)
+      else setTabScroll(tabId, top)
     }
     const onScroll = (): void => {
       cancelAnimationFrame(raf)
@@ -519,7 +479,7 @@ export default function Reader({
   const goToPage = useCallback(
     (idx: number): void => {
       // Continuous reading: stepping past the last/first page flows into the next/
-      // previous work. Online (toki) uses its sibling chapters; local works use the
+      // previous work. Online (manga-site) uses its sibling chapters; local works use the
       // reading queue (the filtered left list). Only when a neighbour exists.
       if (idx > images.length - 1) {
         if (online?.kind === 'toki' ? goTokiChapterRef.current(1) : continueReading(tabId, side, 1))
@@ -536,7 +496,7 @@ export default function Reader({
         if (el) {
           let top = 0
           for (let i = 0; i < clamped; i++) top += heightOf(i)
-          el.scrollTo({ top, behavior: 'auto' })
+          el.scrollTo({ top: top * vz.current.s, behavior: 'auto' })
         }
       }
       if (online) setOnlineProgress(online.code, { scrollTop: contentRef.current?.scrollTop ?? 0, pageIdx: clamped })
@@ -549,6 +509,14 @@ export default function Reader({
   goToPageRef.current = goToPage
   pageIdxRef.current = pageIdx
 
+  // Paged / two-page modes: remember the page in the tab (settled, not per flip).
+  const setTabPage = useStore((s) => s.setTabPage)
+  useEffect(() => {
+    if (mode === 'scroll' || online || !paneWorkId) return
+    const t = window.setTimeout(() => setTabPage(tabId, side, { workId: paneWorkId, idx: pageIdx }), 300)
+    return () => window.clearTimeout(t)
+  }, [pageIdx, mode, online, paneWorkId, tabId, side, setTabPage])
+
   // Changing the fit mode resizes every page, so re-anchor the scroll to the
   // page the reader was on (heights were cleared in applyFit → re-measured).
   const fitRef = useRef(fit)
@@ -557,6 +525,18 @@ export default function Reader({
     fitRef.current = fit
     if (mode === 'scroll') goToPageRef.current(pageIdxRef.current)
   }, [fit, mode])
+
+  // Overlay bar heights → scroll-mode padding so the first / last page can be
+  // scrolled clear of the bars.
+  useEffect(() => {
+    const update = (): void =>
+      setBarH({ top: headRef.current?.offsetHeight ?? 0, bottom: bottomRef.current?.offsetHeight ?? 0 })
+    update()
+    const ro = new ResizeObserver(update)
+    if (headRef.current) ro.observe(headRef.current)
+    if (bottomRef.current) ro.observe(bottomRef.current)
+    return () => ro.disconnect()
+  }, [images.length > 0])
 
   // Measure the reader pane so a page can be fit whole at 100% (scroll mode).
   useEffect(() => {
@@ -612,7 +592,7 @@ export default function Reader({
             if (Math.abs(edgeAccum.current) >= EDGE) {
               const dir: 1 | -1 = edgeAccum.current > 0 ? 1 : -1
               edgeAccum.current = 0
-              // Online toki continues by sibling chapter; local by reading queue.
+              // Online manga-site continues by sibling chapter; local by reading queue.
               goTokiChapterRef.current(dir) || useStore.getState().continueReading(tabId, side, dir)
             }
           } else {
@@ -634,6 +614,112 @@ export default function Reader({
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [mode, images.length])
+
+  // Two-finger pinch zoom (phone) — a purely visual zoom on top of the fit:
+  // the page layer (.zoom-layer) is CSS-scaled from its top-left corner and the
+  // pane's own scroll pans it, so nothing re-lays out (no jump on release). The
+  // content point under the fingers stays under them while pinching / moving.
+  // Zooming out past the fit rubber-bands, then springs back to the fit on
+  // release. vz.s is that scale (1 = fit); scroll-mode page math divides by it.
+  const vz = useRef({ s: 1, tx: 0, ty: 0 })
+  const vzAnim = useRef(0)
+  const layerOf = (): HTMLElement | null => contentRef.current?.querySelector<HTMLElement>('.zoom-layer') ?? null
+  // Put content point (X, Y) (unscaled layer px) under pane point (cx, cy) at
+  // scale s: scroll as far as the range allows, the remainder as a translate.
+  const vzSet = useCallback((sc: number, X: number, Y: number, cx: number, cy: number, settle = 1): void => {
+    const el = contentRef.current
+    const layer = el?.querySelector<HTMLElement>('.zoom-layer')
+    if (!el || !layer) return
+    const offX = X * sc - cx
+    const offY = Y * sc - cy
+    const maxX = Math.max(0, layer.offsetWidth * sc - el.clientWidth)
+    const maxY = Math.max(0, layer.scrollHeight * sc - el.clientHeight)
+    const sl = Math.max(0, Math.min(maxX, offX))
+    const st = Math.max(0, Math.min(maxY, offY))
+    const tx = (sl - offX) * settle
+    const ty = (st - offY) * settle
+    vz.current = { s: sc, tx, ty }
+    layer.style.transformOrigin = '0 0'
+    layer.style.transform = sc === 1 && !tx && !ty ? '' : `translate(${tx}px, ${ty}px) scale(${sc})`
+    el.scrollLeft = sl
+    el.scrollTop = st
+  }, [])
+  // Back to the plain fit (new page / mode / work).
+  const vzReset = useCallback((): void => {
+    cancelAnimationFrame(vzAnim.current)
+    const layer = layerOf()
+    if (layer) layer.style.transform = ''
+    vz.current = { s: 1, tx: 0, ty: 0 }
+  }, [])
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    let p: { d0: number; s0: number; X: number; Y: number; cx: number; cy: number } | null = null
+    const dist = (t: TouchList): number => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+    const mid = (t: TouchList): [number, number] => {
+      const r = el.getBoundingClientRect()
+      return [(t[0].clientX + t[1].clientX) / 2 - r.left, (t[0].clientY + t[1].clientY) / 2 - r.top]
+    }
+    const onStart = (e: TouchEvent): void => {
+      if (e.touches.length !== 2) return
+      cancelAnimationFrame(vzAnim.current)
+      const [cx, cy] = mid(e.touches)
+      const { s: s0, tx, ty } = vz.current
+      p = {
+        d0: dist(e.touches) || 1,
+        s0,
+        X: (cx + el.scrollLeft - tx) / s0,
+        Y: (cy + el.scrollTop - ty) / s0,
+        cx,
+        cy
+      }
+    }
+    const onMove = (e: TouchEvent): void => {
+      if (!p || e.touches.length !== 2) return
+      if (e.cancelable) e.preventDefault()
+      const raw = (p.s0 * dist(e.touches)) / p.d0
+      // Below the fit: resist (rubber band), never under 60 %.
+      const sc = raw >= 1 ? Math.min(5, raw) : Math.max(0.6, 1 - (1 - raw) * 0.45)
+      const [cx, cy] = mid(e.touches)
+      p.cx = cx
+      p.cy = cy
+      vzSet(sc, p.X, p.Y, cx, cy)
+    }
+    const onEnd = (e: TouchEvent): void => {
+      if (!p || e.touches.length >= 2) return
+      const { X, Y, cx, cy } = p
+      p = null
+      pinchEndAt.current = Date.now()
+      // Spring back: under the fit → the fit; any edge overshoot → flush.
+      const from = vz.current.s
+      const to = Math.max(1, from)
+      if (from === to && !vz.current.tx && !vz.current.ty) return
+      const t0 = performance.now()
+      const DUR = 220
+      const step = (now: number): void => {
+        const k = Math.min(1, (now - t0) / DUR)
+        const ease = 1 - Math.pow(1 - k, 3)
+        vzSet(from + (to - from) * ease, X, Y, cx, cy, 1 - ease)
+        if (k < 1) vzAnim.current = requestAnimationFrame(step)
+      }
+      vzAnim.current = requestAnimationFrame(step)
+    }
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd)
+      el.removeEventListener('touchcancel', onEnd)
+    }
+  }, [mode, images.length, vzSet])
+  // Paged / spread: a page flip (or any mode / work change) drops the zoom.
+  useLayoutEffect(() => {
+    if (mode !== 'scroll') vzReset()
+  }, [pageIdx, mode, vzReset])
+  useLayoutEffect(() => vzReset, [mode, images, vzReset])
 
   // After a cursor-anchored zoom, page sizes scale by `ratio`; shift the scroll
   // so the content point that was under the cursor stays under it.
@@ -661,12 +747,29 @@ export default function Reader({
     setLastZoom(libMode, 1)
   }
   const onZoomButton = (): void => {
-    if (atFit) applyFit(FIT_ORDER[(FIT_ORDER.indexOf(fit) + 1) % FIT_ORDER.length])
+    if (atFit) applyFit(fitOrder[(fitOrder.indexOf(fit) + 1) % fitOrder.length])
     else {
       heightsRef.current = []
       setZoom(1) // custom → back to the fit mode
     }
   }
+
+  useEffect(() => {
+    if (mode !== 'spread' || fit !== 'cover') return
+    let alive = true
+    for (const src of [images[pageIdx], images[pageIdx + 1]]) {
+      if (!src || spreadRatios[src]) continue
+      const im = new Image()
+      im.onload = () => {
+        if (alive && im.naturalWidth)
+          setSpreadRatios((m) => ({ ...m, [src]: im.naturalHeight / im.naturalWidth }))
+      }
+      im.src = src
+    }
+    return () => {
+      alive = false
+    }
+  }, [mode, fit, images, pageIdx, spreadRatios])
 
   // keyboard paging
   useEffect(() => {
@@ -674,17 +777,41 @@ export default function Reader({
       const t = e.target as HTMLElement
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
       const step = mode === 'spread' ? 2 : 1
-      if (e.key === 'ArrowRight' || e.key === 'PageDown') goToPage(pageIdx + step)
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') goToPage(pageIdx - step)
+      const combo = comboFromEvent(e)
+      if (!combo) return
+      const keys = useStore.getState().settings.shortcuts
+      if (shortcutCombos(keys, 'nextPage').includes(combo)) goToPage(pageIdx + step)
+      else if (shortcutCombos(keys, 'prevPage').includes(combo)) goToPage(pageIdx - step)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [pageIdx, goToPage, mode])
 
+  // Online: which pages are already downloaded (decoded by the prefetcher or
+  // shown) — runs of them become light-purple bands on the page slider.
+  const loadedTrack = (() => {
+    const n = images.length
+    if (!online || !n) return 'transparent'
+    const stops: string[] = []
+    let i = 0
+    while (i < n) {
+      if (!ratioRef.current[i]) {
+        i++
+        continue
+      }
+      let j = i
+      while (j < n && ratioRef.current[j]) j++
+      const a = ((i / n) * 100).toFixed(2)
+      const b = ((j / n) * 100).toFixed(2)
+      stops.push(`transparent ${a}%, var(--page-loaded) ${a}%, var(--page-loaded) ${b}%, transparent ${b}%`)
+      i = j
+    }
+    return stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : 'transparent'
+  })()
+
   if (!tab) return <div className="reader empty">탭이 없습니다.</div>
 
   const title = online ? online.title : work?.title ?? '(삭제됨)'
-  const artist = online ? online.artist : work?.artist
 
   const download = async (): Promise<void> => {
     if (!online) return
@@ -701,7 +828,7 @@ export default function Reader({
     }
   }
 
-  // Download the whole toki series into the local general-manga library.
+  // Download the whole manga-site series into the local general-manga library.
   const downloadToki = async (): Promise<void> => {
     if (!online?.seriesUrl) return
     setDownloading(true)
@@ -723,63 +850,227 @@ export default function Reader({
 
   // Click one half to advance (paged/spread mode). Which half advances is a
   // setting (pagedFlipSide); the other half goes back.
-  const onPagedClick = (e: React.MouseEvent): void => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  // The top / bottom 15% of the pane and its center column (15% of the width)
+  // toggle the bars (any mode); elsewhere a tap
+  // flips (paged) or, with 하단 넘김, the lower half scrolls one screen (scroll).
+  // Taps on the pages. A single tap waits a moment for a possible second tap
+  // (double tap = zoom), then acts: the top / bottom 15% and the center column
+  // (15% of the width) toggle the bars; elsewhere it flips (paged) or, with
+  // 하단 넘김, the lower half scrolls one screen (scroll).
+  type Tap = { x: number; y: number; rect: DOMRect; el: HTMLElement }
+  const tapTimer = useRef(0)
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
+  const handleTap = (e: React.MouseEvent, single: (t: Tap) => void): void => {
+    if (Date.now() - pinchEndAt.current < 400) return // end of a pinch, not a tap
+    if (Date.now() - longPressAt.current < 700) return // end of a long-press
+    const el = e.currentTarget as HTMLElement
+    const tap: Tap = { x: e.clientX, y: e.clientY, rect: el.getBoundingClientRect(), el }
+    const now = Date.now()
+    const prev = lastTap.current
+    window.clearTimeout(tapTimer.current)
+    if (prev && now - prev.t < 300 && Math.hypot(prev.x - tap.x, prev.y - tap.y) < 40) {
+      lastTap.current = null
+      toggleZoomAt(tap)
+      return
+    }
+    lastTap.current = { t: now, x: tap.x, y: tap.y }
+    tapTimer.current = window.setTimeout(() => {
+      lastTap.current = null
+      single(tap)
+    }, 260)
+  }
+  const barsZone = (t: Tap): boolean => {
+    const y = (t.y - t.rect.top) / t.rect.height
+    const x = (t.x - t.rect.left) / t.rect.width
+    if (y >= 0.15 && y <= 0.85 && Math.abs(x - 0.5) > 0.075) return false
+    setBarsHidden((h) => !h)
+    setMoreOpen(false)
+    return true
+  }
+  const onPagedClick = (e: React.MouseEvent): void =>
+    handleTap(e, (t) => {
+      if (barsZone(t)) return
+      const step = mode === 'spread' ? 2 : 1
+      const clickedLeft = t.x - t.rect.left < t.rect.width / 2
+      const forward = clickedLeft === (pagedFlipSide === 'left')
+      goToPage(pageIdx + (forward ? step : -step))
+      setBarsHidden(true)
+    })
+  const onScrollClick = (e: React.MouseEvent): void =>
+    handleTap(e, (t) => {
+      if (barsZone(t)) return
+      if (scrollTapFlip !== 'bottom') return
+      if (t.y - t.rect.top < t.rect.height / 2) return
+      t.el.scrollBy({ top: Math.round(t.el.clientHeight * 0.85), behavior: 'smooth' })
+      setBarsHidden(true)
+    })
+  // Double tap: at the fit → zoom in until the page under the finger fills the
+  // pane (2× when it already fills one side, e.g. width-fit scroll); zoomed in
+  // → back to the fit. Animated, anchored at the tap (same visual zoom as the
+  // pinch).
+  const toggleZoomAt = (t: Tap): void => {
+    const el = contentRef.current
+    if (!el) return
+    cancelAnimationFrame(vzAnim.current)
+    const { s: from, tx, ty } = vz.current
+    const cx = t.x - t.rect.left
+    const cy = t.y - t.rect.top
+    const X = (cx + el.scrollLeft - tx) / from
+    const Y = (cy + el.scrollTop - ty) / from
+    let to = 1
+    if (from <= 1.01) {
+      const hit = document.elementFromPoint(t.x, t.y) as HTMLElement | null
+      const img = hit?.closest('img') ?? el.querySelector<HTMLElement>('.paged-cur img, .zoom-layer img')
+      const r = img?.getBoundingClientRect()
+      to = r && r.width && r.height ? Math.max(el.clientWidth / r.width, el.clientHeight / r.height) : 2
+      if (to < 1.2) to = 2
+      to = Math.min(5, to)
+    }
+    const t0 = performance.now()
+    const DUR = 240
+    const step = (now: number): void => {
+      const k = Math.min(1, (now - t0) / DUR)
+      const ease = 1 - Math.pow(1 - k, 3)
+      vzSet(from + (to - from) * ease, X, Y, cx, cy, to === 1 ? 1 - ease : 1)
+      if (k < 1) vzAnim.current = requestAnimationFrame(step)
+    }
+    vzAnim.current = requestAnimationFrame(step)
+    setBarsHidden(true)
+  }
+  // A drag on the pages (scrolling / panning) hides the bars.
+  const onPagesTouchStart = (e: React.TouchEvent): void => {
+    const t = e.touches[0]
+    touchStart.current = t ? { x: t.clientX, y: t.clientY } : null
+    swipe.current = t && e.touches.length === 1 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null
+  }
+  // Paged / two-page: a quick horizontal swipe flips. The forward direction
+  // follows the tap setting — 오른쪽 넘김: swipe left (the next page comes in
+  // from the right); 왼쪽 넘김: swipe right. Not while pinch-zoomed (that drag
+  // pans the page).
+  const onPagesTouchEnd = (e: React.TouchEvent): void => {
+    const s0 = swipe.current
+    swipe.current = null
+    const t = e.changedTouches[0]
+    if (!s0 || !t || e.touches.length > 0 || mode === 'scroll' || vz.current.s > 1.01) return
+    const dx = t.clientX - s0.x
+    const dy = t.clientY - s0.y
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - s0.t > 700) return
     const step = mode === 'spread' ? 2 : 1
-    const clickedLeft = e.clientX - rect.left < rect.width / 2
-    const forward = clickedLeft === (pagedFlipSide === 'left')
+    const forward = (dx < 0) === (pagedFlipSide === 'right')
     goToPage(pageIdx + (forward ? step : -step))
+    setBarsHidden(true)
+  }
+  const onPagesTouchMove = (e: React.TouchEvent): void => {
+    const s = touchStart.current
+    const t = e.touches[0]
+    if (!s || !t || barsHidden) return
+    if (Math.abs(t.clientY - s.y) > 12 || Math.abs(t.clientX - s.x) > 12) {
+      setBarsHidden(true)
+      setMoreOpen(false)
+      touchStart.current = null
+    }
+  }
+  // Long-press a page: 이미지 저장 (a copy into the phone's Download folder,
+  // also for downloaded works).
+  const onPageContext = (e: React.MouseEvent): void => {
+    const img = (e.target as HTMLElement).closest('img')
+    if (!img) return
+    e.preventDefault()
+    longPressAt.current = Date.now()
+    const src = img.getAttribute('src') ?? ''
+    const n = images.indexOf(src)
+    const name = `${title}${n >= 0 ? `_p${n + 1}` : ''}`
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [{ label: '이미지 저장', onClick: () => void window.api.saveImageToDownloads(img.src, name) }]
+    })
+  }
+  const pagesTouch = {
+    onTouchStart: onPagesTouchStart,
+    onTouchMove: onPagesTouchMove,
+    onTouchEnd: onPagesTouchEnd,
+    onContextMenu: onPageContext
+  }
+  // Long-press the title: copy the title / the work number.
+  const workCode = online ? (online.kind === 'toki' ? null : online.code) : (work?.code ?? null)
+  const onTitleContext = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    // (Android 13+ shows its own "copied" confirmation.)
+    const copy = (text: string): void => void window.api.clipboardWriteText(text)
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      items: [
+        { label: '제목 복사', onClick: () => copy(title) },
+        ...(workCode ? [{ label: `작품 번호 복사 (${workCode})`, onClick: () => copy(workCode) }] : [])
+      ]
+    })
+  }
+  // Swipe up on the bottom bar opens the extra row, down closes it.
+  const onBarTouchStart = (e: React.TouchEvent): void => {
+    barSwipe.current = e.touches[0]?.clientY ?? null
+  }
+  const onBarTouchEnd = (e: React.TouchEvent): void => {
+    const y0 = barSwipe.current
+    const y1 = e.changedTouches[0]?.clientY
+    barSwipe.current = null
+    if (y0 == null || y1 == null) return
+    if (y1 - y0 < -30) setMoreOpen(true)
+    else if (y1 - y0 > 30) setMoreOpen(false)
   }
 
   return (
-    <div className="reader-wrap">
-      <div className="reader-head">
+    <div className={`reader-wrap overlay-bars ${barsHidden ? 'bars-hidden' : ''}`}>
+      <div className="reader-head" ref={headRef}>
         {side === 'left' && (
-          <button className="mini reader-back" onClick={goBack}>
-            ‹ 목록
+          <button className="mini icon reader-back" onClick={goBack} title="목록">
+            <ArrowBackIcon />
           </button>
         )}
-        <h2>{title}</h2>
-        {artist &&
-          (online?.kind === 'toki' ? (
-            <span
-              className="reader-artist link"
-              onClick={() => searchTokiAuthor(artist)}
+        <h2 onContextMenu={onTitleContext}>{title}</h2>
+        {online && (
+          <span className="reader-online" title="온라인">
+            <LanguageIcon />
+          </span>
+        )}
+        {/* Icon buttons, flat group (default design). Download shows its state
+            in the icon: arrow → (busy, dimmed) → check when done. */}
+        <span className="flat-group reader-head-btns">
+          {online && online.kind !== 'toki' ? (
+            <button
+              className={`mini icon ${dlDone ? 'dl-ok' : ''} ${downloading ? 'busy' : ''}`}
+              onClick={download}
+              disabled={downloading || dlDone}
+              title={downloading ? '다운로드 중…' : dlDone ? '다운로드 완료' : '다운로드'}
             >
-              {artist}
-            </span>
-          ) : (
-            <span className="reader-artist">{artist}</span>
-          ))}
-        {online && <span className="online-badge">ONLINE</span>}
-        <span className="reader-pages">{images.length}p</span>
-        {online && online.kind !== 'toki' ? (
-          <button
-            className={`mini ${dlDone ? 'dl-ok' : ''}`}
-            onClick={download}
-            disabled={downloading || dlDone}
-          >
-            {downloading ? '다운로드 중…' : dlDone ? '✓ 완료' : '⬇ 다운로드'}
-          </button>
-        ) : online && online.kind === 'toki' && online.seriesUrl ? (
-          <button
-            className={`mini ${dlDone ? 'dl-ok' : ''}`}
-            onClick={downloadToki}
-            disabled={downloading || dlDone}
-            title="다운로드"
-          >
-            {downloading ? '다운로드 중…' : dlDone ? '✓ 완료' : '⬇ 전체 다운로드'}
-          </button>
-        ) : (
-          work && (
-            <button className="mini" onClick={() => window.api.openInExplorer(work.id)}>
-              폴더 열기
+              {dlDone ? <CheckMarkIcon /> : <DownloadIcon />}
             </button>
-          )
-        )}
+          ) : online && online.kind === 'toki' && online.seriesUrl ? (
+            <button
+              className={`mini icon ${dlDone ? 'dl-ok' : ''} ${downloading ? 'busy' : ''}`}
+              onClick={downloadToki}
+              disabled={downloading || dlDone}
+              title={downloading ? '다운로드 중…' : dlDone ? '다운로드 완료' : '전체 다운로드'}
+            >
+              {dlDone ? <CheckMarkIcon /> : <DownloadIcon />}
+            </button>
+          ) : (
+            work && (
+              // Local work: the unified favorite (same heart as the library card).
+              <button
+                className={`mini icon reader-fav ${workFav ? 'on' : ''}`}
+                onClick={() => void setWorkFavorite(work, !workFav)}
+                title={workFav ? '즐겨찾기 해제' : '즐겨찾기'}
+              >
+                <FavoriteIcon filled={workFav} />
+              </button>
+            )
+          )}
+        </span>
       </div>
 
-      {loadingImgs && <div className="reader-loading">이미지 로딩 중…</div>}
+      {loadingImgs && <div className="reader-loading">{(online?.kind === 'toki' && tokiStatus) || '이미지 로딩 중…'}</div>}
 
       {mode === 'scroll' ? (
         (() => {
@@ -803,17 +1094,23 @@ export default function Reader({
             <div
               className={`reader-content scroll ${pageGap ? 'page-gap' : ''}`}
               ref={contentRef}
+              onClick={onScrollClick}
+              {...pagesTouch}
               // Allow horizontal scroll when the page can exceed the pane width
               // (zoomed in, or width/cover fit past the viewport).
-              style={{ overflowX: zoom > 1 || fit === 'width' || fit === 'cover' ? 'auto' : 'hidden' }}
+              // (Always on a phone: a pinch zoom pans sideways by scrolling.)
+              style={{ overflowX: 'auto' }}
             >
-              <div className="reader-pages-col">
+              <div className="reader-pages-col zoom-layer" style={{ paddingTop: barH.top, paddingBottom: barH.bottom }}>
                 {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
                 {images.slice(start, end).map((src, k) => {
                   const i = start + k
                   return (
                     <PageSlot key={i} index={i} onMeasure={measure}>
-                      <TranslatedImage src={src} style={pageStyle} />
+                      <PageImage
+                        src={src}
+                        style={pageStyle}
+                      />
                     </PageSlot>
                   )
                 })}
@@ -823,32 +1120,53 @@ export default function Reader({
           )
         })()
       ) : mode === 'spread' ? (
-        <div className="reader-content paged spread" ref={contentRef} onClick={onPagedClick}>
+        <div className="reader-content paged spread" ref={contentRef} onClick={onPagedClick} {...pagesTouch}>
+          <div className="zoom-layer">
           <div className="spread-pages">
             {/* Page order per setting: 'left' = next page on the left (manga
                 right-to-left), 'right' = next page on the right (left-to-right). */}
             {(spreadNextSide === 'left' ? [pageIdx + 1, pageIdx] : [pageIdx, pageIdx + 1]).map(
-              (idx) =>
-                images[idx] && (
-                  <TranslatedImage
+              (idx) => {
+                if (!images[idx]) return null
+                const half = Math.round(sw / 2)
+                const img = (style: React.CSSProperties): JSX.Element => (
+                  <PageImage
                     key={idx}
                     src={images[idx]}
-                    style={fitStyle(fit, Math.round(sw / 2), sh)}
+                    style={style}
                   />
                 )
+                if (fit !== 'cover') return img(fitStyle(fit, half, sh))
+                // Cover without object-fit: size the WHOLE image to cover the cell and
+                // clip with the cell. object-fit:cover draws a cropped sub-rect, which
+                // skips Chromium's mipmapped downscale → jagged (aliased) lines.
+                const r = spreadRatios[images[idx]]
+                const style: React.CSSProperties = !r
+                  ? fitStyle('contain', half, sh)
+                  : r > sh / half
+                    ? { width: half, height: Math.round(half * r), maxWidth: 'none', maxHeight: 'none' }
+                    : { height: sh, width: Math.round(sh / r), maxWidth: 'none', maxHeight: 'none' }
+                return (
+                  <div key={idx} className="spread-cell" style={{ width: half, height: sh }}>
+                    {img(style)}
+                  </div>
+                )
+              }
             )}
+          </div>
           </div>
           <div className="paged-hint left">‹</div>
           <div className="paged-hint right">›</div>
         </div>
       ) : (
-        <div className="reader-content paged" ref={contentRef} onClick={onPagedClick}>
+        <div className="reader-content paged" ref={contentRef} onClick={onPagedClick} {...pagesTouch}>
           {/* Keep the neighbouring pages mounted (decoded, off-screen) so flipping
               swaps to an already-painted image instead of a fresh <img> that
               decodes on mount → one black frame. Only the current page shows. */}
+          <div className="zoom-layer">
           {[pageIdx - 1, pageIdx, pageIdx + 1].map((i) =>
             images[i] ? (
-              <TranslatedImage
+              <PageImage
                 key={i}
                 className={i === pageIdx ? 'paged-cur' : 'paged-off'}
                 src={images[i]}
@@ -856,13 +1174,19 @@ export default function Reader({
               />
             ) : null
           )}
+          </div>
           <div className="paged-hint left">‹</div>
           <div className="paged-hint right">›</div>
         </div>
       )}
 
       {images.length > 0 && (
-        <div className="reader-bottom">
+        <div
+          className={`reader-bottom ${moreOpen ? 'more-open' : ''}`}
+          ref={bottomRef}
+          onTouchStart={onBarTouchStart}
+          onTouchEnd={onBarTouchEnd}
+        >
           {isNormalWork && chapters.length > 1 && (
             <div className="chapter-nav">
               <button
@@ -905,31 +1229,89 @@ export default function Reader({
               </button>
             </div>
           )}
-          <input
-            type="range"
-            className="page-slider"
-            min={0}
-            max={images.length - 1}
-            value={pageIdx}
-            onChange={(e) => goToPage(Number(e.target.value))}
-          />
+          {/* Custom track: grey base, online pages already loaded in light purple,
+              read progress in purple; the native range sits on top (thumb). */}
+          <div className="page-slider-wrap">
+            <div className="page-track" aria-hidden>
+              {online && <div className="page-loaded" style={{ background: loadedTrack }} />}
+              <div
+                className="page-progress"
+                style={{ width: `calc(${images.length > 1 ? pageIdx / (images.length - 1) : 0} * (100% - 22px) + 11px)` }}
+              />
+            </div>
+            <input
+              type="range"
+              className="page-slider"
+              min={0}
+              max={images.length - 1}
+              value={pageIdx}
+              onChange={(e) => goToPage(Number(e.target.value))}
+            />
+          </div>
           <span className="page-label">
             {pageIdx + 1} / {images.length}
           </span>
           <button
-            className="mini mode-toggle"
-            onClick={() => setMode(mode === 'scroll' ? 'paged' : mode === 'paged' ? 'spread' : 'scroll')}
+            className={`mini icon reader-more-btn ${moreOpen ? 'on' : ''}`}
+            onClick={() => setMoreOpen((o) => !o)}
+            title="더보기"
           >
-            {mode === 'scroll' ? '⤓ 스크롤' : mode === 'paged' ? '❐ 클릭넘김' : '⊞ 두 쪽'}
+            <MoreVertIcon />
           </button>
-          <button
-            className="mini zoom-btn"
-            onClick={onZoomButton}
-          >
-            {atFit ? FIT_LABEL[fit] : `${Math.round(zoom * 100)}%`}
-          </button>
+          {/* Extra row (⋮ / swipe up): mode · fit · 넘김. Flat group, dividers. */}
+          <div className="reader-more">
+            <div className="reader-more-inner">
+              <span className="flat-group reader-btns">
+                <button
+                  className="mini mode-toggle"
+                  onClick={() => setMode(mode === 'scroll' ? 'paged' : mode === 'paged' ? 'spread' : 'scroll')}
+                >
+                  {mode === 'scroll' ? (
+                    <>
+                      <ScrollModeIcon />
+                      <span className="btn-label">스크롤</span>
+                    </>
+                  ) : mode === 'paged' ? (
+                    <>
+                      <PageModeIcon />
+                      <span className="btn-label">한 페이지</span>
+                    </>
+                  ) : (
+                    <>
+                      <SpreadModeIcon />
+                      <span className="btn-label">두 페이지</span>
+                    </>
+                  )}
+                </button>
+                <button className="mini zoom-btn" onClick={onZoomButton}>
+                  {atFit ? (
+                    <>
+                      {FIT_ICON[fit]}
+                      <span className="btn-label">{FIT_TEXT[fit]}</span>
+                    </>
+                  ) : (
+                    <span className="btn-label">{Math.round(zoom * 100)}%</span>
+                  )}
+                </button>
+                <button
+                  className="mini flip-btn"
+                  onClick={() =>
+                    mode === 'scroll'
+                      ? setTapFlip({ scrollTapFlip: scrollTapFlip === 'bottom' ? 'off' : 'bottom' })
+                      : setTapFlip({ pagedFlipSide: pagedFlipSide === 'left' ? 'right' : 'left' })
+                  }
+                >
+                  <TouchAppIcon />
+                  <span className="btn-label">
+                    {mode === 'scroll' ? (scrollTapFlip === 'bottom' ? '하단' : 'OFF') : pagedFlipSide === 'left' ? '왼쪽' : '오른쪽'}
+                  </span>
+                </button>
+              </span>
+            </div>
+          </div>
         </div>
       )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
   )
 }

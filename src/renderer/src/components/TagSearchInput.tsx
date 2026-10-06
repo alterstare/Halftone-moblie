@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
+import SearchClear from './SearchClear'
 
 // Match a token against the typed term by its VALUE (namespace prefix stripped),
 // so "kagu" matches "artist:kagura" without "artist:" itself swallowing the query.
@@ -22,7 +23,7 @@ function rankToken(token: string, term: string): number | null {
 // Search input with a dark, app-styled tag autocomplete. Suggestions complete the
 // LAST whitespace-separated word of the query, so earlier tokens are kept.
 // `tokens` are local (library) suggestions matched synchronously; the optional
-// `fetchTokens` pulls extra suggestions async (e.g. the bundled hitomi artist list
+// `fetchTokens` pulls extra suggestions async (e.g. the bundled doujin artist list
 // + browsed tags) for the online search box.
 export default function TagSearchInput({
   value,
@@ -34,7 +35,9 @@ export default function TagSearchInput({
   history,
   onPickHistory,
   favorites,
-  onPickFavorite
+  onPickFavorite,
+  leading,
+  trailing
 }: {
   value: string
   onChange: (v: string) => void
@@ -48,6 +51,9 @@ export default function TagSearchInput({
   // Saved searches (tag/combo) pinned above the history in the empty-state dropdown.
   favorites?: string[]
   onPickFavorite?: (query: string) => void
+  // Controls pinned inside the box: left end (filter) / right end (sort).
+  leading?: ReactNode
+  trailing?: ReactNode
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [hi, setHi] = useState(-1)
@@ -57,7 +63,7 @@ export default function TagSearchInput({
   const inputRef = useRef<HTMLInputElement>(null)
   const seq = useRef(0)
 
-  // Combos are comma-separated (hitomi's own delimiter); tag VALUES may contain
+  // Combos are comma-separated (the doujin site's own delimiter); tag VALUES may contain
   // spaces ("big breasts"), so split on comma ONLY — never whitespace — and
   // autocomplete the last comma-segment.
   const lastWord = (value.split(',').pop() ?? '').trim()
@@ -126,7 +132,8 @@ export default function TagSearchInput({
   }
 
   return (
-    <div className="search-ac">
+    <div className={`search-ac ${leading ? 'has-leading' : ''} ${trailing ? 'has-trailing' : ''}`}>
+      {leading && <span className="search-leading">{leading}</span>}
       <input
         ref={inputRef}
         className="search"
@@ -165,6 +172,8 @@ export default function TagSearchInput({
           }
         }}
       />
+      <SearchClear value={value} onClear={() => onChange('')} />
+      {trailing && <span className="search-trailing">{trailing}</span>}
       {show && (
         <ul className="search-ac-list">
           {matches.map((t, i) => (
