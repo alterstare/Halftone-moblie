@@ -125,18 +125,18 @@ export function useWorkCard(work: Work): {
         { label: '새 탭에서 열기', onClick: () => openTab(work.id) },
         { label: '백그라운드에서 열기', onClick: () => openTabBackground(work.id) },
         { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(work.id) },
-        ...(work.code && (work.library ?? 'hitomi') === 'hitomi'
-          ? [{ label: '다시 다운로드', onClick: () => startDownload({ kind: 'hitomi' as const, input: work.code! }) }]
+        ...(work.code && (work.library ?? 'doujin') === 'doujin'
+          ? [{ label: '다시 다운로드', onClick: () => startDownload({ kind: 'doujin' as const, input: work.code! }) }]
           : []),
         { label: '제목 복사', onClick: () => void window.api.clipboardWriteText(work.title) },
         { label: '폴더 열기', onClick: () => void window.api.openInExplorer(work.id) },
-        ...(work.code && (work.library ?? 'hitomi') === 'hitomi'
+        ...(work.code && (work.library ?? 'doujin') === 'doujin'
           ? [
               {
                 label: '메타 채우기',
                 onClick: async () => {
                   try {
-                    upsertWork(await window.api.hitomiEnrich(work.id))
+                    upsertWork(await window.api.doujinEnrich(work.id))
                   } catch (err: any) {
                     alert(String(err?.message ?? err))
                   }

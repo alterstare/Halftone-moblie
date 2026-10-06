@@ -1,28 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots, lastReadKey } from '../store'
-import type { TokiListSource, TokiSummary, TokiSort, TokiType } from '../../../shared/ipc'
+import type { ComicListSource, ComicSummary, ComicSort, ComicType } from '../../../shared/ipc'
 import type { OnlineFav } from '../../../shared/types'
 import Stars from './Stars'
 import MoreClamp from './MoreClamp'
 import { ArtistLinks } from './ArtistLinks'
 import TileBar from './TileBar'
-import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab } from './libraryTools'
-import TokiDownloadModal from './TokiDownloadModal'
-import type { TokiSeriesRef } from './TokiDownloadModal'
-import TokiBackupModal from './TokiBackupModal'
+import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav } from './libraryTools'
+import ComicDownloadModal from './ComicDownloadModal'
+import type { ComicSeriesRef } from './ComicDownloadModal'
+import ComicBackupModal from './ComicBackupModal'
 import OnlineThumb from './OnlineThumb'
 import { getOnlineImages } from '../images'
 import { FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon, ArrowDownIcon } from './icons'
 import { BypassToggle, OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
 import Pager from './Pager'
-import { groupSeries, titleKey, isTokiCode } from '../util'
-import { useTokiStatus } from './useTokiStatus'
+import { groupSeries, titleKey, isComicCode } from '../util'
+import { useComicStatus } from './useComicStatus'
 import SearchClear from './SearchClear'
 import Dropdown from './Dropdown'
 import ContextMenu from './ContextMenu'
 
-const SORTS: [TokiSort, string][] = [
+const SORTS: [ComicSort, string][] = [
   ['date', '최신순'],
   ['new', '신작순'],
   ['bookmark', '북마크순'],
@@ -30,13 +30,13 @@ const SORTS: [TokiSort, string][] = [
   ['rating', '평점순'],
   ['chapter', '화수순']
 ]
-const TYPES: [TokiType, string][] = [
+const TYPES: [ComicType, string][] = [
   ['manga', '만화'],
   ['webtoon', '웹툰']
 ]
 
 // Meta cached alongside a manga-site online favorite (keyed by the series url).
-function favMeta(g: TokiSummary, artist: string | null): Partial<OnlineFav> {
+function favMeta(g: ComicSummary, artist: string | null): Partial<OnlineFav> {
   return { title: g.title, artist, thumbUrl: g.thumb, language: null, pageCount: 0 }
 }
 
@@ -46,10 +46,10 @@ function favMeta(g: TokiSummary, artist: string | null): Partial<OnlineFav> {
 // which keeps them separate from the doujin numeric-code favorites.
 const NO_GENRES: string[] = []
 
-export default function TokiBrowse(): JSX.Element {
-  const tokiStatus = useTokiStatus()
-  const openToki = useStore((s) => s.openToki)
-  const openTokiBackground = useStore((s) => s.openTokiBackground)
+export default function ComicBrowse(): JSX.Element {
+  const comicStatus = useComicStatus()
+  const openComic = useStore((s) => s.openComic)
+  const openComicBackground = useStore((s) => s.openComicBackground)
   const openGlance = useStore((s) => s.openGlance)
   const onlineFavs = useStore((s) => s.onlineFavs)
   const toggleNormalUnifiedFav = useStore((s) => s.toggleNormalUnifiedFav)
@@ -59,7 +59,7 @@ export default function TokiBrowse(): JSX.Element {
   const roots = useSeriesRoots()
   const normalFavSeries = useStore((s) => s.settings.normalFavSeries)
   const setOnlineRank = useStore((s) => s.setOnlineRank)
-  const authorSeed = useStore((s) => s.tokiAuthorSeed)
+  const authorSeed = useStore((s) => s.comicAuthorSeed)
   const browseTopNonce = useStore((s) => s.browseTopNonce)
   const rootRef = useRef<HTMLDivElement>(null)
   // Bumped to force a fresh fetch even when source/page are unchanged (used by
@@ -69,20 +69,20 @@ export default function TokiBrowse(): JSX.Element {
   const [toolsOpen, setToolsOpen] = useState(false)
   const [genreOpen, setGenreOpen] = useState(false)
   const refreshWaiters = useRef<(() => void)[]>([]) // pull-to-refresh waits for the fetch
-  const tokiBaseUrl = useStore((s) => s.settings.tokiBaseUrl)
+  const comicBaseUrl = useStore((s) => s.settings.comicBaseUrl)
   const setSettings = useStore((s) => s.setSettings)
   const [addrOpen, setAddrOpen] = useState(false)
-  const [addr, setAddr] = useState(tokiBaseUrl)
+  const [addr, setAddr] = useState(comicBaseUrl)
   const [genre, setGenre] = useState<string>('전체')
-  const [sort, setSort] = useState<TokiSort>('date')
-  const [type, setType] = useState<TokiType>('manga')
+  const [sort, setSort] = useState<ComicSort>('date')
+  const [type, setType] = useState<ComicType>('manga')
   const [query, setQuery] = useState('')
   const [field, setField] = useState<'title' | 'author'>('title')
-  const [source, setSource] = useState<TokiListSource>({ genre: '전체', sort: 'date', type: 'manga' })
+  const [source, setSource] = useState<ComicListSource>({ genre: '전체', sort: 'date', type: 'manga' })
   const [page, setPage] = useState(0)
   // Authors discovered when a series is opened (list cards don't carry them).
   const [authors, setAuthors] = useState<Record<string, string | null>>({})
-  const [items, setItems] = useState<TokiSummary[]>([])
+  const [items, setItems] = useState<ComicSummary[]>([])
   const [hasNext, setHasNext] = useState(false)
   // Start empty so the hardcoded seed genres never flash — chips appear only
   // once the live site responds with its actual genre list.
@@ -91,8 +91,8 @@ export default function TokiBrowse(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [opening, setOpening] = useState<string | null>(null)
   // Right-click menu on a card (open / background / 제목 복사).
-  const [cardMenu, setCardMenu] = useState<{ x: number; y: number; g: TokiSummary } | null>(null)
-  const [dlSeries, setDlSeries] = useState<TokiSeriesRef | null>(null)
+  const [cardMenu, setCardMenu] = useState<{ x: number; y: number; g: ComicSummary } | null>(null)
+  const [dlSeries, setDlSeries] = useState<ComicSeriesRef | null>(null)
   const [backupOpen, setBackupOpen] = useState(false)
   const [favMode, setFavMode] = useState(false)
   const [favSort, setFavSort] = useState<'rank' | 'recent'>('recent')
@@ -114,7 +114,7 @@ export default function TokiBrowse(): JSX.Element {
     setError(null)
     setItems([]) // drop the previous page so it doesn't linger under the loader
     window.api
-      .tokiList(source, page)
+      .comicList(source, page)
       .then((r) => {
         if (!alive) return
         setItems(r.items)
@@ -134,13 +134,13 @@ export default function TokiBrowse(): JSX.Element {
     return () => {
       alive = false
     }
-  }, [source, page, favMode, tokiBaseUrl, reloadKey])
+  }, [source, page, favMode, comicBaseUrl, reloadKey])
 
   // Save a new mirror address and reload (the list effect re-runs on base change).
   const saveAddr = async (): Promise<void> => {
     const url = addr.trim().replace(/\/+$/, '')
     if (!url) return
-    const s = { ...useStore.getState().settings, tokiBaseUrl: url }
+    const s = { ...useStore.getState().settings, comicBaseUrl: url }
     setSettings(s)
     await window.api.saveSettings(s)
     setAddrOpen(false)
@@ -149,8 +149,8 @@ export default function TokiBrowse(): JSX.Element {
   }
 
   // Apply the current type/sort/genre/query without needing the 적용 button.
-  const applySource = (patch: Partial<TokiListSource>): void => {
-    const next: TokiListSource = {
+  const applySource = (patch: Partial<ComicListSource>): void => {
+    const next: ComicListSource = {
       genre,
       sort,
       type,
@@ -203,7 +203,7 @@ export default function TokiBrowse(): JSX.Element {
   // local series with its online manga-site counterpart (they share only the title).
   const localSeries = useMemo(() => {
     const m = new Map<string, { key: string; title: string; repId: string; artist: string | null }>()
-    for (const g of groupSeries(works.filter((w) => (w.library ?? 'hitomi') === 'normal'), roots)) {
+    for (const g of groupSeries(works.filter((w) => (w.library ?? 'doujin') === 'normal'), roots)) {
       const k = titleKey(g.title)
       if (k && !m.has(k))
         m.set(k, { key: g.key, title: g.title, repId: g.chapters[0]?.id ?? '', artist: g.chapters.find((c) => c.artist)?.artist ?? null })
@@ -216,17 +216,17 @@ export default function TokiBrowse(): JSX.Element {
     for (const [k, v] of localSeries) if ((normalFavSeries ?? []).includes(v.key)) set.add(k)
     return set
   }, [localSeries, normalFavSeries])
-  const isFavTitle = (g: TokiSummary): boolean =>
+  const isFavTitle = (g: ComicSummary): boolean =>
     !!onlineFavs[g.url]?.favorite || localFavKeys.has(titleKey(g.title))
 
   // Unified favorites: online manga-site favorites + locally-favorited series that have
   // no online favorite yet (url `local:<key>` → opens the downloaded series).
   const normalFavAt = useStore((s) => s.settings.normalFavAt)
-  const favGalleries = useMemo<TokiSummary[]>(() => {
-    const rows: { g: TokiSummary; t: number; r: number }[] = []
+  const favGalleries = useMemo<ComicSummary[]>(() => {
+    const rows: { g: ComicSummary; t: number; r: number }[] = []
     const seen = new Set<string>()
     for (const f of Object.values(onlineFavs)) {
-      if (!f.favorite || !isTokiCode(f.code)) continue
+      if (!f.favorite || !isComicCode(f.code)) continue
       seen.add(titleKey(f.title))
       rows.push({ g: { url: f.code, title: f.title, thumb: f.thumbUrl, artist: f.artist, genre: null, chapter: null }, t: f.addedAt, r: f.rank })
     }
@@ -244,12 +244,12 @@ export default function TokiBrowse(): JSX.Element {
     return rows.map((x) => x.g)
   }, [onlineFavs, favSort, localFavKeys, localSeries, normalFavAt])
   // Excluded genres (right-click a genre chip): hide cards carrying any of them.
-  const excludeGenres = useStore((s) => s.settings.tokiExcludeGenres) ?? NO_GENRES
+  const excludeGenres = useStore((s) => s.settings.comicExcludeGenres) ?? NO_GENRES
   const toggleExclude = (g: string): void => {
     const st = useStore.getState()
-    const cur = st.settings.tokiExcludeGenres ?? []
+    const cur = st.settings.comicExcludeGenres ?? []
     const next = cur.includes(g) ? cur.filter((x) => x !== g) : [...cur, g]
-    const s = { ...st.settings, tokiExcludeGenres: next }
+    const s = { ...st.settings, comicExcludeGenres: next }
     useStore.setState({ settings: s })
     void window.api.saveSettings(s)
   }
@@ -267,7 +267,7 @@ export default function TokiBrowse(): JSX.Element {
     : shownItems
 
   const openSeries = async (
-    g: TokiSummary,
+    g: ComicSummary,
     target: 'tab' | 'glance' | 'background' = 'tab'
   ): Promise<void> => {
     if (g.url.startsWith('local:')) {
@@ -277,15 +277,15 @@ export default function TokiBrowse(): JSX.Element {
     }
     setOpening(g.url)
     try {
-      const chapters = await window.api.tokiChapters(g.url)
+      const chapters = await window.api.comicChapters(g.url)
       if (chapters.length === 0) {
         alert('이 작품의 화 목록을 찾지 못했습니다. (사이트 구조가 다를 수 있음)')
         return
       }
       // Author + series title are nice-to-haves; fetch after, never block opening.
       const [author, seriesTitle] = await Promise.all([
-        window.api.tokiSeriesAuthor(g.url).catch(() => null),
-        window.api.tokiSeriesTitle(g.url).catch(() => null)
+        window.api.comicSeriesAuthor(g.url).catch(() => null),
+        window.api.comicSeriesTitle(g.url).catch(() => null)
       ])
       if (author) setAuthors((a) => ({ ...a, [g.url]: author }))
       // 이어보기: open the most recently read chapter instead of the first.
@@ -300,9 +300,9 @@ export default function TokiBrowse(): JSX.Element {
         chapterLabel: first.title,
         thumb: g.thumb
       }
-      if (target === 'glance') openGlance({ online: { ...payload, kind: 'toki' } })
-      else if (target === 'background') openTokiBackground(payload)
-      else openToki(payload)
+      if (target === 'glance') openGlance({ online: { ...payload, kind: 'comic' } })
+      else if (target === 'background') openComicBackground(payload)
+      else openComic(payload)
     } catch (e: any) {
       alert(String(e?.message ?? e))
     } finally {
@@ -323,12 +323,14 @@ export default function TokiBrowse(): JSX.Element {
       setTimeout(res, 30000) // never spin forever
     })
   const ptrSpinner = usePullRefresh(rootRef, refresh, browseView)
+  // Swipe right → back to 라이브러리.
+  useSwipeNav(rootRef, null, () => useStore.getState().goHome(), browseView && !sel.selecting)
   const startDownload = useStore((s) => s.startDownload)
   const downloadSelected = (): void => {
     const picked = gallery.filter((g) => sel.selected.has(g.url))
     sel.stop()
     void (async () => {
-      for (const g of picked) await startDownload({ kind: 'toki', seriesUrl: g.url, title: g.title }).catch(() => null)
+      for (const g of picked) await startDownload({ kind: 'comic', seriesUrl: g.url, title: g.title }).catch(() => null)
     })()
   }
 
@@ -376,7 +378,7 @@ export default function TokiBrowse(): JSX.Element {
             />
             <SearchClear value={query} onClear={() => setQuery('')} />
             <span className="search-trailing">
-              <Dropdown<TokiSort>
+              <Dropdown<ComicSort>
                 icon={<SortIcon />}
                 title="정렬"
                 value={sort}
@@ -423,14 +425,14 @@ export default function TokiBrowse(): JSX.Element {
           </button>
         </div>
         {toolsOpen && (
-          <div className="chips toki-tools">
-            <button className="chip" onClick={() => window.api.tokiOpenSite()}>
+          <div className="chips comic-tools">
+            <button className="chip" onClick={() => window.api.comicOpenSite()}>
               인증창
             </button>
             <button
               className={`chip ${addrOpen ? 'active' : ''}`}
               onClick={() => {
-                setAddr(tokiBaseUrl)
+                setAddr(comicBaseUrl)
                 setAddrOpen((v) => !v)
               }}
             >
@@ -443,7 +445,8 @@ export default function TokiBrowse(): JSX.Element {
         )}
 
         {addrOpen && (
-          <div className="search-row">
+          // Phone: the address box takes the row; flat text buttons below it.
+          <div className="comic-addr">
             <input
               className="search"
               value={addr}
@@ -452,12 +455,14 @@ export default function TokiBrowse(): JSX.Element {
               placeholder="https://example.com (구조가 같은 미러 주소)"
               autoFocus
             />
-            <button className="btn primary" onClick={saveAddr}>
-              저장 후 새로고침
-            </button>
-            <button className="btn" onClick={() => setAddrOpen(false)}>
-              취소
-            </button>
+            <span className="flat-group comic-addr-btns">
+              <button className="btn primary" onClick={saveAddr}>
+                저장 후 새로고침
+              </button>
+              <button className="btn" onClick={() => setAddrOpen(false)}>
+                취소
+              </button>
+            </span>
           </div>
         )}
 
@@ -493,7 +498,7 @@ export default function TokiBrowse(): JSX.Element {
                 <span
                   className="mini"
                   onClick={() => {
-                    const s = { ...useStore.getState().settings, tokiExcludeGenres: [] }
+                    const s = { ...useStore.getState().settings, comicExcludeGenres: [] }
                     useStore.setState({ settings: s })
                     void window.api.saveSettings(s)
                   }}
@@ -507,7 +512,7 @@ export default function TokiBrowse(): JSX.Element {
       </div>
 
       {error && !favMode && <div className="warn err">{error} — 설정의 온라인 주소를 확인하세요.</div>}
-      {loading && !favMode && <div className="reader-loading">{tokiStatus ?? '불러오는 중…'}</div>}
+      {loading && !favMode && <div className="reader-loading">{comicStatus ?? '불러오는 중…'}</div>}
       {favMode && gallery.length === 0 && (
         <div className="empty">즐겨찾기한 일반 만화 온라인 작품이 없습니다.</div>
       )}
@@ -559,7 +564,7 @@ export default function TokiBrowse(): JSX.Element {
                     localWorkId={localSeries.get(titleKey(g.title))?.repId || undefined}
                     getImgs={async () => {
                       // manga-site: series URL → first chapter → its images.
-                      const ch = await window.api.tokiChapters(g.url)
+                      const ch = await window.api.comicChapters(g.url)
                       return ch[0] ? getOnlineImages(ch[0].url) : []
                     }}
                   >
@@ -613,8 +618,8 @@ export default function TokiBrowse(): JSX.Element {
         <Pager page={page} lastPage={-1} hasNext={hasNext} onPage={(p) => setPage(Math.max(0, p))} />
       )}
 
-      {dlSeries && <TokiDownloadModal series={dlSeries} onClose={() => setDlSeries(null)} />}
-      {backupOpen && <TokiBackupModal onClose={() => setBackupOpen(false)} />}
+      {dlSeries && <ComicDownloadModal series={dlSeries} onClose={() => setDlSeries(null)} />}
+      {backupOpen && <ComicBackupModal onClose={() => setBackupOpen(false)} />}
       {cardMenu && (
         <ContextMenu
           x={cardMenu.x}

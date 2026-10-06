@@ -94,7 +94,7 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
               onClick={async (e) => {
                 e.stopPropagation()
                 try {
-                  upsertWork(await window.api.hitomiEnrich(work.id))
+                  upsertWork(await window.api.doujinEnrich(work.id))
                 } catch (err: any) {
                   alert(String(err?.message ?? err))
                 }

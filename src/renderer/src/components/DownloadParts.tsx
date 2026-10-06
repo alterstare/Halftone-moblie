@@ -1,7 +1,7 @@
-// Shared pieces of the general-manga download modals (TokiDownloadModal for the
-// main online site, TokiBackupModal for backup sites).
+// Shared pieces of the general-manga download modals (ComicDownloadModal for the
+// main online site, ComicBackupModal for backup sites).
 import type { Dispatch, JSX, SetStateAction } from 'react'
-import type { TokiChapter } from '../../../shared/ipc'
+import type { ComicChapter } from '../../../shared/ipc'
 
 // Checkbox list of chapters with 전체 선택 / 전체 해제 / 선택 반전 and a
 // cancel / confirm footer. `selected` holds chapter urls.
@@ -13,7 +13,7 @@ export function ChapterPicker({
   onConfirm,
   confirmLabel
 }: {
-  chapters: TokiChapter[]
+  chapters: ComicChapter[]
   selected: Set<string>
   setSelected: Dispatch<SetStateAction<Set<string>>>
   onCancel: () => void

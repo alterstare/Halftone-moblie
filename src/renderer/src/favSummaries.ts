@@ -17,7 +17,7 @@ function request(codes: string[]): void {
   if (!need.length) return
   need.forEach((c) => pending.add(c))
   window.api
-    .hitomiSummaries(need)
+    .doujinSummaries(need)
     .then((list) => {
       for (const g of list) cache.set(g.code, g)
     })

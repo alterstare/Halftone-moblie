@@ -1,8 +1,8 @@
-// API: favorites (hitomi) — the hearts themselves, favorite files and lists.
+// API: favorites (doujin) — the hearts themselves, favorite files and lists.
 // Mobile port of the desktop main/ipc/favorites.ts; files are picked / saved
 // through the system document picker.
 //  • Hearts: setFavoriteByCode / setOnlineFav keep the favorites list and the
-//    local copies in sync (lib/favoriteSync.ts). Toki favorites, keyed by url,
+//    local copies in sync (lib/favoriteSync.ts). Comic favorites, keyed by url,
 //    also live in the list but have no local copy.
 //  • Files: ONE favorites file format (Pupil-compatible JSON + our ranks) for
 //    export / merge-import / merging several files.
@@ -39,21 +39,21 @@ function rankOf(code: string): number {
 // `ranks` repeats the doujin ratings at top level (same as the favorites file).
 // Local works without a code are keyed by their last two path segments
 // (series/chapter or group/work) so the file works on another device too.
-type Lib = 'hitomi' | 'normal'
+type Lib = 'doujin' | 'normal'
 type RatingFile = { doujin: Record<string, number>; online: Record<string, number>; local: Record<string, number> }
 const localKey = (path: string): string => `${basename(dirname(path))}/${basename(path)}`.toLowerCase()
-const libOf = (w: { library?: Lib }): Lib => w.library ?? 'hitomi'
+const libOf = (w: { library?: Lib }): Lib => w.library ?? 'doujin'
 
 function collectRatings(lib: Lib): RatingFile {
   const out: RatingFile = { doujin: {}, online: {}, local: {} }
   for (const f of store.onlineFavs.values()) {
     if (!(f.rank > 0)) continue
-    if (lib === 'hitomi' && isGalleryCode(f.code)) out.doujin[f.code] = Math.max(out.doujin[f.code] ?? 0, f.rank)
+    if (lib === 'doujin' && isGalleryCode(f.code)) out.doujin[f.code] = Math.max(out.doujin[f.code] ?? 0, f.rank)
     if (lib === 'normal' && !isGalleryCode(f.code)) out.online[f.code] = f.rank
   }
   for (const w of store.works.values()) {
     if (!(w.rank > 0) || libOf(w) !== lib) continue
-    if (w.code && lib === 'hitomi') out.doujin[w.code] = Math.max(out.doujin[w.code] ?? 0, w.rank)
+    if (w.code && lib === 'doujin') out.doujin[w.code] = Math.max(out.doujin[w.code] ?? 0, w.rank)
     else if (!w.code) out.local[localKey(w.path)] = w.rank
   }
   return out
@@ -70,9 +70,9 @@ function parseRatings(raw: any, lib: Lib): RatingFile {
     return m
   }
   // A file from the other mode contributes nothing here.
-  const fileLib: Lib | null = raw?.library === 'manga' ? 'normal' : raw?.library === 'doujin' ? 'hitomi' : null
+  const fileLib: Lib | null = raw?.library === 'manga' ? 'normal' : raw?.library === 'doujin' ? 'doujin' : null
   if (fileLib && fileLib !== lib) return { doujin: {}, online: {}, local: {} }
-  return lib === 'hitomi'
+  return lib === 'doujin'
     ? // Plain favorites files carry ranks at top level — accept them too.
       { doujin: { ...num(raw?.ranks), ...num(r.doujin) }, online: {}, local: num(r.local) }
     : { doujin: {}, online: num(r.online), local: num(r.local) }
@@ -82,7 +82,7 @@ const countRatings = (r: RatingFile): number =>
   Object.keys(r.doujin).length + Object.keys(r.online).length + Object.keys(r.local).length
 
 const fileOf = (lib: Lib, r: RatingFile): unknown =>
-  lib === 'hitomi'
+  lib === 'doujin'
     ? { library: 'doujin', ratings: { doujin: r.doujin, local: r.local }, ranks: r.doujin }
     : { library: 'manga', ratings: { online: r.online, local: r.local } }
 
@@ -91,7 +91,7 @@ export const favoritesApi: Partial<Api> = {
 
   exportRatings: async (lib: Lib) => {
     const ratings = collectRatings(lib)
-    const r = await saveJson(lib === 'hitomi' ? 'ratings-doujin.json' : 'ratings-manga.json', fileOf(lib, ratings))
+    const r = await saveJson(lib === 'doujin' ? 'ratings-doujin.json' : 'ratings-manga.json', fileOf(lib, ratings))
     return r.ok ? { ok: true, count: countRatings(ratings), path: r.name } : { ok: false, count: 0 }
   },
 
@@ -148,7 +148,7 @@ export const favoritesApi: Partial<Api> = {
         /* skip unreadable file */
       }
     }
-    const r = await saveJson(lib === 'hitomi' ? 'ratings-doujin-merged.json' : 'ratings-manga-merged.json', fileOf(lib, out))
+    const r = await saveJson(lib === 'doujin' ? 'ratings-doujin-merged.json' : 'ratings-manga-merged.json', fileOf(lib, out))
     return r.ok
       ? { ok: true, count: countRatings(out), files: files.length, path: r.name }
       : { ok: false, count: countRatings(out), files: files.length }
@@ -166,7 +166,7 @@ export const favoritesApi: Partial<Api> = {
 
   setFavoriteByCode: (code: string, fav: boolean, meta?: Partial<OnlineFav>) => setFavoriteByCode(code, fav, meta),
 
-  // Rank (and heart, for toki urls). A heart change on a gallery code is routed
+  // Rank (and heart, for comic urls). A heart change on a gallery code is routed
   // through setFavoriteByCode so local copies follow.
   setOnlineFav: async (code: string, patch: { favorite?: boolean; rank?: number }, meta?: Partial<OnlineFav>) => {
     if (patch.favorite !== undefined && isGalleryCode(code)) {
@@ -266,7 +266,7 @@ export const favoritesApi: Partial<Api> = {
     return { ok: true }
   },
 
-  hitomiSummaries: async (codes: string[]) => {
+  doujinSummaries: async (codes: string[]) => {
     const cache = await ensureSummaries(codes)
     return codes.map((c) => cache[c]).filter(Boolean)
   },

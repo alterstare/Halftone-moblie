@@ -11,6 +11,7 @@ import GroupButton from './GroupButton'
 import MoreClamp from './MoreClamp'
 import TileBar, { CompactBar } from './TileBar'
 import CardMore from './CardMore'
+import CopyCode from './CopyCode'
 import { getImages } from '../images'
 import { FavoriteIcon } from './icons'
 import { useWorkCard } from './useWorkCard'
@@ -44,7 +45,24 @@ export default function WorkGridCard({ work, compact = false }: { work: Work; co
           <Thumb workId={work.id} />
         </div>
         <div className="ctile-title">{work.title}</div>
-        <div className="ctile-meta">{[work.code && `[${work.code}]`, work.artist].filter(Boolean).join(' · ')}</div>
+        {work.artist && (
+          <div className="ctile-artist">
+            <ArtistLinks
+              artist={work.artist}
+              onPick={(a) => setFilter({ kind: 'artist', value: a })}
+              onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
+            />
+          </div>
+        )}
+        <div className="ctile-meta">
+          {work.code && (
+            <>
+              <CopyCode code={work.code} />
+              {' · '}
+            </>
+          )}
+          {work.pageCount}p
+        </div>
         <CompactBar fav={heart} action={<GroupButton work={work} />} />
         {c.workMenu}
         {c.tagMenu}
@@ -65,15 +83,7 @@ export default function WorkGridCard({ work, compact = false }: { work: Work; co
             {work.code && (
               <>
                 {' · '}
-                <span
-                  className="code copyable"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    navigator.clipboard?.writeText(work.code!)
-                  }}
-                >
-                  [{work.code}]
-                </span>
+                <CopyCode code={work.code} />
               </>
             )}
             {work.language && ` · ${work.language}`}
@@ -113,7 +123,7 @@ export default function WorkGridCard({ work, compact = false }: { work: Work; co
         <CardMore
           getImgs={() => getImages(work.id)}
           editions={
-            (work.library ?? 'hitomi') === 'hitomi'
+            (work.library ?? 'doujin') === 'doujin'
               ? { code: work.code, artist: work.artist, title: work.title, language: work.language }
               : undefined
           }

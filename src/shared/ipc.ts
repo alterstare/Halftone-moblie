@@ -1,5 +1,5 @@
 // IPC channel names + the shape of the API exposed to the renderer via preload.
-import type { Work, Settings, SessionState, ParsedName, HitomiMeta, OnlineFav, ScanProgress, ReadProgress, OnlineHistoryEntry } from './types'
+import type { Work, Settings, SessionState, ParsedName, DoujinMeta, OnlineFav, ScanProgress, ReadProgress, OnlineHistoryEntry } from './types'
 
 export type OnlineSort = 'date' | 'today' | 'week' | 'month' | 'year' | 'random'
 
@@ -7,37 +7,37 @@ export type OnlineSort = 'date' | 'today' | 'week' | 'month' | 'year' | 'random'
 // 'popular' = reorder by site popularity (year).
 export type SearchSort = 'date' | 'popular'
 
-export type HitomiListSource =
+export type DoujinListSource =
   | { kind: 'index'; language: string | null; sort?: OnlineSort }
   | { kind: 'search'; query: string; language: string | null; sort?: SearchSort }
 
 // --- General-manga online (manga-site-family mirror) ---
-export type TokiSort = 'date' | 'new' | 'bookmark' | 'view' | 'rating' | 'chapter'
-export type TokiType = 'manga' | 'webtoon'
-export interface TokiListSource {
+export type ComicSort = 'date' | 'new' | 'bookmark' | 'view' | 'rating' | 'chapter'
+export type ComicType = 'manga' | 'webtoon'
+export interface ComicListSource {
   genre: string // '전체' = no filter; otherwise a genre chip label (dynamic per site)
-  sort: TokiSort
-  type: TokiType
+  sort: ComicSort
+  type: ComicType
   query?: string // free-text search; overrides genre/sort when present
   field?: 'title' | 'author' // which field `query` searches (default title)
 }
 // One series card on a manga-site list page.
-export interface TokiSummary {
+export interface ComicSummary {
   url: string // series page url (unique id)
   title: string
-  thumb: string | null // wrapped mangaimg://toki url
+  thumb: string | null // wrapped mangaimg://comic url
   artist: string | null // author — only known once the series page is scraped
   genre: string | null // genre label shown on the list card
   chapter: string | null // latest chapter label, when shown
 }
 // One chapter within a series.
-export interface TokiChapter {
+export interface ComicChapter {
   url: string // chapter viewer url (unique id)
   title: string
   num: number // detected chapter number (for ordering)
 }
-export interface TokiListResult {
-  items: TokiSummary[]
+export interface ComicListResult {
+  items: ComicSummary[]
   page: number
   hasNext: boolean
   genres: string[] // genre chips scraped from the live page (for the filter UI)
@@ -63,13 +63,13 @@ export const IPC = {
   setWorkGroups: 'works:setGroups',
   deleteGroup: 'works:deleteGroup',
   renameGroup: 'works:renameGroup',
-  hitomiFindKorean: 'hitomi:findKorean',
-  hitomiFindEditions: 'hitomi:findEditions',
+  doujinFindKorean: 'doujin:findKorean',
+  doujinFindEditions: 'doujin:findEditions',
   exportFavorites: 'fav:export',
   importFavorites: 'fav:import',
   importOnlineFavList: 'fav:importOnlineList',
   removeOnlineFavList: 'fav:removeOnlineList',
-  hitomiSummaries: 'hitomi:summaries',
+  doujinSummaries: 'doujin:summaries',
   preloadOnlineFavLists: 'fav:preloadOnline',
   onlineFavPreloadProgress: 'fav:preloadProgress',
   mergeFavorites: 'fav:merge',
@@ -96,38 +96,38 @@ export const IPC = {
   getSession: 'session:get',
   saveSession: 'session:save',
   parseName: 'util:parseName',
-  hitomiFetchMeta: 'hitomi:fetchMeta',
-  hitomiEnrich: 'hitomi:enrich',
-  hitomiEnrichAll: 'hitomi:enrichAll',
-  hitomiCancelEnrich: 'hitomi:cancelEnrich',
-  hitomiDownload: 'hitomi:download',
-  hitomiProgress: 'hitomi:progress', // main -> renderer event
+  doujinFetchMeta: 'doujin:fetchMeta',
+  doujinEnrich: 'doujin:enrich',
+  doujinEnrichAll: 'doujin:enrichAll',
+  doujinCancelEnrich: 'doujin:cancelEnrich',
+  doujinDownload: 'doujin:download',
+  doujinProgress: 'doujin:progress', // main -> renderer event
   downloadStop: 'download:stop', // abort a running/queued download by code
-  hitomiList: 'hitomi:list',
-  hitomiSuggest: 'hitomi:suggest', // online search autocomplete (artists + seen tags)
+  doujinList: 'doujin:list',
+  doujinSuggest: 'doujin:suggest', // online search autocomplete (artists + seen tags)
   listAvifPaths: 'convert:listAvif', // a work's .avif files (path + mangaimg url)
   replaceAvifWithWebp: 'convert:replaceWebp', // write .webp, delete the .avif
-  hitomiReadUrls: 'hitomi:readUrls',
-  hitomiRegenCover: 'hitomi:regenCover',
-  tokiList: 'toki:list',
-  tokiChapters: 'toki:chapters',
-  tokiReadUrls: 'toki:readUrls',
-  tokiDownload: 'toki:download',
-  tokiDownloadChapters: 'toki:downloadChapters',
-  tokiRegenCover: 'toki:regenCover',
-  tokiSeriesAuthor: 'toki:seriesAuthor',
-  tokiSeriesTitle: 'toki:seriesTitle',
-  tokiFillArtist: 'toki:fillArtist',
-  tokiScrapeList: 'toki:scrapeList',
-  tokiDownloadGeneric: 'toki:downloadGeneric',
-  tokiOpenSite: 'toki:openSite',
-  tokiChallenge: 'toki:challenge', // main -> renderer: Cloudflare auth window shown/cleared
-  tokiStatus: 'toki:status', // main -> renderer: what the manga-site scraper is doing (null = idle)
+  doujinReadUrls: 'doujin:readUrls',
+  doujinRegenCover: 'doujin:regenCover',
+  comicList: 'comic:list',
+  comicChapters: 'comic:chapters',
+  comicReadUrls: 'comic:readUrls',
+  comicDownload: 'comic:download',
+  comicDownloadChapters: 'comic:downloadChapters',
+  comicRegenCover: 'comic:regenCover',
+  comicSeriesAuthor: 'comic:seriesAuthor',
+  comicSeriesTitle: 'comic:seriesTitle',
+  comicFillArtist: 'comic:fillArtist',
+  comicScrapeList: 'comic:scrapeList',
+  comicDownloadGeneric: 'comic:downloadGeneric',
+  comicOpenSite: 'comic:openSite',
+  comicChallenge: 'comic:challenge', // main -> renderer: Cloudflare auth window shown/cleared
+  comicStatus: 'comic:status', // main -> renderer: what the manga-site scraper is doing (null = idle)
   saveThumb: 'thumb:save',
   getThumb: 'thumb:get',
   pickImage: 'dialog:pickImage',
-  hitomiPing: 'hitomi:ping',
-  hitomiPopularRanks: 'hitomi:popularRanks',
+  doujinPing: 'doujin:ping',
+  doujinPopularRanks: 'doujin:popularRanks',
   openFolder: 'util:openFolder',
   requestClose: 'app:requestClose', // main -> renderer: show exit modal
   closeWindow: 'app:closeWindow', // renderer -> main: exit decision
@@ -149,7 +149,7 @@ export interface UpdateStatus {
 // User's choice in the exit modal.
 export type CloseDecision = 'keep' | 'clear' | 'cancel'
 
-export interface HitomiProgress {
+export interface DoujinProgress {
   code: string
   title: string
   done: number
@@ -177,7 +177,7 @@ export interface GallerySummary {
   thumbUrl: string | null
 }
 
-export interface HitomiListResult {
+export interface DoujinListResult {
   items: GallerySummary[]
   total: number
   page: number
@@ -208,12 +208,12 @@ export interface Api {
   // folder, and strips the group id from those works. Returns fresh state.
   deleteGroup: (groupId: string) => Promise<{ settings: Settings; works: Work[] }>
   renameGroup: (groupId: string, name: string) => Promise<{ settings: Settings; works: Work[] }>
-  hitomiFindKorean: (payload: {
+  doujinFindKorean: (payload: {
     code: string | null
     artist: string | null
     title: string
   }) => Promise<GallerySummary[]>           // Korean editions of a work
-  hitomiFindEditions: (payload: {
+  doujinFindEditions: (payload: {
     code: string | null
     artist: string | null
     title: string
@@ -228,15 +228,15 @@ export interface Api {
   // fetch gallery summaries for a set of codes (to render a list).
   importOnlineFavList: () => Promise<{ ok: boolean; name: string; total: number }>
   removeOnlineFavList: (name: string) => Promise<{ ok: boolean }>
-  hitomiSummaries: (codes: string[]) => Promise<GallerySummary[]>
+  doujinSummaries: (codes: string[]) => Promise<GallerySummary[]>
   preloadOnlineFavLists: () => Promise<{ ok: boolean; total: number; cached: number }>
   onOnlineFavPreload: (cb: (p: { done: number; total: number }) => void) => () => void
   // Merge 2+ favorite files into one new file (union); no library change.
   mergeFavorites: () => Promise<{ ok: boolean; count: number; files: number; path?: string }>
   // Rating files, per library mode (동인지 / 일반 만화 kept separate).
-  exportRatings: (lib: 'hitomi' | 'normal') => Promise<{ ok: boolean; count: number; path?: string }>
-  importRatings: (lib: 'hitomi' | 'normal') => Promise<{ ok: boolean; applied: number; total: number }>
-  mergeRatings: (lib: 'hitomi' | 'normal') => Promise<{ ok: boolean; count: number; files: number; path?: string }>
+  exportRatings: (lib: 'doujin' | 'normal') => Promise<{ ok: boolean; count: number; path?: string }>
+  importRatings: (lib: 'doujin' | 'normal') => Promise<{ ok: boolean; applied: number; total: number }>
+  mergeRatings: (lib: 'doujin' | 'normal') => Promise<{ ok: boolean; count: number; files: number; path?: string }>
   // Online (doujin) favorites + ranks, keyed by gallery code.
   getOnlineFavs: () => Promise<OnlineFav[]>
   getReadProgress: () => Promise<Record<string, ReadProgress>>
@@ -281,60 +281,60 @@ export interface Api {
   getSession: () => Promise<SessionState>
   saveSession: (s: SessionState) => Promise<void>
   parseName: (folderName: string) => Promise<ParsedName>
-  hitomiFetchMeta: (code: string) => Promise<HitomiMeta>
-  hitomiEnrich: (workId: string) => Promise<Work>
-  hitomiEnrichAll: () => Promise<Work[]>
-  hitomiCancelEnrich: () => Promise<void>
-  hitomiDownload: (input: string) => Promise<Work> // input = code or doujin url
+  doujinFetchMeta: (code: string) => Promise<DoujinMeta>
+  doujinEnrich: (workId: string) => Promise<Work>
+  doujinEnrichAll: () => Promise<Work[]>
+  doujinCancelEnrich: () => Promise<void>
+  doujinDownload: (input: string) => Promise<Work> // input = code or doujin url
   // Abort a running/queued download by its progress code (doujin code, manga-site
   // seriesUrl, or "backup:<title>"). No-op if that code isn't downloading.
   downloadStop: (code: string) => Promise<boolean>
-  onHitomiProgress: (cb: (p: HitomiProgress) => void) => () => void
-  hitomiList: (source: HitomiListSource, page: number) => Promise<HitomiListResult>
-  hitomiSuggest: (query: string) => Promise<string[]>
+  onDoujinProgress: (cb: (p: DoujinProgress) => void) => () => void
+  doujinList: (source: DoujinListSource, page: number) => Promise<DoujinListResult>
+  doujinSuggest: (query: string) => Promise<string[]>
   // avif→webp conversion (Pupil compatibility). List a work's avif files, then
   // replace each with a webp (encoded by the renderer's canvas).
   listAvifPaths: (workId: string) => Promise<{ path: string; url: string }[]>
   replaceAvifWithWebp: (avifPath: string, webpBase64: string) => Promise<void>
-  hitomiReadUrls: (code: string) => Promise<string[]>
-  hitomiRegenCover: (workId: string, code: string) => Promise<{ ok: boolean; error?: string }>
+  doujinReadUrls: (code: string) => Promise<string[]>
+  doujinRegenCover: (workId: string, code: string) => Promise<{ ok: boolean; error?: string }>
   // General-manga online (manga-site-family). Scraped via a hidden BrowserWindow.
-  tokiList: (source: TokiListSource, page: number) => Promise<TokiListResult>
-  tokiChapters: (seriesUrl: string) => Promise<TokiChapter[]>
-  tokiReadUrls: (chapterUrl: string) => Promise<string[]> // wrapped image urls
+  comicList: (source: ComicListSource, page: number) => Promise<ComicListResult>
+  comicChapters: (seriesUrl: string) => Promise<ComicChapter[]>
+  comicReadUrls: (chapterUrl: string) => Promise<string[]> // wrapped image urls
   // Download every chapter of a series into the general-manga library. Progress
-  // is reported on the hitomiProgress channel (code = seriesUrl). Returns the
+  // is reported on the doujinProgress channel (code = seriesUrl). Returns the
   // newly scanned chapter works.
-  tokiDownload: (seriesUrl: string, title: string) => Promise<Work[]>
+  comicDownload: (seriesUrl: string, title: string) => Promise<Work[]>
   // Download only the given chapter urls of a series (선택 화 / 이어서 다운로드).
-  tokiDownloadChapters: (seriesUrl: string, title: string, chapterUrls: string[]) => Promise<Work[]>
+  comicDownloadChapters: (seriesUrl: string, title: string, chapterUrls: string[]) => Promise<Work[]>
   // Regenerate the cover thumbnail for the given works from the online source,
   // searching by series title. Writes to each work's thumb file.
-  tokiRegenCover: (workIds: string[], title: string) => Promise<{ ok: boolean; error?: string }>
+  comicRegenCover: (workIds: string[], title: string) => Promise<{ ok: boolean; error?: string }>
   // Scrape the author(s) of a series from its page (comma-joined, or null).
-  tokiSeriesAuthor: (seriesUrl: string) => Promise<string | null>
-  tokiSeriesTitle: (seriesUrl: string) => Promise<string | null>
+  comicSeriesAuthor: (seriesUrl: string) => Promise<string | null>
+  comicSeriesTitle: (seriesUrl: string) => Promise<string | null>
   // Fill the artist field on the given works by searching the online source for
   // `title`, taking the first result's author. Returns the updated works.
-  tokiFillArtist: (workIds: string[], title: string) => Promise<Work[]>
+  comicFillArtist: (workIds: string[], title: string) => Promise<Work[]>
   // Backup (gnuboard) sites: scrape the chapter list from the page currently
   // loaded in the site window (the user navigates there by hand).
-  tokiScrapeList: () => Promise<TokiChapter[]>
+  comicScrapeList: () => Promise<ComicChapter[]>
   // Download the given scraped chapters in the background (site window not
   // needed open). `only` limits to those chapter urls. Returns new works.
-  tokiDownloadGeneric: (
+  comicDownloadGeneric: (
     title: string,
-    chapters: TokiChapter[],
+    chapters: ComicChapter[],
     only?: string[]
   ) => Promise<Work[]>
   // Open a site in a visible window so the user can clear Cloudflare / log in, or
   // navigate a backup site. Pass `url` to open a specific address.
-  tokiOpenSite: (url?: string) => Promise<void>
+  comicOpenSite: (url?: string) => Promise<void>
   saveThumb: (workId: string, dataUrl: string) => Promise<string>
   getThumb: (workId: string) => Promise<string | null>
   pickImage: () => Promise<string | null> // returns a mangaimg:// url for the chosen image
-  hitomiPing: () => Promise<{ dohIp: string | null; ltnOk: boolean; error: string | null }>
-  hitomiPopularRanks: (codes: string[]) => Promise<Record<string, number>>
+  doujinPing: () => Promise<{ dohIp: string | null; ltnOk: boolean; error: string | null }>
+  doujinPopularRanks: (codes: string[]) => Promise<Record<string, number>>
   openFolder: (path: string) => Promise<void>
   // Main asks the renderer to show the styled exit modal.
   onRequestClose: (cb: () => void) => () => void
@@ -346,8 +346,8 @@ export interface Api {
   // every scanned work's folder from disk. Relaunches the app. Never resolves.
   resetApp: (deleteWorkFolders: boolean) => Promise<void>
   // Cloudflare auth window shown (true) / cleared (false) — show a banner.
-  onTokiChallenge: (cb: (active: boolean) => void) => () => void
-  onTokiStatus: (cb: (msg: string | null) => void) => () => void
+  onComicChallenge: (cb: (active: boolean) => void) => () => void
+  onComicStatus: (cb: (msg: string | null) => void) => () => void
   // Mouse "back" side button / browser-backward app command → go back.
   onNavBack: (cb: () => void) => () => void
   // Mouse "forward" side button / browser-forward app command → go forward.

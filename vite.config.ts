@@ -30,7 +30,7 @@ const hoverOnlyWithPointer: Plugin = {
 export default defineConfig({
   root: 'src/renderer',
   base: './',
-  // hitomi-tokens.json (search autocomplete snapshot) ships as a static asset.
+  // doujin-tokens.json (search autocomplete snapshot) ships as a static asset.
   publicDir: resolve(__dirname, 'resources'),
   resolve: {
     alias: { '@': resolve(__dirname, 'src/renderer/src') }

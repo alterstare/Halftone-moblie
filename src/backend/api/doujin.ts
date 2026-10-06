@@ -1,8 +1,8 @@
-// API: hitomi online — browsing/search, gallery metadata (enrich local works),
+// API: doujin online — browsing/search, gallery metadata (enrich local works),
 // image urls, cover regeneration, downloads, and the deleted-gallery sweep.
-// Mobile port of the desktop main/ipc/hitomi.ts.
+// Mobile port of the desktop main/ipc/doujin.ts.
 import type { Work } from '../../shared/types'
-import type { Api, HitomiProgress, HitomiListSource, GallerySummary } from '../../shared/ipc'
+import type { Api, DoujinProgress, DoujinListSource, GallerySummary } from '../../shared/ipc'
 import { IPC } from '../../shared/ipc'
 import { store, sendToRenderer, delay } from '../context'
 import { scanOne } from '../lib/scanner'
@@ -17,12 +17,12 @@ import {
   searchNozomi,
   summary,
   readImageUrls,
-  hitomiImageToFile,
-  pingHitomi,
+  doujinImageToFile,
+  pingDoujin,
   popularRanks,
   findKorean,
-  hitomiExists
-} from '../lib/hitomi'
+  doujinExists
+} from '../lib/doujin'
 import { suggestTokens, recordSeen } from '../lib/suggest'
 import { encodeWeb, writeRawThumb } from '../lib/media'
 import { runDownload, stopDownload } from '../downloads'
@@ -44,7 +44,7 @@ function withExcludes(query: string, exclude: string[]): string {
   return query.trim() + sep + toks.join(sep)
 }
 
-// Fill a local work's tags/language/artist from hitomi using its code (also
+// Fill a local work's tags/language/artist from doujin using its code (also
 // writes the metadata sidecar into the work folder).
 async function enrichOne(workId: string): Promise<Work> {
   const w = store.get(workId)
@@ -83,17 +83,17 @@ async function randomIndexPage(
 let enrichRunning = false
 let enrichCancel = false
 
-export const hitomiApi: Partial<Api> = {
-  hitomiPing: () => pingHitomi(),
-  hitomiPopularRanks: (codes: string[]) => popularRanks(codes),
-  hitomiFetchMeta: (code: string) => fetchMeta(code),
-  hitomiSuggest: (query: string) => suggestTokens(query),
+export const doujinApi: Partial<Api> = {
+  doujinPing: () => pingDoujin(),
+  doujinPopularRanks: (codes: string[]) => popularRanks(codes),
+  doujinFetchMeta: (code: string) => fetchMeta(code),
+  doujinSuggest: (query: string) => suggestTokens(query),
 
   // ---------- browse / search ----------
 
-  hitomiList: async (source: HitomiListSource, page: number) => {
+  doujinList: async (source: DoujinListSource, page: number) => {
     const pageSize = store.settings.pageSize || 50
-    // A bare gallery number or a hitomi link → look that gallery up directly.
+    // A bare gallery number or a doujin link → look that gallery up directly.
     if (source.kind === 'search') {
       const q = source.query.trim()
       const code = /^\d{5,}$/.test(q) || /^https?:\/\//i.test(q) ? extractCode(q) : null
@@ -128,35 +128,35 @@ export const hitomiApi: Partial<Api> = {
     return { items, total, page, pageSize }
   },
 
-  hitomiFindKorean: async (payload: { code: string | null; artist: string | null; title: string }) =>
+  doujinFindKorean: async (payload: { code: string | null; artist: string | null; title: string }) =>
     (await findKorean(payload)).map(withWebThumb),
 
   // 한국어 / 일본어 / 영어 editions of a work (다른 언어 panel).
-  hitomiFindEditions: async (payload: { code: string | null; artist: string | null; title: string; language?: string | null }) => {
+  doujinFindEditions: async (payload: { code: string | null; artist: string | null; title: string; language?: string | null }) => {
     const r = await findEditions({ ...payload, pageSize: store.settings.pageSize || 50 })
     return { korean: r.korean.map(withWebThumb), japanese: r.japanese.map(withWebThumb), english: r.english.map(withWebThumb) }
   },
 
-  hitomiReadUrls: async (code: string) => (await readImageUrls(code)).map(encodeWeb),
+  doujinReadUrls: async (code: string) => (await readImageUrls(code)).map(encodeWeb),
 
   // ---------- metadata (enrich local works) ----------
 
-  hitomiEnrich: (workId: string) => enrichOne(workId),
+  doujinEnrich: (workId: string) => enrichOne(workId),
 
-  hitomiCancelEnrich: async () => {
+  doujinCancelEnrich: async () => {
     enrichCancel = true
   },
 
   // Enrich every coded work missing language OR artist. Progress rides the
-  // hitomiProgress channel with an empty code.
-  hitomiEnrichAll: async () => {
+  // doujinProgress channel with an empty code.
+  doujinEnrichAll: async () => {
     if (enrichRunning) return []
     enrichRunning = true
     enrichCancel = false
     const targets = [...store.works.values()].filter((w) => w.code && (!w.language || !w.artist))
     const updated: Work[] = []
-    const emit = (done: number, title: string, phase: HitomiProgress['phase']): void =>
-      sendToRenderer(IPC.hitomiProgress, { code: '', title, done, total: targets.length, phase } satisfies HitomiProgress)
+    const emit = (done: number, title: string, phase: DoujinProgress['phase']): void =>
+      sendToRenderer(IPC.doujinProgress, { code: '', title, done, total: targets.length, phase } satisfies DoujinProgress)
     for (let i = 0; i < targets.length; i++) {
       if (enrichCancel) break
       try {
@@ -165,7 +165,7 @@ export const hitomiApi: Partial<Api> = {
         /* skip failures, keep going */
       }
       emit(i + 1, targets[i].title, 'enriching')
-      await delay(200) // be gentle with hitomi
+      await delay(200) // be gentle with doujin
     }
     await store.flushWorks()
     enrichRunning = false
@@ -173,13 +173,13 @@ export const hitomiApi: Partial<Api> = {
     return updated
   },
 
-  // Sweep hitomi-coded works that 404 on hitomi into deletedDir. Network-
+  // Sweep doujin-coded works that 404 on doujin into deletedDir. Network-
   // uncertain results are never moved.
   classifyDeleted: async () => {
     const dir = store.settings.deletedDir
     if (!dir) throw new Error('삭제된 작품 폴더가 설정되지 않았습니다. 설정에서 폴더를 지정하세요.')
     const targets = [...store.works.values()].filter(
-      (w) => (w.library ?? 'hitomi') === 'hitomi' && w.code && /^\d{4,}$/.test(w.code)
+      (w) => (w.library ?? 'doujin') === 'doujin' && w.code && /^\d{4,}$/.test(w.code)
     )
     let moved = 0
     let uncertain = 0
@@ -188,7 +188,7 @@ export const hitomiApi: Partial<Api> = {
     for (let i = 0; i < targets.length; i++) {
       const w = targets[i]
       emit(i, w.title)
-      const exists = await hitomiExists(w.code as string)
+      const exists = await doujinExists(w.code as string)
       if (exists === false) {
         try {
           store.update(w.id, await moveWorkToFolder(w, dir))
@@ -209,11 +209,11 @@ export const hitomiApi: Partial<Api> = {
 
   // Regenerate a work's thumbnail from the gallery's first online image (saved
   // raw; the UI shrinks it on load).
-  hitomiRegenCover: async (workId: string, code: string) => {
+  doujinRegenCover: async (workId: string, code: string) => {
     try {
       const urls = await readImageUrls(code)
       if (!urls.length) return { ok: false }
-      await writeRawThumb(workId, (file) => hitomiImageToFile(urls[0], file))
+      await writeRawThumb(workId, (file) => doujinImageToFile(urls[0], file))
       return { ok: true }
     } catch (e: any) {
       return { ok: false, error: String(e?.message ?? e) }
@@ -221,7 +221,7 @@ export const hitomiApi: Partial<Api> = {
   },
 
   // Download a gallery (code or url) into the download dir, then register it.
-  hitomiDownload: async (input: string) => {
+  doujinDownload: async (input: string) => {
     const code = extractCode(input)
     if (!code) throw new Error('코드를 찾을 수 없습니다')
     const destRoot = store.settings.downloadDir ?? store.settings.libraryRoots[0]
@@ -233,7 +233,7 @@ export const hitomiApi: Partial<Api> = {
         destRoot,
         (done, total, title) => report('downloading', done, total, title),
         store.settings.downloadImageFormat ?? 'avif',
-        store.settings.hitomiNamePatterns?.[store.settings.hitomiDownloadPatternIdx ?? 0],
+        store.settings.doujinNamePatterns?.[store.settings.doujinDownloadPatternIdx ?? 0],
         signal
       )
       const scanned = await scanOne(dir, store.settings)

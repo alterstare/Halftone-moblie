@@ -60,7 +60,7 @@ export default function MenuDrawer(): JSX.Element {
     })
 
   const normal = libraryMode === 'normal'
-  // Both modes route to the browse view; App renders TokiBrowse in normal mode,
+  // Both modes route to the browse view; App renders ComicBrowse in normal mode,
   // doujin Browse otherwise.
   const onlineClick = (): void => go(goBrowse)
 
@@ -78,7 +78,7 @@ export default function MenuDrawer(): JSX.Element {
         <button
           className="menu-mode"
           onClick={() =>
-            go(() => setLibraryMode(normal ? 'hitomi' : 'normal'))
+            go(() => setLibraryMode(normal ? 'doujin' : 'normal'))
           }
         >
           <span className="menu-item-ico"><CompareArrowsIcon /></span>

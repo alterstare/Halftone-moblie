@@ -54,8 +54,8 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-// JS bridge for the TS backend (src/backend): file system, network (hitomi
-// DoH / toki cookies), system pickers, and the toki scraper WebView.
+// JS bridge for the TS backend (src/backend): file system, network (doujin
+// DoH / comic cookies), system pickers, and the comic scraper WebView.
 // All paths are absolute file-system paths.
 @CapacitorPlugin(
     name = "MM",
@@ -67,23 +67,23 @@ public class MMPlugin extends Plugin {
     static MMPlugin instance;
 
     private final ExecutorService io = Executors.newFixedThreadPool(8);
-    private TokiWeb toki;
+    private ComicWeb comic;
 
     @Override
     public void load() {
         instance = this;
         Net.init(getContext());
         ViewGroup root = (ViewGroup) getBridge().getWebView().getParent();
-        toki = new TokiWeb(getActivity(), root, visible -> {
+        comic = new ComicWeb(getActivity(), root, visible -> {
             JSObject o = new JSObject();
             o.put("visible", visible);
-            notifyListeners("tokiVisible", o);
+            notifyListeners("comicVisible", o);
         });
     }
 
     // Android back button. True = handled here or forwarded to JS.
     boolean handleBack() {
-        if (toki != null && toki.back()) return true;
+        if (comic != null && comic.back()) return true;
         if (!hasListeners("back")) return false;
         notifyListeners("back", new JSObject());
         return true;
@@ -376,7 +376,7 @@ public class MMPlugin extends Plugin {
     @PluginMethod
     public void imageToFile(PluginCall call) {
         bg(call, () -> {
-            byte[] b = Net.cachedImage(call.getString("kind", "hitomi"), need(call, "url"));
+            byte[] b = Net.cachedImage(call.getString("kind", "doujin"), need(call, "url"));
             File f = new File(need(call, "path"));
             File parent = f.getParentFile();
             if (parent != null) //noinspection ResultOfMethodCallIgnored
@@ -388,7 +388,7 @@ public class MMPlugin extends Plugin {
         });
     }
 
-    // Reader 이미지 저장: copy one page (a /_mm/{img|web|toki}/<b64> reader url —
+    // Reader 이미지 저장: copy one page (a /_mm/{img|web|comic}/<b64> reader url —
     // local file or online image, from the disk cache when possible) into the
     // public Download folder as its own file. Returns the saved name.
     @PluginMethod
@@ -406,7 +406,7 @@ public class MMPlugin extends Plugin {
             String target = new String(Base64.decode(seg, Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP), StandardCharsets.UTF_8);
             byte[] b = "img".equals(kind)
                     ? Files.readAllBytes(new File(target).toPath())
-                    : Net.cachedImage("toki".equals(kind) ? "toki" : "hitomi", target);
+                    : Net.cachedImage("comic".equals(kind) ? "comic" : "doujin", target);
             String file = target;
             int qq = file.indexOf('?');
             if (qq >= 0) file = file.substring(0, qq);
@@ -475,7 +475,7 @@ public class MMPlugin extends Plugin {
         String proxy = call.getString("proxy", "");
         boolean tunnel = Boolean.TRUE.equals(call.getBoolean("tunnel", false));
         Net.setProxy(proxy);
-        Net.tokiBase = call.getString("tokiBase", "");
+        Net.comicBase = call.getString("comicBase", "");
         bg(call, () -> {
             int port = 0;
             if (tunnel) {
@@ -690,24 +690,24 @@ public class MMPlugin extends Plugin {
         });
     }
 
-    // ---- toki WebView ------------------------------------------------------------
+    // ---- comic WebView ------------------------------------------------------------
 
     @PluginMethod
-    public void tokiLoad(PluginCall call) {
+    public void comicLoad(PluginCall call) {
         JSObject o = new JSObject();
-        o.put("nav", toki.load(need(call, "url")));
+        o.put("nav", comic.load(need(call, "url")));
         call.resolve(o);
     }
 
     @PluginMethod
-    public void tokiState(PluginCall call) {
-        call.resolve(toki.state());
+    public void comicState(PluginCall call) {
+        call.resolve(comic.state());
     }
 
     @PluginMethod
-    public void tokiEval(PluginCall call) {
+    public void comicEval(PluginCall call) {
         String script = need(call, "script");
-        toki.eval(script, json -> {
+        comic.eval(script, json -> {
             JSObject o = new JSObject();
             o.put("json", json);
             call.resolve(o);
@@ -715,19 +715,19 @@ public class MMPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void tokiShow(PluginCall call) {
-        toki.show(call.getString("title", ""));
+    public void comicShow(PluginCall call) {
+        comic.show(call.getString("title", ""));
         call.resolve();
     }
 
     @PluginMethod
-    public void tokiHide(PluginCall call) {
-        toki.hide();
+    public void comicHide(PluginCall call) {
+        comic.hide();
         call.resolve();
     }
 
     @PluginMethod
-    public void tokiCookie(PluginCall call) {
+    public void comicCookie(PluginCall call) {
         JSObject o = new JSObject();
         o.put("cookie", CookieManager.getInstance().getCookie(need(call, "url")));
         call.resolve(o);

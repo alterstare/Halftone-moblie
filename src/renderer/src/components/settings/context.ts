@@ -13,14 +13,14 @@ export interface SettingsCtl {
   // Settings were saved by main (import/reset): adopt them as both the store's
   // settings and the draft, so nothing shows as unsaved.
   applySaved: (s: Settings) => void
-  isHitomi: boolean // which library mode's settings are being edited
+  isDoujin: boolean // which library mode's settings are being edited
   works: Work[]
   // Show a "완료" result modal.
   notify: (msg: string) => void
   // Folder rescan (feature 8): re-derives favorite/group membership from where
   // works sit. `rescanning` = the path being rescanned (button shows progress).
   rescanning: string | null
-  rescan: (path: string, mode: 'hitomi' | 'normal') => Promise<void>
+  rescan: (path: string, mode: 'doujin' | 'normal') => Promise<void>
   // Open the folder picker; `apply` runs only if the user chose a folder.
   pickDir: (apply: (dir: string) => void) => Promise<void>
 }

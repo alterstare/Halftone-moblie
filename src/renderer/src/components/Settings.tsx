@@ -84,7 +84,7 @@ export default function Settings(): JSX.Element {
       setSettings(s)
       setDraft(s)
     },
-    isHitomi: libraryMode === 'hitomi',
+    isDoujin: libraryMode === 'doujin',
     works,
     notify: setNotice,
     rescanning,
@@ -196,7 +196,7 @@ export default function Settings(): JSX.Element {
     setNoHits(total === 0)
   }, [q, draft])
 
-  const modeName = ctl.isHitomi ? '동인지' : '일반 만화'
+  const modeName = ctl.isDoujin ? '동인지' : '일반 만화'
   return (
     <SettingsContext.Provider value={ctl}>
       <div className="settings">

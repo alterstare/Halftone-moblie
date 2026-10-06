@@ -18,7 +18,7 @@ import java.util.concurrent.Executors;
 // is a local HTTP CONNECT proxy on 127.0.0.1 that resolves hosts over DoH and
 // splits the client's first TLS record (the ClientHello) into small TLS records
 // sent as separate TCP segments, which the filter can't reassemble. Only the
-// manga-site traffic (toki WebView + toki OkHttp client) is pointed at it.
+// manga-site traffic (comic WebView + comic OkHttp client) is pointed at it.
 final class Tunnel {
     private static final int FRAGMENT = 40; // payload bytes per TLS record
     private static final int TIMEOUT_MS = 30000;

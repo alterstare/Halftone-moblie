@@ -3,7 +3,7 @@ import type { JSX, ReactNode } from 'react'
 import { useStore, downloadMode } from '../store'
 import type { Job } from '../store'
 import { useLock } from '../lock'
-import type { HitomiProgress } from '../../../shared/ipc'
+import type { DoujinProgress } from '../../../shared/ipc'
 import {
   PauseIcon,
   PlayIcon,
@@ -28,7 +28,7 @@ interface Row {
   detail?: string
   error?: string
   // Set only for download rows — drives the phase label + stop/retry/remove controls.
-  dl?: { code: string; phase: HitomiProgress['phase']; canStop: boolean; canRetry: boolean }
+  dl?: { code: string; phase: DoujinProgress['phase']; canStop: boolean; canRetry: boolean }
 }
 
 const KIND_ICON: Record<Job['kind'], ReactNode> = {
@@ -39,7 +39,7 @@ const KIND_ICON: Record<Job['kind'], ReactNode> = {
   convert: <ConvertIcon />
 }
 
-const ACTIVE = new Set<HitomiProgress['phase']>(['queued', 'fetching', 'downloading', 'enriching'])
+const ACTIVE = new Set<DoujinProgress['phase']>(['queued', 'fetching', 'downloading', 'enriching'])
 
 function pct(done: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
@@ -76,7 +76,7 @@ export default function ActivityBar(): JSX.Element | null {
 
   // The bar is per-mode: doujin vs general-manga tasks don't mix.
   // Decoy (fake-PIN) doujin library: no tasks or download history at all.
-  const hideAll = useLock((s) => s.decoy) && libraryMode === 'hitomi'
+  const hideAll = useLock((s) => s.decoy) && libraryMode === 'doujin'
   const rows: Row[] = hideAll ? [] : [
     ...jobs
       .filter((j) => j.mode === libraryMode)

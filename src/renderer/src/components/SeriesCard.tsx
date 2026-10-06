@@ -175,6 +175,7 @@ export function ChapterRow({
   const toggleNormalFav = useStore((s) => s.toggleNormalFav)
   const favChapters = useStore((s) => s.settings.normalFavChapters)
   const isFav = (favChapters ?? []).includes(work.id)
+  const wasRead = useStore((s) => !!s.readProgress[work.id]) // opened before → light purple
   const [adding, setAdding] = useState(false)
   const [tag, setTag] = useState('')
 
@@ -190,7 +191,7 @@ export function ChapterRow({
 
   return (
     <div
-      className={`chapter-row ${active ? 'active' : ''} ${lastRead ? 'last-read' : ''}`}
+      className={`chapter-row ${active ? 'active' : ''} ${lastRead ? 'last-read' : ''} ${wasRead ? 'read' : ''}`}
       title={lastRead ? '마지막으로 본 화' : undefined}
       onClick={onOpen}
       onContextMenu={onContextMenu}

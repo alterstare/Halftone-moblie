@@ -11,7 +11,7 @@ export interface FsEntry {
   mtime: number
 }
 
-export type NetKind = 'hitomi' | 'toki' | 'plain'
+export type NetKind = 'doujin' | 'comic' | 'plain'
 
 export interface MMPlugin {
   // Installed app version (versionName).
@@ -48,7 +48,7 @@ export interface MMPlugin {
   saveImageToDownloads(o: { src: string; name?: string }): Promise<{ name: string }>
   doh(o: { name: string; type: string }): Promise<{ answers: { type: number; data: string }[] }>
   // tunnel = SNI-bypass proxy (Tunnel.java) for the manga-site traffic.
-  setNetwork(o: { proxy: string; tokiBase: string; tunnel: boolean }): Promise<{ tunnelPort: number }>
+  setNetwork(o: { proxy: string; comicBase: string; tunnel: boolean }): Promise<{ tunnelPort: number }>
   netReset(): Promise<void>
   clipboardRead(): Promise<{ text: string }>
   clipboardWrite(o: { text: string }): Promise<void>
@@ -60,8 +60,8 @@ export interface MMPlugin {
   }>
   saveTextFile(o: { name: string; text: string; mime?: string }): Promise<{ ok: boolean; name?: string }>
 
-  tokiLoad(o: { url: string }): Promise<{ nav: number }>
-  tokiState(): Promise<{
+  comicLoad(o: { url: string }): Promise<{ nav: number }>
+  comicState(): Promise<{
     nav: number
     committed: boolean
     errorCode: number
@@ -69,17 +69,17 @@ export interface MMPlugin {
     url: string
     visible: boolean
   }>
-  tokiEval(o: { script: string }): Promise<{ json: string }>
-  tokiShow(o: { title?: string }): Promise<void>
-  tokiHide(): Promise<void>
-  tokiCookie(o: { url: string }): Promise<{ cookie: string | null }>
+  comicEval(o: { script: string }): Promise<{ json: string }>
+  comicShow(o: { title?: string }): Promise<void>
+  comicHide(): Promise<void>
+  comicCookie(o: { url: string }): Promise<{ cookie: string | null }>
 
   toast(o: { text: string }): Promise<void>
   exitApp(): Promise<void>
   restartApp(): Promise<void>
 
   addListener(event: 'back', cb: () => void): Promise<PluginListenerHandle>
-  addListener(event: 'tokiVisible', cb: (e: { visible: boolean }) => void): Promise<PluginListenerHandle>
+  addListener(event: 'comicVisible', cb: (e: { visible: boolean }) => void): Promise<PluginListenerHandle>
 }
 
 export const MM = registerPlugin<MMPlugin>('MM')

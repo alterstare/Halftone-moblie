@@ -9,14 +9,14 @@ import { useSettings } from './context'
 import { DownloadDirRow } from './FolderSection'
 
 export default function NetworkSection(): JSX.Element {
-  const { draft, patch, isHitomi } = useSettings()
+  const { draft, patch, isDoujin } = useSettings()
   const [pinging, setPinging] = useState(false)
   const [ping, setPing] = useState<{ dohIp: string | null; ltnOk: boolean; error: string | null } | null>(null)
 
   const runPing = async (): Promise<void> => {
     setPinging(true)
     try {
-      setPing(await window.api.hitomiPing())
+      setPing(await window.api.doujinPing())
     } finally {
       setPinging(false)
     }
@@ -41,7 +41,7 @@ export default function NetworkSection(): JSX.Element {
             {ping.error && ` (${ping.error})`}
           </p>
         )}
-        {!isHitomi && (
+        {!isDoujin && (
           <SettingRow
             title="일반 만화 차단 우회 (GreenTunnel)"
             desc="일반 만화 사이트 접속에만 내장 우회 프록시를 씁니다. 접속 요청을 잘게 나눠 보내 통신사의 주소(SNI) 차단을 피하고, DNS는 암호화(DoH)로 조회합니다. 연결이 자꾸 끊길 때 켜세요."
@@ -60,7 +60,7 @@ export default function NetworkSection(): JSX.Element {
           />
         </div>
         <div className="set-block">
-          {isHitomi ? (
+          {isDoujin ? (
             <>
               <SettingRow
                 title="온라인 주소 입력"
@@ -69,8 +69,8 @@ export default function NetworkSection(): JSX.Element {
               <input
                 type="text"
                 className="field-input"
-                value={draft.hitomiBaseUrl}
-                onChange={(e) => patch({ hitomiBaseUrl: e.target.value.trim() })}
+                value={draft.doujinBaseUrl}
+                onChange={(e) => patch({ doujinBaseUrl: e.target.value.trim() })}
                 placeholder="온라인 주소를 입력하세요"
               />
             </>
@@ -83,8 +83,8 @@ export default function NetworkSection(): JSX.Element {
               <input
                 type="text"
                 className="field-input"
-                value={draft.tokiBaseUrl}
-                onChange={(e) => patch({ tokiBaseUrl: e.target.value })}
+                value={draft.comicBaseUrl}
+                onChange={(e) => patch({ comicBaseUrl: e.target.value })}
                 placeholder="온라인 주소를 입력하세요"
               />
             </>
@@ -95,7 +95,7 @@ export default function NetworkSection(): JSX.Element {
       <section data-cat="network">
         <h2>다운로드</h2>
         <DownloadDirRow />
-        {isHitomi && (
+        {isDoujin && (
           <>
             <SettingRow title="스캔 후 메타 자동 채우기" desc="라이브러리 스캔 후 코드가 있는 작품의 작가·태그·언어를 자동으로 채웁니다.">
               <Toggle checked={draft.autoEnrichOnScan} onChange={(v) => patch({ autoEnrichOnScan: v })} />

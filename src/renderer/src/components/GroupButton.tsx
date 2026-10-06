@@ -11,7 +11,7 @@ import ConfirmModal from './ConfirmModal'
 export default function GroupButton({ work, applyTo }: { work: Work; applyTo?: Work[] }): JSX.Element {
   const allGroups = useStore((s) => s.settings.groups)
   const libraryMode = useStore((s) => s.libraryMode)
-  const groups = allGroups.filter((g) => (g.mode ?? 'hitomi') === libraryMode)
+  const groups = allGroups.filter((g) => (g.mode ?? 'doujin') === libraryMode)
   const createGroup = useStore((s) => s.createGroup)
   const upsertWork = useStore((s) => s.upsertWork)
   const [open, setOpen] = useState(false)

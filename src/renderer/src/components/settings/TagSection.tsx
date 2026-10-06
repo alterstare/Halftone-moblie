@@ -132,11 +132,11 @@ function GenreRules({ tokens }: { tokens: string[] }): JSX.Element {
 // The hearts themselves are one list shared by the library and online views.
 // 평점 파일 — this mode's ratings only (동인지 and 일반 만화 kept separate).
 function RatingFileRow(): JSX.Element {
-  const { isHitomi, notify } = useSettings();
+  const { isDoujin, notify } = useSettings();
   const setWorks = useStore((s) => s.setWorks);
   const setOnlineFavs = useStore((s) => s.setOnlineFavs);
-  const lib = isHitomi ? "hitomi" : "normal";
-  const what = isHitomi ? "동인지" : "일반 만화";
+  const lib = isDoujin ? "doujin" : "normal";
+  const what = isDoujin ? "동인지" : "일반 만화";
   return (
     <SettingRow
       title="평점 파일"
@@ -190,7 +190,7 @@ function Favorites(): JSX.Element {
   const preload = async (): Promise<void> => {
     setPreloading(true);
     const { startJob, updateJob, endJob } = useStore.getState();
-    const jid = startJob("meta", "hitomi", "즐겨찾기 목록 미리 불러오기");
+    const jid = startJob("meta", "doujin", "즐겨찾기 목록 미리 불러오기");
     const off = window.api.onOnlineFavPreload(({ done, total }) =>
       updateJob(jid, { done, total }),
     );
@@ -214,7 +214,7 @@ function Favorites(): JSX.Element {
         path={draft.favoritesDir}
         onPick={() => pickDir((d) => patch({ favoritesDir: d }))}
         onClear={() => patch({ favoritesDir: null })}
-        mode="hitomi"
+        mode="doujin"
       />
       <SettingRow
         title="즐겨찾기하면 폴더로 이동"
@@ -324,7 +324,7 @@ function Favorites(): JSX.Element {
 }
 
 export default function TagSection(): JSX.Element {
-  const { draft, patch, isHitomi, works } = useSettings();
+  const { draft, patch, isDoujin, works } = useSettings();
   const [tagInput, setTagInput] = useState("");
   const [excludeInput, setExcludeInput] = useState("");
   const [favSearchInput, setFavSearchInput] = useState("");
@@ -412,7 +412,7 @@ export default function TagSection(): JSX.Element {
             value={favSearchInput}
             onChange={setFavSearchInput}
             tokens={allTagTokens}
-            fetchTokens={(q) => window.api.hitomiSuggest(q)}
+            fetchTokens={(q) => window.api.doujinSuggest(q)}
             onEnter={() => {
               const q = favSearchInput.trim();
               if (!q) return;
@@ -464,13 +464,13 @@ export default function TagSection(): JSX.Element {
       </section>
 
       {/* General-manga favorites are managed in-app (hearts on series/chapters). */}
-      {!isHitomi && (
+      {!isDoujin && (
         <section data-cat="fav">
           <h2>평점</h2>
           <RatingFileRow />
         </section>
       )}
-      {isHitomi && (
+      {isDoujin && (
         <section data-cat="fav">
           <h2>즐겨찾기</h2>
           <Favorites />

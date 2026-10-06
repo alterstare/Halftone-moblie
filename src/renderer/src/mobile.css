@@ -1514,7 +1514,7 @@ body:has(.activity) .fab-wrap {
 .genre-more.open .micon {
   rotate: 180deg;
 }
-.toki-tools {
+.comic-tools {
   margin-top: -4px;
   animation: pop-in 0.14s ease-out;
 }
@@ -1945,4 +1945,129 @@ body:has(.activity) .fab-wrap {
 }
 .reader-head-btns .reader-fav.on {
   color: var(--danger);
+}
+
+/* Library: half the old side margin (24 → 12px); the cards get the room. */
+.home,
+.browse {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+/* Phone: no classic scrollbars — the desktop's 12px custom scrollbar took
+   layout room on the right of every list and the reader (uneven margins). */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+* {
+  scrollbar-width: none;
+}
+/* Download progress along the card's top edge (not on the thumbnail). */
+.gcard {
+  position: relative;
+}
+.gcard > .gcard-dlbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  z-index: 4;
+  background: var(--bg-3);
+}
+/* Artist names / codes: their own press feedback (pressGuard keeps the card
+   itself from dimming). */
+.artist-link:active,
+.copyable:active {
+  background: var(--accent-soft);
+  border-radius: 4px;
+}
+
+/* 격자형: title, then the artist (whole name, wraps), then the code. */
+.ctile-artist {
+  margin: 3px 10px 0;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--accent);
+  word-break: break-word;
+}
+.ctile-artist + .ctile-meta {
+  margin-top: 2px;
+}
+
+/* Reader: no ‹ › hints on the page halves. */
+.paged-hint {
+  display: none;
+}
+/* Sidebar toggle: user-placed (long-press + drag), default near the top. */
+.reader-split .divider .list-toggle {
+  top: var(--toggle-top, 60px);
+  transform: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: scale 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.reader-split .divider .list-toggle.dragging {
+  scale: 1.12;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+/* Sidebar turned off: no drawer, toggle or scrim. */
+.reader-split.no-sidebar > .list-pane,
+.reader-split.no-sidebar > .divider,
+.reader-split.no-sidebar > .list-scrim {
+  display: none;
+}
+/* 일반 만화 온라인 · 주소: full-width box, flat text buttons under it. */
+.comic-addr {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+.comic-addr .search {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.comic-addr-btns {
+  margin-left: auto;
+}
+.comic-addr .btn,
+.dl-modal .search-row .btn {
+  flex: none;
+  height: 36px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  font-weight: 600;
+}
+.comic-addr .btn.primary,
+.dl-modal .search-row .btn.primary {
+  color: var(--accent);
+}
+.comic-addr .btn:disabled,
+.dl-modal .search-row .btn:disabled {
+  opacity: 0.4;
+}
+/* 비상용 (backup site) dialog: each box takes its row, its button under it. */
+.dl-modal .search-row {
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.dl-modal .search-row .search {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.dl-modal .search-row .btn {
+  margin-left: auto;
+}
+
+/* Chapter lists: every chapter opened before (readProgress) is tinted light
+   purple; the last one read keeps the purple outline; the open one is darker. */
+.chapter-row.read:not(.active) {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
 }

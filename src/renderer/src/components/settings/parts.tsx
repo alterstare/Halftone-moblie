@@ -40,7 +40,7 @@ export function RadioCards<T extends string>({
 
 // 열기 / 갱신 buttons for a registered folder (갱신 only when it belongs to a
 // library mode, i.e. can be rescanned).
-function FolderButtons({ path, mode }: { path: string; mode: 'hitomi' | 'normal' | null }): JSX.Element {
+function FolderButtons({ path, mode }: { path: string; mode: 'doujin' | 'normal' | null }): JSX.Element {
   const { rescanning, rescan } = useSettings()
   return (
     <>
@@ -71,7 +71,7 @@ export function RootList({
   roots: string[]
   onAdd: () => void
   onRemove: (r: string) => void
-  mode: 'hitomi' | 'normal'
+  mode: 'doujin' | 'normal'
   addLabel?: string
 }): JSX.Element {
   return (
@@ -110,7 +110,7 @@ export function FolderRow({
   path: string | null | undefined
   onPick: () => void
   onClear?: () => void
-  mode: 'hitomi' | 'normal' | null
+  mode: 'doujin' | 'normal' | null
 }): JSX.Element {
   return (
     <div className="set-block">

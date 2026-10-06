@@ -25,7 +25,7 @@ export function useTabTitles(): (t: Tab) => string {
   const workById = useMemo(() => new Map(works.map((w) => [w.id, w])), [works])
   const normalLabels = useMemo(() => {
     const map = new Map<string, { series: string; label: string }>()
-    const normal = works.filter((w) => (w.library ?? 'hitomi') === 'normal')
+    const normal = works.filter((w) => (w.library ?? 'doujin') === 'normal')
     for (const g of groupSeries(normal, normalRoots)) {
       for (const ci of analyzeSeries(g.chapters, g.title, chapterScheme)) {
         map.set(ci.work.id, { series: g.title, label: ci.label })
@@ -49,7 +49,7 @@ export function useTabTitles(): (t: Tab) => string {
 function useModeTabs(): Tab[] {
   const tabs = useStore((s) => s.tabs)
   const libraryMode = useStore((s) => s.libraryMode)
-  return useMemo(() => tabs.filter((t) => !t.glance && (t.mode ?? 'hitomi') === libraryMode), [tabs, libraryMode])
+  return useMemo(() => tabs.filter((t) => !t.glance && (t.mode ?? 'doujin') === libraryMode), [tabs, libraryMode])
 }
 
 export default function MobileTabBar(): JSX.Element {
@@ -193,13 +193,13 @@ function TabSwitcher({ closing, onClose }: { closing: boolean; onClose: () => vo
   const tabs = useModeTabs()
   const titleOf = useTabTitles()
   // Doujin online tabs: cover from the cached gallery summary.
-  useFavSummaries(tabs.filter((t) => t.online && t.online.kind !== 'toki').map((t) => t.online!.code))
+  useFavSummaries(tabs.filter((t) => t.online && t.online.kind !== 'comic').map((t) => t.online!.code))
 
   const cover = (t: Tab): JSX.Element => {
     if (!t.online) return <Thumb workId={t.workId} />
     const o = t.online
     const url =
-      o.kind === 'toki'
+      o.kind === 'comic'
         ? (o.thumb ?? onlineHistory[o.seriesUrl ?? o.code]?.thumbUrl ?? null)
         : (getFavSummary(o.code)?.thumbUrl ?? onlineHistory[o.code]?.thumbUrl ?? null)
     return <OnlineThumb className="mtcard-thumb" thumbUrl={url} getImgs={() => getOnlineImages(o.code)} />

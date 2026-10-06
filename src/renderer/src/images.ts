@@ -1,5 +1,5 @@
 import { hasExclusions, filterExcluded, getExcluded } from './exclude'
-import { isTokiCode } from './util'
+import { isComicCode } from './util'
 
 // Caches the per-work image url list so thumbnails and the reader share one
 // readdir round-trip. Cleared entries reload on demand.
@@ -44,7 +44,7 @@ export function getOnlineImages(code: string): Promise<string[]> {
   let p = onlineCache.get(code)
   if (!p) {
     // A manga-site "code" is the chapter viewer URL (http…); a doujin code is numeric.
-    p = isTokiCode(code) ? window.api.tokiReadUrls(code) : window.api.hitomiReadUrls(code)
+    p = isComicCode(code) ? window.api.comicReadUrls(code) : window.api.doujinReadUrls(code)
     onlineCache.set(code, p)
   }
   return p

@@ -49,7 +49,7 @@ export const libraryApi: Partial<Api> = {
     return saved
   },
 
-  parseName: async (name: string) => parseName(name, store.settings.hitomiNamePatterns),
+  parseName: async (name: string) => parseName(name, store.settings.doujinNamePatterns),
 
   // ---------- scanning / organizing ----------
 
@@ -149,11 +149,11 @@ export const libraryApi: Partial<Api> = {
     if (!g) throw new Error('그룹을 찾을 수 없습니다')
     const n = name.trim()
     if (!n) throw new Error('그룹 이름을 입력하세요')
-    const mode = g.mode ?? 'hitomi'
+    const mode = g.mode ?? 'doujin'
     const key = safeName(n).toLowerCase()
     if (
       store.settings.groups.some(
-        (x) => x.id !== groupId && (x.mode ?? 'hitomi') === mode && safeName(x.name).toLowerCase() === key
+        (x) => x.id !== groupId && (x.mode ?? 'doujin') === mode && safeName(x.name).toLowerCase() === key
       )
     )
       throw new Error('같은 이름의 그룹이 이미 있습니다')
@@ -360,7 +360,7 @@ export const libraryApi: Partial<Api> = {
     if (deleteWorkFolders) {
       for (const w of store.works.values()) await fs.rm(w.path, { recursive: true, force: true }).catch(() => {})
     }
-    for (const f of ['works.json', 'settings.json', 'session.json', 'online.json', 'progress.json', 'history.json', 'hitomi-suggest-seen.json', 'onlineSummaries.json']) {
+    for (const f of ['works.json', 'settings.json', 'session.json', 'online.json', 'progress.json', 'history.json', 'doujin-suggest-seen.json', 'onlineSummaries.json']) {
       await fs.rm(join(paths.data, f), { force: true }).catch(() => {})
     }
     await fs.rm(join(paths.data, 'thumbs'), { recursive: true, force: true }).catch(() => {})

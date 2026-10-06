@@ -1,20 +1,41 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
+import ContextMenu from './ContextMenu'
 
-// Clickable [code] that copies to clipboard and briefly shows a check.
+// Clickable [code]: a tap copies it (briefly shows a check); a long-press opens
+// a small popup (작품 번호 복사) instead of the card's own menu.
 export default function CopyCode({ code, className = '' }: { code: string; className?: string }): JSX.Element {
   const [copied, setCopied] = useState(false)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const copy = (): void => {
+    void window.api.clipboardWriteText(code)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1000)
+  }
   return (
-    <span
-      className={`code copyable ${className}`}
-      onClick={(e) => {
-        e.stopPropagation()
-        navigator.clipboard.writeText(code)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1000)
-      }}
-    >
-      [{code}]{copied ? ' ✓' : ''}
-    </span>
+    <>
+      <span
+        className={`code copyable ${className}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          copy()
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setMenu({ x: e.clientX, y: e.clientY })
+        }}
+      >
+        [{code}]{copied ? ' ✓' : ''}
+      </span>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={[{ label: `작품 번호 복사 (${code})`, onClick: copy }]}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
   )
 }

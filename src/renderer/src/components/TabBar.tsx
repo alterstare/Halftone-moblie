@@ -244,7 +244,7 @@ export default function TabBar(): JSX.Element {
   const normalRoots = useSeriesRoots()
   const normalLabels = useMemo(() => {
     const map = new Map<string, { series: string; label: string }>()
-    const normal = works.filter((w) => (w.library ?? 'hitomi') === 'normal')
+    const normal = works.filter((w) => (w.library ?? 'doujin') === 'normal')
     for (const g of groupSeries(normal, normalRoots)) {
       for (const ci of analyzeSeries(g.chapters, g.title, chapterScheme)) {
         map.set(ci.work.id, { series: g.title, label: ci.label })
@@ -270,11 +270,11 @@ export default function TabBar(): JSX.Element {
   // Tabs belong to a mode; the bar shows only the current mode's tabs. Glance
   // (peek) tabs live in a floating overlay and never appear in the bar.
   const curTabs = useMemo(
-    () => tabs.filter((t) => !t.glance && (t.mode ?? 'hitomi') === libraryMode),
+    () => tabs.filter((t) => !t.glance && (t.mode ?? 'doujin') === libraryMode),
     [tabs, libraryMode]
   )
   const otherTabs = useMemo(
-    () => tabs.filter((t) => !t.glance && (t.mode ?? 'hitomi') !== libraryMode),
+    () => tabs.filter((t) => !t.glance && (t.mode ?? 'doujin') !== libraryMode),
     [tabs, libraryMode]
   )
 
@@ -297,7 +297,7 @@ export default function TabBar(): JSX.Element {
   }, [curTabs, tabGroups])
 
   const OTHER = '__othermode__'
-  const otherLabel = libraryMode === 'hitomi' ? '일반 만화' : '동인지'
+  const otherLabel = libraryMode === 'doujin' ? '일반 만화' : '동인지'
 
   const toggle = (id: string): void =>
     setExpanded((s) => {
@@ -374,7 +374,7 @@ export default function TabBar(): JSX.Element {
           shown here so it's easy to find; the tooltip names the target mode. */}
       <button
         className="tab mode-tab"
-        onClick={() => useStore.getState().setLibraryMode(libraryMode === 'normal' ? 'hitomi' : 'normal')}
+        onClick={() => useStore.getState().setLibraryMode(libraryMode === 'normal' ? 'doujin' : 'normal')}
         title={`${libraryMode === 'normal' ? '동인지' : '일반 만화'} 모드로 전환`}
       >
         <CompareArrowsIcon />

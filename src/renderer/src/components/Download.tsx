@@ -3,7 +3,7 @@ import { useStore, downloadMode } from '../store'
 import type { Job } from '../store'
 import { useLock } from '../lock'
 import { PauseIcon, PlayIcon, DeleteIcon } from './icons'
-import type { HitomiProgress } from '../../../shared/ipc'
+import type { DoujinProgress } from '../../../shared/ipc'
 
 // One merged activity entry: background jobs (export/scan) + online downloads.
 interface Row {
@@ -17,7 +17,7 @@ interface Row {
   error?: string
   // Set only for online-download rows — drives the phase label + stop/retry
   // controls. Jobs (scan/meta/…) leave it undefined.
-  dl?: { code: string; phase: HitomiProgress['phase']; canRetry: boolean }
+  dl?: { code: string; phase: DoujinProgress['phase']; canRetry: boolean }
 }
 const KIND_ICON: Record<Job['kind'], string> = {
   scan: '🔄',
@@ -29,7 +29,7 @@ const KIND_ICON: Record<Job['kind'], string> = {
 const rowPct = (done: number, total: number): number =>
   total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
 // Phases where a download is in flight (can be stopped but not retried).
-const activePhase = new Set<HitomiProgress['phase']>([
+const activePhase = new Set<DoujinProgress['phase']>([
   'queued',
   'fetching',
   'downloading',
@@ -49,7 +49,7 @@ export default function Download(): JSX.Element {
   const downloads = allDownloads.filter((d) => downloadMode(d.code) === libraryMode)
   // Full activity list for this mode: jobs + downloads, running first, history kept.
   // Decoy (fake-PIN) doujin library: no tasks or download history at all.
-  const hideAll = useLock((s) => s.decoy) && libraryMode === 'hitomi'
+  const hideAll = useLock((s) => s.decoy) && libraryMode === 'doujin'
   const rows: Row[] = hideAll ? [] : [
     ...jobs
       .filter((j) => j.mode === libraryMode)

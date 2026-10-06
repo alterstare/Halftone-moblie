@@ -5,7 +5,7 @@
 // reliable for touch in the WebView.)
 const CARD = '.gtile, .gcard, .lib-item, .work-card, .chapter-row'
 const CONTROL =
-  'button, input, a, .tag, .chip-mini, .star, .stars, .seg > *, .more-clamp-btn, .tile-more, .grp-btn, .seg-heart, .seg-dl, .card-more'
+  'button, input, a, .tag, .artist-link, .code, .copyable, .gcard-artist, .chip-mini, .star, .stars, .seg > *, .more-clamp-btn, .tile-more, .grp-btn, .seg-heart, .seg-dl, .card-more'
 
 let marked: Element | null = null
 const clear = (): void => {

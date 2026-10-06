@@ -7,7 +7,7 @@ import type { UpdateStatus } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import { MM } from './native'
 import { join } from './node/path'
-import { paths, sendToRenderer } from './context'
+import { paths, sendToRenderer, store } from './context'
 
 const REPO = 'alterstare/Halftone-moblie'
 let pending: string | null = null
@@ -26,6 +26,7 @@ function newer(a: string, b: string): boolean {
 }
 
 export async function checkForUpdate(): Promise<void> {
+  if (store.settings.autoUpdate === false) return // turned off in 설정 · 관리
   try {
     const { version } = await MM.appInfo()
     const r = await MM.httpGet({

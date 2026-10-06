@@ -3,7 +3,7 @@ import { join } from '../node/path'
 import { paths } from '../context'
 
 // Autocomplete backend for the online search box. Two sources are merged:
-//   1. A bundled snapshot of every hitomi tag (app asset hitomi-tokens.json,
+//   1. A bundled snapshot of every doujin tag (app asset doujin-tokens.json,
 //      `{ "artist:foo": count, "character:bar": count, "series:…", "tag:…" }`),
 //      so the full artist/character/series/tag list is searchable offline.
 //   2. Tokens harvested from galleries the user actually browses, persisted to
@@ -21,7 +21,7 @@ const seen = new Map<string, number>() // token → hit count
 let seenPromise: Promise<void> | null = null
 
 function seenPath(): string {
-  return join(paths.data, 'hitomi-suggest-seen.json')
+  return join(paths.data, 'doujin-suggest-seen.json')
 }
 
 // Load-once, but share the in-flight promise so concurrent callers all await the
@@ -32,7 +32,7 @@ function ensureBundled(): Promise<void> {
     bundledPromise = (async () => {
       try {
         // Shipped in the web bundle (vite publicDir = resources/).
-        bundled = (await (await fetch('./hitomi-tokens.json')).json()) as CountMap
+        bundled = (await (await fetch('./doujin-tokens.json')).json()) as CountMap
       } catch (e) {
         console.log('[suggest] bundled tokens load failed:', String((e as Error)?.message ?? e))
         bundled = {}

@@ -1,12 +1,12 @@
-// Shared runner for every online download (hitomi gallery, toki series, backup
+// Shared runner for every online download (doujin gallery, comic series, backup
 // site chapters): concurrency gate, user stop, and progress/error reporting on
-// the renderer's hitomiProgress channel.
+// the renderer's doujinProgress channel.
 //
 // Lifecycle of one download, as the renderer sees it (phase):
 //   queued → fetching → downloading … → done
 //                    ↘ stopped (user pressed stop, while queued or running)
 //                    ↘ error   (message = the failure)
-import type { HitomiProgress } from '../shared/ipc'
+import type { DoujinProgress } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import { store, sendToRenderer } from './context'
 
@@ -14,8 +14,8 @@ import { store, sendToRenderer } from './context'
 // a stop isn't shown as a failure.
 export const STOP_MSG = 'DOWNLOAD_STOPPED'
 
-// Abort handles of queued/running downloads, keyed by progress code (hitomi
-// code / toki seriesUrl / "backup:<title>").
+// Abort handles of queued/running downloads, keyed by progress code (doujin
+// code / comic seriesUrl / "backup:<title>").
 const controllers = new Map<string, AbortController>()
 
 // Concurrency gate (settings · 동시 다운로드). The limit is read on every acquire,
@@ -52,9 +52,9 @@ async function acquireSlot(signal: AbortSignal): Promise<() => void> {
 }
 
 // Report progress for this download. `label` is used as the title when the
-// download has none yet (e.g. hitomi learns the title only once fetching).
+// download has none yet (e.g. doujin learns the title only once fetching).
 export type Report = (
-  phase: HitomiProgress['phase'],
+  phase: DoujinProgress['phase'],
   done?: number,
   total?: number,
   label?: string
@@ -68,8 +68,8 @@ export async function runDownload<T>(
   title: string,
   task: (signal: AbortSignal, report: Report) => Promise<T>
 ): Promise<T> {
-  const send = (p: Omit<HitomiProgress, 'code'>): void =>
-    sendToRenderer(IPC.hitomiProgress, { code, ...p } satisfies HitomiProgress)
+  const send = (p: Omit<DoujinProgress, 'code'>): void =>
+    sendToRenderer(IPC.doujinProgress, { code, ...p } satisfies DoujinProgress)
   const report: Report = (phase, done = 0, total = 0, label = '') =>
     send({ title: title || label, done, total, phase })
 

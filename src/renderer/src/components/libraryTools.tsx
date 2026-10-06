@@ -151,6 +151,51 @@ export function SelectBar({
   )
 }
 
+// ---------- swipe between 라이브러리 ⇄ 온라인 ----------
+
+// A quick, clearly horizontal swipe on the list switches screens: left → the
+// next screen (onLeft), right → the previous (onRight). Ignored when it starts
+// on something that scrolls / drags sideways itself.
+const SWIPE_SKIP = '.card-more-strip, .chips, .mtab-strip, input, textarea, .search-ac, .page-slider, .ctx-overlay, .taglist-grid.expanded'
+export function useSwipeNav(
+  ref: RefObject<HTMLElement | null>,
+  onLeft: (() => void) | null,
+  onRight: (() => void) | null,
+  enabled = true
+): void {
+  const cbs = useRef({ onLeft, onRight })
+  cbs.current = { onLeft, onRight }
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !enabled) return
+    let s: { x: number; y: number; t: number } | null = null
+    const onStart = (e: TouchEvent): void => {
+      const t = e.touches[0]
+      s =
+        e.touches.length === 1 && !(e.target as Element).closest(SWIPE_SKIP)
+          ? { x: t.clientX, y: t.clientY, t: Date.now() }
+          : null
+    }
+    const onEnd = (e: TouchEvent): void => {
+      const s0 = s
+      s = null
+      const t = e.changedTouches[0]
+      if (!s0 || !t || el.classList.contains('ptr-on')) return
+      const dx = t.clientX - s0.x
+      const dy = t.clientY - s0.y
+      if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2 || Date.now() - s0.t > 600) return
+      if (dx < 0) cbs.current.onLeft?.()
+      else cbs.current.onRight?.()
+    }
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchend', onEnd, { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchend', onEnd)
+    }
+  }, [ref, enabled])
+}
+
 // ---------- pull to refresh ----------
 
 // Pull the list down from the top and let go: the content follows the finger

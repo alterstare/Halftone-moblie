@@ -125,7 +125,7 @@ export async function mergeSeries(
 }
 
 // Move a work's folder into an arbitrary destination directory (used to sweep
-// hitomi-deleted works aside). Cleans up the emptied source parent if possible.
+// doujin-deleted works aside). Cleans up the emptied source parent if possible.
 export async function moveWorkToFolder(work: Work, destDir: string): Promise<Partial<Work>> {
   await fs.mkdir(destDir, { recursive: true })
   const dest = await uniqueDest(destDir, basename(work.path))

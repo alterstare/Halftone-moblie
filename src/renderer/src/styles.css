@@ -4879,7 +4879,7 @@ select:focus,
   height: 14px;
 }
 
-/* Genre chip excluded via right-click (TokiBrowse) — cards with it are hidden. */
+/* Genre chip excluded via right-click (ComicBrowse) — cards with it are hidden. */
 .tag.excluded {
   color: var(--danger);
   border-color: var(--danger);

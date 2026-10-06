@@ -4,7 +4,7 @@ import type { Work, Settings } from '../../shared/types'
 import { IMAGE_EXTS } from '../../shared/types'
 import { parseName } from './parser'
 import { deriveId } from './store'
-import { readSidecar } from './hitomi'
+import { readSidecar } from './doujin'
 
 export interface ScanCallbacks {
   onProgress?: (scanned: number, current: string) => void
@@ -43,10 +43,10 @@ function isFlattenRoot(dir: string, settings: Settings): boolean {
 }
 
 // Which library a given root path belongs to (normal if it's a configured
-// normal root, else hitomi). Used by the per-folder rescan.
-export function libraryOfRoot(root: string, settings: Settings): 'hitomi' | 'normal' {
+// normal root, else doujin). Used by the per-folder rescan.
+export function libraryOfRoot(root: string, settings: Settings): 'doujin' | 'normal' {
   const r = resolve(root)
-  return normalRoots(settings).some((n) => resolve(n) === r) ? 'normal' : 'hitomi'
+  return normalRoots(settings).some((n) => resolve(n) === r) ? 'normal' : 'doujin'
 }
 
 // Walk each library root and collect "work folders" = any directory that
@@ -60,14 +60,14 @@ export async function scanLibrary(settings: Settings, cb: ScanCallbacks = {}): P
   for (const root of normalRoots(settings)) await walk(root, 'normal')
   // Artist-folder roots: walk normally, but each immediate child folder names the
   // artist stamped onto every work beneath it.
-  for (const root of flattenRoots(settings)) await walk(root, 'hitomi')
-  for (const root of effectiveRoots(settings)) await walk(root, 'hitomi')
+  for (const root of flattenRoots(settings)) await walk(root, 'doujin')
+  for (const root of effectiveRoots(settings)) await walk(root, 'doujin')
 
   return applyCollections(works, settings)
 
   async function walk(
     dir: string,
-    library: 'hitomi' | 'normal',
+    library: 'doujin' | 'normal',
     artist: string | null = null
   ): Promise<void> {
     const key = resolve(dir)
@@ -111,7 +111,7 @@ export async function scanLibrary(settings: Settings, cb: ScanCallbacks = {}): P
 export async function scanRoot(
   root: string,
   settings: Settings,
-  library: 'hitomi' | 'normal' = libraryOfRoot(root, settings)
+  library: 'doujin' | 'normal' = libraryOfRoot(root, settings)
 ): Promise<Work[]> {
   const works: Work[] = []
   const visited = new Set<string>()
@@ -186,7 +186,7 @@ function applyCollections(works: Work[], settings: Settings): Work[] {
       continue
     }
     const name = basename(af)
-    out.push(makeCollection(af, af, `${name} collection`, name, group, group[0].library ?? 'hitomi'))
+    out.push(makeCollection(af, af, `${name} collection`, name, group, group[0].library ?? 'doujin'))
   }
   for (const [i, group] of manualGroups) {
     if (!group.length) continue
@@ -215,7 +215,7 @@ function makeCollection(
   title: string,
   artist: string | null,
   group: Work[],
-  library: 'hitomi' | 'normal'
+  library: 'doujin' | 'normal'
 ): Work {
   const sources = [...group.map((w) => w.path)].sort(naturalCompare)
   const pageCount = group.reduce((n, w) => n + w.pageCount, 0)
@@ -248,7 +248,7 @@ function makeCollection(
 export async function scanOne(
   dir: string,
   settings: Settings,
-  library: 'hitomi' | 'normal' = 'hitomi'
+  library: 'doujin' | 'normal' = 'doujin'
 ): Promise<Work | null> {
   let entries: fs.Dirent[]
   try {
@@ -265,13 +265,13 @@ async function makeWork(
   dir: string,
   pageCount: number,
   settings: Settings,
-  library: 'hitomi' | 'normal' = 'hitomi',
+  library: 'doujin' | 'normal' = 'doujin',
   artistOverride: string | null = null
 ): Promise<Work> {
   const folderName = basename(dir)
-  // Only hitomi folders carry gallery ids; skip id detection for normal manga so
+  // Only doujin folders carry gallery ids; skip id detection for normal manga so
   // chapter numbers never look like codes.
-  const parsed = library === 'hitomi' ? parseName(folderName, settings.hitomiNamePatterns) : { artist: null, code: null, title: folderName.replace(/\s+/g, ' ').trim() }
+  const parsed = library === 'doujin' ? parseName(folderName, settings.doujinNamePatterns) : { artist: null, code: null, title: folderName.replace(/\s+/g, ' ').trim() }
   // General-manga chapter folders reuse names across series, so key their id on
   // the full path to avoid id collisions (which drop chapters).
   const id = deriveId(folderName, parsed.code, library === 'normal' ? resolve(dir) : undefined)
@@ -282,7 +282,7 @@ async function makeWork(
     /* keep default */
   }
 
-  // Sidecar (meta.hitomi.json) carries hitomi metadata so it survives rescans.
+  // Sidecar (SIDECAR, meta.<site>.json) carries doujin metadata so it survives rescans.
   const meta = await readSidecar(dir)
   const tags = [...new Set([...applyGenreRules(dir, settings), ...(meta?.tags ?? [])])]
 
@@ -291,7 +291,7 @@ async function makeWork(
     path: dir,
     title: parsed.title,
     // Artist-folder roots override the artist with the folder name; otherwise use
-    // the parsed / hitomi-metadata artist.
+    // the parsed / doujin-metadata artist.
     artist: artistOverride ?? parsed.artist ?? (meta?.artists.length ? meta.artists.join(', ') : null),
     code: parsed.code ?? meta?.code ?? null,
     language: meta?.language ?? null,
@@ -320,8 +320,8 @@ function safeName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+$/g, '').trim() || 'group'
 }
 
-// Inside the hitomi favorites folder? (General manga has no favorites folder.)
-function underFavorites(dir: string, settings: Settings, library: 'hitomi' | 'normal'): boolean {
+// Inside the doujin favorites folder? (General manga has no favorites folder.)
+function underFavorites(dir: string, settings: Settings, library: 'doujin' | 'normal'): boolean {
   const favDir = library === 'normal' ? null : settings.favoritesDir
   if (!favDir) return false
   const fav = resolve(favDir)
@@ -331,10 +331,10 @@ function underFavorites(dir: string, settings: Settings, library: 'hitomi' | 'no
 
 // If the work's immediate parent folder is named after a group, return that
 // group's id (e.g. favorites/<group>/<work> or libRoot/<group>/<work>).
-function groupFolderMatch(dir: string, settings: Settings, library: 'hitomi' | 'normal'): string[] {
+function groupFolderMatch(dir: string, settings: Settings, library: 'doujin' | 'normal'): string[] {
   const parent = basename(dirname(dir)).toLowerCase()
   const g = settings.groups.find(
-    (gr) => (gr.mode ?? 'hitomi') === library && safeName(gr.name).toLowerCase() === parent
+    (gr) => (gr.mode ?? 'doujin') === library && safeName(gr.name).toLowerCase() === parent
   )
   return g ? [g.id] : []
 }

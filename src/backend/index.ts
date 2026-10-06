@@ -1,7 +1,7 @@
 // Backend entry: boots the store and exposes `window.api` (the same Api the
 // desktop preload exposed), implemented in-process on top of the native
 // plugin. Mobile counterpart of the desktop main/index.ts + preload.
-import type { Api, HitomiProgress, UpdateStatus } from '../shared/ipc'
+import type { Api, DoujinProgress, UpdateStatus } from '../shared/ipc'
 import type { ScanProgress } from '../shared/types'
 import { IPC } from '../shared/ipc'
 import { MM } from './native'
@@ -9,13 +9,13 @@ import { join } from './node/path'
 import { store, paths, on, sendToRenderer } from './context'
 import { moveFromFavorites } from './lib/favorites'
 import { scannedFavorite, migrateFavorites } from './lib/favoriteSync'
-import { setTokiChallengeHandler, setTokiStatusHandler } from './lib/toki'
+import { setComicChallengeHandler, setComicStatusHandler } from './lib/comic'
 import { initThumbDir } from './lib/media'
 import { applyNetwork } from './network'
 import { libraryApi } from './api/library'
 import { favoritesApi } from './api/favorites'
-import { hitomiApi } from './api/hitomi'
-import { tokiApi } from './api/toki'
+import { doujinApi } from './api/doujin'
+import { comicApi } from './api/comic'
 import { checkForUpdate, installUpdate } from './update'
 
 // Events with no mobile source (desktop-only: OS close button, mouse forward
@@ -25,7 +25,7 @@ const never = (): (() => void) => () => {}
 // One-time migration to the in-app general-manga favorites (see desktop main).
 async function migrateNormalFavorites(): Promise<void> {
   if (store.settings.normalFavMigrated) return
-  const normals = [...store.works.values()].filter((w) => (w.library ?? 'hitomi') === 'normal')
+  const normals = [...store.works.values()].filter((w) => (w.library ?? 'doujin') === 'normal')
   for (const w of normals) {
     try {
       if (w.homePath) store.update(w.id, await moveFromFavorites(w))
@@ -44,7 +44,7 @@ async function firstRunFolders(): Promise<void> {
   const s = store.settings
   if (s.downloadDir || s.normalDownloadDir || s.libraryRoots.length || (s.normalRoots ?? []).length) return
   const base = join(paths.download, 'MangaManager')
-  await store.saveSettings({ ...s, downloadDir: join(base, 'hitomi'), normalDownloadDir: join(base, 'manga') })
+  await store.saveSettings({ ...s, downloadDir: join(base, 'doujin'), normalDownloadDir: join(base, 'manga') })
 }
 
 const events: Partial<Api> = {
@@ -52,15 +52,15 @@ const events: Partial<Api> = {
   onOrganizeProgress: (cb) => on(IPC.organizeProgress, cb),
   onOnlineFavPreload: (cb) => on(IPC.onlineFavPreloadProgress, cb),
   onClassifyProgress: (cb) => on(IPC.classifyProgress, cb),
-  onHitomiProgress: (cb) => on<HitomiProgress>(IPC.hitomiProgress, cb),
-  onTokiChallenge: (cb) => on<boolean>(IPC.tokiChallenge, cb),
-  onTokiStatus: (cb) => on<string | null>(IPC.tokiStatus, cb),
+  onDoujinProgress: (cb) => on<DoujinProgress>(IPC.doujinProgress, cb),
+  onComicChallenge: (cb) => on<boolean>(IPC.comicChallenge, cb),
+  onComicStatus: (cb) => on<string | null>(IPC.comicStatus, cb),
   onNavBack: (cb) => on(IPC.navBack, cb),
   onRequestClose: (cb) => on(IPC.requestClose, cb),
   onNavForward: never,
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => on<UpdateStatus>(IPC.updateStatus, cb),
   installUpdate: () => installUpdate(),
-  hitomiCancelEnrich: hitomiApi.hitomiCancelEnrich
+  doujinCancelEnrich: doujinApi.doujinCancelEnrich
 }
 
 // Boot the backend and install window.api. Must finish before the UI mounts.
@@ -81,12 +81,12 @@ export async function installBackend(): Promise<void> {
   await initThumbDir()
 
   // Cloudflare check shown/cleared → "인증 필요" banner in the UI.
-  setTokiChallengeHandler((active) => sendToRenderer(IPC.tokiChallenge, active))
-  setTokiStatusHandler((msg) => sendToRenderer(IPC.tokiStatus, msg))
+  setComicChallengeHandler((active) => sendToRenderer(IPC.comicChallenge, active))
+  setComicStatusHandler((msg) => sendToRenderer(IPC.comicStatus, msg))
   // Android back button → the UI's history back (it decides when to exit).
   await MM.addListener('back', () => sendToRenderer(IPC.navBack))
 
-  window.api = { ...libraryApi, ...favoritesApi, ...hitomiApi, ...tokiApi, ...events } as Api
+  window.api = { ...libraryApi, ...favoritesApi, ...doujinApi, ...comicApi, ...events } as Api
   // Look for a newer release once the UI has settled.
   setTimeout(() => void checkForUpdate(), 5000)
 }

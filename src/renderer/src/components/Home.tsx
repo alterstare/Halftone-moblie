@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots } from '../store'
-import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isTokiCode, sortSeries } from '../util'
+import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isComicCode, sortSeries } from '../util'
 import type { SortMode, OnlineFav } from '../../../shared/types'
 import type { Filter } from '../store'
 import { langCategory, LANG_CAT_LABELS, type LangCat } from '../../../shared/lang'
 import Caret from './Caret'
 import { GridIcon, MenuIcon, FavoriteIcon, AddIcon, CloseIcon, SortIcon, DeleteIcon } from './icons'
-import { useSelection, SelectionProvider, SelectBar, usePullRefresh, LibraryFab } from './libraryTools'
+import { useSelection, SelectionProvider, SelectBar, usePullRefresh, LibraryFab, useSwipeNav } from './libraryTools'
 import Dropdown from './Dropdown'
 import WorkGridCard from './WorkGridCard'
 import SeriesGridCard from './SeriesGridCard'
@@ -134,7 +134,7 @@ export default function Home(): JSX.Element {
     if (!codes.length) return
     setLoadingPopular(true)
     window.api
-      .hitomiPopularRanks(codes)
+      .doujinPopularRanks(codes)
       .then(setPopularRanks)
       .finally(() => setLoadingPopular(false))
   }, [sort, popularRanks, works])
@@ -154,7 +154,7 @@ export default function Home(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    return window.api.onHitomiProgress((p) => {
+    return window.api.onDoujinProgress((p) => {
       if (p.phase === 'enriching') setEnrichProg({ done: p.done, total: p.total })
       else if (p.phase === 'done') setEnrichProg(null)
     })
@@ -162,7 +162,7 @@ export default function Home(): JSX.Element {
 
   // Only the current library's works (doujin vs general manga).
   const modeWorks = useMemo(
-    () => works.filter((w) => (w.library ?? 'hitomi') === libraryMode),
+    () => works.filter((w) => (w.library ?? 'doujin') === libraryMode),
     [works, libraryMode]
   )
   // Tag autocomplete for the search box (replaces the old tag-builder row).
@@ -170,7 +170,7 @@ export default function Home(): JSX.Element {
 
   // Groups are scoped per library mode.
   const modeGroups = useMemo(
-    () => groups.filter((g) => (g.mode ?? 'hitomi') === libraryMode),
+    () => groups.filter((g) => (g.mode ?? 'doujin') === libraryMode),
     [groups, libraryMode]
   )
 
@@ -201,7 +201,7 @@ export default function Home(): JSX.Element {
     () =>
       new Set(
         Object.values(onlineFavs)
-          .filter((f) => f.favorite && isTokiCode(f.code))
+          .filter((f) => f.favorite && isComicCode(f.code))
           .map((f) => titleKey(f.title))
           .filter(Boolean)
       ),
@@ -224,7 +224,7 @@ export default function Home(): JSX.Element {
     if (favActive && filter.kind === 'favorites') {
       const onlineCodes = new Set(
         Object.values(onlineFavs)
-          .filter((f) => f.favorite && !isTokiCode(f.code))
+          .filter((f) => f.favorite && !isComicCode(f.code))
           .map((f) => f.code)
       )
       const have = new Set(base.map((w) => w.id))
@@ -311,7 +311,7 @@ export default function Home(): JSX.Element {
       .filter(
         (f) =>
           f.favorite &&
-          isTokiCode(f.code) === normal &&
+          isComicCode(f.code) === normal &&
           !libCodes.has(f.code) &&
           !(normal && localSeriesKeys.has(titleKey(f.title)))
       )
@@ -329,7 +329,7 @@ export default function Home(): JSX.Element {
 
   // Doujin online history entries without a stored cover → fetch their summaries.
   const sumVer = useFavSummaries(
-    history && !normal ? Object.values(onlineHistory).filter((e) => e.kind === 'hitomi' && !e.thumbUrl).map((e) => e.key) : []
+    history && !normal ? Object.values(onlineHistory).filter((e) => e.kind === 'doujin' && !e.thumbUrl).map((e) => e.key) : []
   )
   // 기록: viewed local works / series + online history entries (not in the
   // library), one list newest-first. Search / filters narrow the local part
@@ -352,7 +352,7 @@ export default function Home(): JSX.Element {
       .split(/[\s,]+/)
       .filter((w) => w && !w.includes(':'))
     for (const e of Object.values(onlineHistory)) {
-      if ((e.kind === 'toki') !== normal) continue
+      if ((e.kind === 'comic') !== normal) continue
       if (normal ? localSeriesKeys.has(titleKey(e.title)) : libCodes.has(e.code)) continue
       const f = onlineFavs[e.key]
       if (filter.kind === 'favorites' && !f?.favorite) continue
@@ -435,7 +435,7 @@ export default function Home(): JSX.Element {
   // ones the user turned off, so a newly imported list shows up checked.
   const decoy = useLock((s) => s.decoy)
   const favLists = useMemo(
-    () => (libraryMode === 'hitomi' && !decoy ? (settings.onlineFavLists ?? []) : []),
+    () => (libraryMode === 'doujin' && !decoy ? (settings.onlineFavLists ?? []) : []),
     [settings.onlineFavLists, libraryMode, decoy]
   )
   const allFavNames = useMemo(() => [FAV_BASE, ...favLists.map((l) => l.name)], [favLists])
@@ -464,7 +464,7 @@ export default function Home(): JSX.Element {
     const codes = new Set(favLists.filter((l) => favSelected.includes(l.name)).flatMap((l) => l.codes))
     const ids = new Set<string>()
     for (const w of modeWorks) if ((base && w.favorite) || (w.code && codes.has(w.code))) ids.add(w.code ?? w.id)
-    if (base) for (const f of Object.values(onlineFavs)) if (f.favorite && !isTokiCode(f.code)) ids.add(f.code)
+    if (base) for (const f of Object.values(onlineFavs)) if (f.favorite && !isComicCode(f.code)) ids.add(f.code)
     return ids.size
   }, [normal, modeWorks, normalRoots, favSelected, favLists, onlineFavs, onlineNormalFavKeys, settings.normalFavSeries, settings.normalFavChapters])
   const groupCounts = useMemo(() => {
@@ -488,6 +488,9 @@ export default function Home(): JSX.Element {
     await useStore.getState().scanLibraryJob()
   }
   const ptrSpinner = usePullRefresh(scrollRef, refresh, homeView)
+  // Swipe left → 온라인 (the library screen only, not 기록 / while selecting).
+  const onHome = useStore((s) => s.view === 'home')
+  useSwipeNav(scrollRef, () => !decoy && useStore.getState().goBrowse(), null, onHome && !sel.selecting)
   const entryKey = (e: FavEntry): string => (e.kind === 'local' ? e.work.id : e.kind === 'series' ? e.series.key : e.fav.code)
   // Selected keys → local work ids (a series = all its chapters; online-only
   // entries have nothing to delete).
@@ -728,7 +731,7 @@ export default function Home(): JSX.Element {
                   <div className="cat-panel inline">
                       <label>
                         <input type="checkbox" checked={showCoded} onChange={(e) => setShowCoded(e.target.checked)} />
-                        hitomi 번호 작품
+                        doujin 번호 작품
                       </label>
                       <label>
                         <input

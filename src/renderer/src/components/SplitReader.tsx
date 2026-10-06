@@ -66,8 +66,8 @@ function SplitPicker({ tab, onPick }: { tab: Tab; onPick: (src: PaneSrc) => void
   const works = useStore((s) => s.works)
   // Only offer tabs from the SAME library mode — doujin and general manga are
   // separate collections and must not be mixed in one split.
-  const mode = tab.mode ?? 'hitomi'
-  const candidates = tabs.filter((t) => t.id !== tab.id && !t.split && (t.mode ?? 'hitomi') === mode)
+  const mode = tab.mode ?? 'doujin'
+  const candidates = tabs.filter((t) => t.id !== tab.id && !t.split && (t.mode ?? 'doujin') === mode)
 
   return (
     <div className="split-picker">

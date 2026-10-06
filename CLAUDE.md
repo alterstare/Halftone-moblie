@@ -17,14 +17,14 @@ library manager. The desktop app is the reference implementation:
 **App name (2026-10-06): Halftone** (launcher label / strings.xml / capacitor appName; package id and the `Download/MangaManager` folder unchanged).
 
 **Decided (2026-10-02):** Android only (sideload APK, no store), Capacitor,
-translation removed, main purpose = online reading + downloads (hitomi + toki).
+translation removed, main purpose = online reading + downloads (doujin + comic).
 Repo: **`alterstare/Halftone-moblie`** (git `origin`; the old `Manga_Manager-moblie-` is remote `old-mangamanager`); code was rebuilt from desktop
 v0.4.1, then (2026-10-05) brought to **desktop v0.5.4 parity**: renderer +
 shared replaced with v0.5.4 (translation removed again — translate/ocr/
 inpaint/export, TransEditor/TransWork/WorkTransEditor/CharacterMemo,
 TranslateSection, transProjects/transMemos settings), backend got the 0.5.x
 main changes (ratings files, editions finder, group rename, read progress,
-random/excluded browse, toki status/stall/ad-filter), app version 0.5.4.
+random/excluded browse, comic status/stall/ad-filter), app version 0.5.4.
 Electron is gone. When the desktop moves on, diff `vA..vB` in manga-viewer-2
 and port the same way (renderer copied, main changes hand-ported to src/backend).
 
@@ -47,7 +47,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `.compact-grid`. Same components, `compact` prop: WorkGridCard,
   SeriesGridCard, OnlineFavCard (layout), Browse inline. (WorkCard/SeriesCard
   list rows are unused on the phone.) Folder / 메타 채우기 / 삭제 live in the
-  long-press menu (useWorkCard / useSeriesCard). TokiBrowse has no layout
+  long-press menu (useWorkCard / useSeriesCard). ComicBrowse has no layout
   toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out from a
   chevron at the chips row's end, genres from a centered 장르 더보기. `ConfirmModal` portals to body (`compact` =
   text-only dialog).
@@ -65,7 +65,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   2-column tab grid (`tabSwitcherOpen`). Mode switch / 작업 목록 / 설정 are in
   the ☰ menu only. 기록 (menu, view `history`) = Home in history mode: local
   works by `lastViewedAt` + online works from `onlineHistory` (backend
-  `history.json`, recorded in store.openOnline/openToki), newest first.
+  `history.json`, recorded in store.openOnline/openComic), newest first.
   Reader (phone): title/bottom bars overlay the pages (`.overlay-bars`), hide
   on a drag / tap-flip, a tap on the top / bottom 15% or the center 15% column toggles them; no artist in the title bar
   (online = globe icon; local works get a favorite heart instead of 폴더 열기); bottom bar = slider + ⋮, which (or a swipe up) expands
@@ -91,7 +91,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   long-press = 제목 / 작품 번호 복사, page long-press = 이미지 저장
   (`saveImageToDownloads` → MMPlugin, MediaStore Downloads). TileBar empty
   space falls through to the card's click.
-  Library screens (Home incl. 기록, Browse, TokiBrowse) use
+  Library screens (Home incl. 기록, Browse, ComicBrowse) use
   `components/libraryTools.tsx`: `usePullRefresh` (children slide by --ptr,
   spinner above the search box; Home = page 1 + `scanLibraryJob`, online = page
   1 + reloadKey fetch), `LibraryFab` (portaled round +, hides on scroll down,
@@ -99,7 +99,20 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   선택 · 해제 | 삭제(local) / 다운로드(online, sequential) | ×) — cards carry
   `data-sel` + checkbox via `useSel`/`SelBox`; Android back ends selection
   (`popBack`).
-  Opening the reader / 관리 / 작업 목록 replays the mode-switch blur (App.tsx,
+  Swipe left on 라이브러리 → 온라인, right on 온라인 → 라이브러리 (`useSwipeNav`).
+  Library side padding 12px; phone hides scrollbars (the desktop 12px custom
+  scrollbar took layout room → uneven margins); reader pages 4px each side.
+  Online download progress = thin bar on the card's top edge (`.gcard > .gcard-dlbar`).
+  Reader taps: single tap fires after 130ms (a finger-down in that window
+  waits for a double tap); no ‹ › page hints. Sidebar toggle: long-press +
+  drag moves it, saved as `settings.listToggleTop` (px from the reader top,
+  default 60); `settings.readerSidebar` off hides drawer + toggle. Scroll-mode
+  slider follows scroll fractionally (`syncSliderRef`, DOM writes, re-applied
+  in a layout effect after each render).
+  Chapter lists (online comic sidebar `ComicChapterList`, local `ChapterRow`):
+  every chapter opened before (`readProgress`) gets `.read` = light purple
+  tint; the last read keeps `.last-read` (purple outline); open = `.active`.
+  Opening / leaving the reader, opening 관리 / 작업 목록 replays the mode-switch blur (App.tsx,
   `.mode-switching`).
   Tab strip: new tabs animate in (held 'pre-enter' two frames so the reader's
   mount frame doesn't eat it); tab grid has open/close animations.
@@ -115,27 +128,27 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
 - `android/app/src/main/java/com/noth2/mangamanager/` — native side:
   - `MMPlugin.java` (`MM`): fs, httpGet/httpDownload, DoH, pickers (SAF
     folder → real path, file open/save), storage permission (MANAGE_EXTERNAL_STORAGE),
-    toki WebView control, toast/exit.
-  - `Net.java`: OkHttp. kind `hitomi` = DoH (1.1.1.1 by IP) + UA/Referer;
-    `toki` = WebView cookies + UA + site Referer; disk image cache (400MB).
-  - `MMWebViewClient.java`: serves `https://localhost/_mm/{img|web|toki}/<b64url>`
-    (local file / hitomi image / toki image) — replaces desktop `mangaimg://`.
+    comic WebView control, toast/exit.
+  - `Net.java`: OkHttp. kind `doujin` = DoH (1.1.1.1 by IP) + UA/Referer;
+    `comic` = WebView cookies + UA + site Referer; disk image cache (400MB).
+  - `MMWebViewClient.java`: serves `https://localhost/_mm/{img|web|comic}/<b64url>`
+    (local file / doujin image / comic image) — replaces desktop `mangaimg://`.
   - `Tunnel.java`: SNI-bypass local CONNECT proxy (desktop green-tunnel
     equivalent: DoH + ClientHello split into 40-byte TLS records). On when
-    `settings.bypassTunnel`; toki OkHttp client + every WebView (ProxyController)
+    `settings.bypassTunnel`; comic OkHttp client + every WebView (ProxyController)
     go through it.
-  - `TokiWeb.java`: hidden scraper WebView kept BEHIND the app WebView;
+  - `ComicWeb.java`: hidden scraper WebView kept BEHIND the app WebView;
     brought to front for Cloudflare / manual browsing (title bar + 닫기).
     Doc-start script hides webdriver + stubs WebRTC. JS drives it via
-    tokiLoad/tokiState/tokiEval (`backend/lib/toki.ts`).
+    comicLoad/comicState/comicEval (`backend/lib/comic.ts`).
 - Data: app-private files dir (settings/works/online json, thumbs). First run
-  sets download dirs to `Download/MangaManager/{hitomi,manga}`.
+  sets download dirs to `Download/MangaManager/{doujin,manga}`.
 
 Known gaps / TODO: downloads run in WebView JS (stall when app backgrounded —
 needs a foreground service); UI still desktop-shaped in places (home/browse
 toolbars, tab bar, settings); no update check; app icon = `app.png` (repo root) rendered into the mipmap
 folders (adaptive foreground full-bleed, white background, + legacy square/round);
-toki online not tested against the live site (needs the user's address).
+comic online not tested against the live site (needs the user's address).
 
 ## Build / test
 
@@ -154,35 +167,45 @@ then CDP `Runtime.evaluate` (e.g. call `window.api.*`). Git Bash mangles
 `/storage/...` adb paths — set `MSYS_NO_PATHCONV=1`.
 
 Reference apps for Android behavior: `C:\Users\noth2\Desktop\code\mangaview\`
-— `MangaViewAndroid-2112240502.zip` (source of a manatoki viewer: WebView
-captcha → cookies → OkHttp) and `Pupil-v5.3.23.apk` (hitomi client; decompile
-with jadx; same gg.js logic as desktop `hitomi.ts`).
+— `MangaViewAndroid-2112240502.zip` (source of a manacomic viewer: WebView
+captcha → cookies → OkHttp) and `Pupil-v5.3.23.apk` (doujin client; decompile
+with jadx; same gg.js logic as desktop `doujin.ts`).
 
 ## 3. Domain knowledge to carry over (from the desktop app)
 
+**Naming (2026-10-06):** this repo never spells the online sources' site
+names in identifiers / class names / file names / comments: the doujin source
+is `doujin` (`DoujinMeta`, `api/doujin.ts`, `isDoujin`…), the general-manga
+source is `comic` (`ComicBrowse`, `comicBaseUrl`, `ComicWeb.java`…). The
+desktop app is being renamed the same way; no more code is ported from it.
+Data saved by ≤0.5.4 is migrated on load
+(`backend/lib/legacyNames.ts`); the only literal site strings left are the
+functional ones (doujin site Referer in Net.java, its host regex and the
+`meta.<site>.json` sidecar name in `lib/doujin.ts`), assembled from parts.
+
 Two library modes:
 
-- **hitomi** — doujinshi galleries identified by a numeric gallery code.
+- **doujin** — doujinshi galleries identified by a numeric gallery code.
   Online: index/search via nozomi files + gallery JS; image URLs come from
-  hitomi's `gg.js` (desktop `src/main/lib/hitomi.ts`, ported from node-hitomi).
+  the site's `gg.js` (desktop: the doujin-site lib under `src/main/lib/`).
   The domain is DNS-blocked in Korea → the desktop resolves hosts via DoH
   (Cloudflare 1.1.1.1 by IP) and connects to the IP directly. Requests need a
-  hitomi Referer. The site address is user-entered (`hitomiBaseUrl`).
-- **normal (general manga / webtoon)** — a "toki"-family site (React SPA,
-  e.g. sbxh9.com, domain changes often; user-entered `tokiBaseUrl`). Behind a
+  doujin Referer. The site address is user-entered (`doujinBaseUrl`).
+- **normal (general manga / webtoon)** — a "comic"-family site (React SPA,
+  domain changes often; user-entered `comicBaseUrl`). Behind a
   Cloudflare-style check the user clears once in a visible browser window;
-  the desktop scrapes it with a hidden Chromium window (`src/main/lib/toki.ts`).
+  the desktop scrapes it with a hidden Chromium window (its comic-site lib).
   List state is in the URL: `/manhwa|/ing ?g=<genre>&sort=<fresh|hot|views|rating|episodes>&page=N`,
   search `/search?q=&field=title|author&match=contains|exact&page=N`, chapter
   list paged by `?epage=N`, viewer images = `img.viewer-lazy-img[data-src]`.
   Some ISPs reset TLS by SNI for the site domain; its DNS CNAME (a BunnyCDN
-  host like `sbxh9f.b-cdn.net`) serves the same site unblocked. (Desktop 0.4.1
+  host) serves the same site unblocked. (Desktop 0.4.1
   tried switching to it automatically; reverted in 0.4.2 — not used now.)
 - A "backup" gnuboard-style site can be scraped by hand (user navigates, app
-  reads the chapter list) — desktop `TokiBackupModal`.
+  reads the chapter list) — `ComicBackupModal`.
 
 Favorites model (desktop, 2026-10): one heart per gallery — the favorites list
-keyed by hitomi code; local copies mirror it; general-manga series favorites
+keyed by doujin code; local copies mirror it; general-manga series favorites
 are linked to online ones by normalized title. Favorites file = Pupil-compatible
 JSON `{favorites:[ids], favorite_tags:[{area,tag}], ranks:{code:n}}` — the
 natural format for desktop ⇄ mobile sync.
@@ -201,7 +224,7 @@ natural format for desktop ⇄ mobile sync.
   copy to `Halftone-vX.Y.Z.apk` (repo root, git-ignored) → commit → push → tag
   `vX.Y.Z` → GitHub release with the APK attached (no `gh` here: REST API with
   the git credential token). The app's auto-update (`src/backend/update.ts`)
-  reads `releases/latest` and needs a published (non-draft) release with an
+  reads `releases/latest` (skipped when `settings.autoUpdate` is off — 설정 · 관리 · 업데이트) and needs a published (non-draft) release with an
   `.apk` asset whose tag is newer than the installed versionName.
 - Release flow (desktop): bump version → commit → push → tag `vX.Y.Z` → CI
   builds a draft release → the user publishes on GitHub.

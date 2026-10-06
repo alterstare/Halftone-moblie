@@ -10,15 +10,15 @@ import { RootList, FolderRow } from './parts'
 
 // Download folder of the current mode.
 export function DownloadDirRow(): JSX.Element {
-  const { draft, patch, isHitomi, pickDir } = useSettings()
-  return isHitomi ? (
+  const { draft, patch, isDoujin, pickDir } = useSettings()
+  return isDoujin ? (
     <FolderRow
       title="다운로드 폴더"
       desc="받은 작품을 저장할 폴더. 비우면 라이브러리 폴더에 저장합니다."
       path={draft.downloadDir}
       onPick={() => pickDir((d) => patch({ downloadDir: d }))}
       onClear={() => patch({ downloadDir: null })}
-      mode="hitomi"
+      mode="doujin"
     />
   ) : (
     <FolderRow
@@ -36,19 +36,19 @@ export function DownloadDirRow(): JSX.Element {
 // the checked one names new downloads.
 function NamePatterns(): JSX.Element {
   const { draft, patch } = useSettings()
-  const patterns = draft.hitomiNamePatterns ?? []
+  const patterns = draft.doujinNamePatterns ?? []
   const setAt = (i: number, v: string): void => {
     const arr = [...patterns]
     arr[i] = v
-    patch({ hitomiNamePatterns: arr })
+    patch({ doujinNamePatterns: arr })
   }
   const removeAt = (i: number): void => {
     const arr = patterns.filter((_, x) => x !== i)
-    const idx = draft.hitomiDownloadPatternIdx
+    const idx = draft.doujinDownloadPatternIdx
     // Keep the checked pattern pointing at the same entry (or the last one).
     patch({
-      hitomiNamePatterns: arr,
-      hitomiDownloadPatternIdx: idx > i ? idx - 1 : idx >= arr.length ? Math.max(0, arr.length - 1) : idx
+      doujinNamePatterns: arr,
+      doujinDownloadPatternIdx: idx > i ? idx - 1 : idx >= arr.length ? Math.max(0, arr.length - 1) : idx
     })
   }
   return (
@@ -57,7 +57,7 @@ function NamePatterns(): JSX.Element {
         title="폴더명 패턴"
         desc="지원되는 변수는 [-id-, -title-, -artist-, -group-, -language-] 입니다. 체크된 형식으로 다운로드합니다."
       >
-        <button className="mini" onClick={() => patch({ hitomiNamePatterns: [...patterns, ''] })}>
+        <button className="mini" onClick={() => patch({ doujinNamePatterns: [...patterns, ''] })}>
           + 형식 추가
         </button>
       </SettingRow>
@@ -66,9 +66,9 @@ function NamePatterns(): JSX.Element {
           <div className="pat-line">
             <button
               type="button"
-              className={`pat-check ${draft.hitomiDownloadPatternIdx === i ? 'on' : ''}`}
+              className={`pat-check ${draft.doujinDownloadPatternIdx === i ? 'on' : ''}`}
               title="다운로드에 사용할 형식"
-              onClick={() => patch({ hitomiDownloadPatternIdx: i })}
+              onClick={() => patch({ doujinDownloadPatternIdx: i })}
             />
             <input
               type="text"
@@ -110,7 +110,7 @@ function LanguageDirs(): JSX.Element {
                 <button className="mini" onClick={() => window.api.openFolder(dir)}>
                   열기
                 </button>
-                <button className="mini" disabled={rescanning === dir} onClick={() => rescan(dir, 'hitomi')}>
+                <button className="mini" disabled={rescanning === dir} onClick={() => rescan(dir, 'doujin')}>
                   {rescanning === dir ? '갱신 중…' : '갱신'}
                 </button>
                 <button className="mini danger" onClick={() => patch({ langDirs: { ...draft.langDirs, [k]: null } })}>
@@ -129,7 +129,7 @@ function LanguageDirs(): JSX.Element {
 }
 
 export default function FolderSection(): JSX.Element {
-  const { draft, patch, isHitomi, pickDir } = useSettings()
+  const { draft, patch, isDoujin, pickDir } = useSettings()
   const addTo = (key: 'libraryRoots' | 'normalRoots' | 'flattenRoots') => () =>
     pickDir((d) => patch({ [key]: [...new Set([...(draft[key] ?? []), d])] }))
   const removeFrom = (key: 'libraryRoots' | 'normalRoots' | 'flattenRoots') => (r: string) =>
@@ -138,7 +138,7 @@ export default function FolderSection(): JSX.Element {
   return (
     <section data-cat="folder">
       <h2>폴더</h2>
-      {isHitomi ? (
+      {isDoujin ? (
         <>
           <RootList
             title="라이브러리 폴더"
@@ -146,7 +146,7 @@ export default function FolderSection(): JSX.Element {
             roots={draft.libraryRoots}
             onAdd={addTo('libraryRoots')}
             onRemove={removeFrom('libraryRoots')}
-            mode="hitomi"
+            mode="doujin"
           />
           <NamePatterns />
           <RootList
@@ -155,7 +155,7 @@ export default function FolderSection(): JSX.Element {
             roots={draft.flattenRoots ?? []}
             onAdd={addTo('flattenRoots')}
             onRemove={removeFrom('flattenRoots')}
-            mode="hitomi"
+            mode="doujin"
             addLabel="+ 위치 추가"
           />
           <DownloadDirRow />

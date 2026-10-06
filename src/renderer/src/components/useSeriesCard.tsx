@@ -165,7 +165,7 @@ export function useSeriesCard(series: SeriesGroup): {
   ) : null
 
   // Groups (general-manga ones only): every chapter joins the chosen group.
-  const normalGroups = allGroups.filter((g) => (g.mode ?? 'hitomi') === 'normal')
+  const normalGroups = allGroups.filter((g) => (g.mode ?? 'doujin') === 'normal')
   const addToGroup = async (gid: string): Promise<void> => {
     try {
       for (const c of chapters) upsertWork(await window.api.setWorkGroups(c.id, [gid]))

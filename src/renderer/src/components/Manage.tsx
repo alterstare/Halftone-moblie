@@ -71,7 +71,7 @@ function MergeSeries(): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
 
   const candidates = useMemo(() => {
-    const normal = works.filter((w) => (w.library ?? 'hitomi') === 'normal')
+    const normal = works.filter((w) => (w.library ?? 'doujin') === 'normal')
     const buckets = new Map<string, SeriesGroup[]>()
     for (const s of groupSeries(normal, roots)) {
       const key = s.title.toLowerCase().replace(/\s+/g, '').replace(/[^\p{L}\p{N}]/gu, '')
@@ -172,7 +172,7 @@ function Duplicates(): JSX.Element {
   // Only dedupe within the current library mode — doujin and general manga are
   // separate collections and must not appear mixed here.
   const works = useMemo(
-    () => allWorks.filter((w) => (w.library ?? 'hitomi') === libraryMode),
+    () => allWorks.filter((w) => (w.library ?? 'doujin') === libraryMode),
     [allWorks, libraryMode]
   )
   const upsertWork = useStore((s) => s.upsertWork)
@@ -288,7 +288,7 @@ function Translations(): JSX.Element {
   const allWorks = useStore((s) => s.works)
   const libraryMode = useStore((s) => s.libraryMode)
   const works = useMemo(
-    () => allWorks.filter((w) => (w.library ?? 'hitomi') === libraryMode),
+    () => allWorks.filter((w) => (w.library ?? 'doujin') === libraryMode),
     [allWorks, libraryMode]
   )
   const removeWork = useStore((s) => s.removeWork)
@@ -416,7 +416,7 @@ function Collections(): JSX.Element {
     })
 
   const works = useMemo(
-    () => allWorks.filter((w) => (w.library ?? 'hitomi') === libraryMode),
+    () => allWorks.filter((w) => (w.library ?? 'doujin') === libraryMode),
     [allWorks, libraryMode]
   )
   const roots = settings.flattenRoots ?? []

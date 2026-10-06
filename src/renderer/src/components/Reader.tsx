@@ -11,9 +11,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots } from '../store'
 import { getImages, getOnlineImages } from '../images'
-import { getTokiChapters } from '../toki'
+import { getComicChapters } from '../comic'
 import { analyzeSeries, seriesOf } from '../util'
-import type { TokiChapter } from '../../../shared/ipc'
+import type { ComicChapter } from '../../../shared/ipc'
 import type { FitMode } from '../../../shared/types'
 import { filterExcluded, getExcluded, hasExclusions } from '../exclude'
 import PageImage from './PageImage'
@@ -22,7 +22,7 @@ import type { MenuItem } from './ContextMenu'
 import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, fitStyle, fitHeight } from './reader/fit'
 import { prefetchOrdered } from './reader/prefetch'
 import PageSlot from './reader/PageSlot'
-import { useTokiStatus } from './useTokiStatus'
+import { useComicStatus } from './useComicStatus'
 import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
 import {
   DownloadIcon,
@@ -48,7 +48,7 @@ export default function Reader({
   tabId: string
   side?: 'left' | 'right'
 }): JSX.Element {
-  const tokiStatus = useTokiStatus()
+  const comicStatus = useComicStatus()
   const tab = useStore((s) => s.tabs.find((t) => t.id === tabId))
   // Which work/online this pane shows depends on the side of the (split) tab.
   const paneWorkId = side === 'right' ? tab?.rightWorkId : tab?.workId
@@ -79,11 +79,11 @@ export default function Reader({
   const markRead = useStore((s) => s.markRead)
   // Which library this pane belongs to (manga-site online = general-manga). Used to
   // restore + remember the reader mode separately for doujin vs general-manga.
-  const libMode: 'hitomi' | 'normal' = paneOnline
-    ? paneOnline.kind === 'toki'
+  const libMode: 'doujin' | 'normal' = paneOnline
+    ? paneOnline.kind === 'comic'
       ? 'normal'
-      : 'hitomi'
-    : ((work?.library ?? 'hitomi') as 'hitomi' | 'normal')
+      : 'doujin'
+    : ((work?.library ?? 'doujin') as 'doujin' | 'normal')
   // Tab's own mode wins (set while reading); else this library's last-used mode;
   // else the global default.
   const mode =
@@ -129,6 +129,12 @@ export default function Reader({
   const heightsRef = useRef<number[]>([])
   const bumpRaf = useRef(0)
   const pageIdxRef = useRef(0)
+  // Scroll mode: the page slider follows the scroll continuously (fractional
+  // page), written straight to the DOM — no re-render per frame.
+  const sliderRef = useRef<HTMLInputElement>(null)
+  const progressRef = useRef<HTMLDivElement>(null)
+  const syncSliderRef = useRef<() => void>(() => {})
+  const syncSliderToScroll = (): void => syncSliderRef.current()
   const goToPageRef = useRef<(i: number) => void>(() => {})
   const wheelAccum = useRef(0) // paged mode: accumulated wheel delta → page steps
   const wheelRaf = useRef(0)
@@ -169,7 +175,7 @@ export default function Reader({
   const key = online ? `online:${online.code}` : paneWorkId
 
   // General-manga chapter navigation: prev/next within the same series.
-  const isNormalWork = !!work && (work.library ?? 'hitomi') === 'normal'
+  const isNormalWork = !!work && (work.library ?? 'doujin') === 'normal'
   const chapters = useMemo(() => {
     if (!isNormalWork || !work) return []
     const roots = seriesRootList
@@ -184,30 +190,30 @@ export default function Reader({
 
   // Online (manga-site) chapter navigation: same series' sibling chapters, loaded in
   // place (same tab) via the shared chapter cache. Left pane only.
-  const [tokiChs, setTokiChs] = useState<TokiChapter[]>([])
+  const [comicChs, setComicChs] = useState<ComicChapter[]>([])
   useEffect(() => {
-    const su = online?.kind === 'toki' ? online.seriesUrl : undefined
+    const su = online?.kind === 'comic' ? online.seriesUrl : undefined
     if (!su) {
-      setTokiChs([])
+      setComicChs([])
       return
     }
     let alive = true
-    getTokiChapters(su)
-      .then((c) => alive && setTokiChs(c))
+    getComicChapters(su)
+      .then((c) => alive && setComicChs(c))
       .catch(() => {})
     return () => {
       alive = false
     }
   }, [online?.kind, online?.seriesUrl])
-  const tokiIdx = online ? tokiChs.findIndex((c) => c.url === online.code) : -1
-  const goTokiChapter = (delta: number): boolean => {
-    const n = tokiChs[tokiIdx + delta]
+  const comicIdx = online ? comicChs.findIndex((c) => c.url === online.code) : -1
+  const goComicChapter = (delta: number): boolean => {
+    const n = comicChs[comicIdx + delta]
     if (n && online) {
       replaceTabOnline(tabId, {
         code: n.url,
         title: online.title,
         artist: online.artist,
-        kind: 'toki',
+        kind: 'comic',
         seriesUrl: online.seriesUrl,
         chapterLabel: n.title,
         thumb: online.thumb
@@ -216,8 +222,8 @@ export default function Reader({
     }
     return false
   }
-  const goTokiChapterRef = useRef(goTokiChapter)
-  goTokiChapterRef.current = goTokiChapter
+  const goComicChapterRef = useRef(goComicChapter)
+  goComicChapterRef.current = goComicChapter
 
   // Zoom-scaled pane box (px), the basis for every fit-mode size calculation.
   const sw = Math.max(1, Math.round(pane.w * zoom))
@@ -463,7 +469,10 @@ export default function Reader({
     }
     const onScroll = (): void => {
       cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(computeCurrentFromScroll) // cheap; re-renders only on page change
+      raf = requestAnimationFrame(() => {
+        computeCurrentFromScroll() // cheap; re-renders only on page change
+        syncSliderToScroll()
+      })
       window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(save, 250)
     }
@@ -482,11 +491,11 @@ export default function Reader({
       // previous work. Online (manga-site) uses its sibling chapters; local works use the
       // reading queue (the filtered left list). Only when a neighbour exists.
       if (idx > images.length - 1) {
-        if (online?.kind === 'toki' ? goTokiChapterRef.current(1) : continueReading(tabId, side, 1))
+        if (online?.kind === 'comic' ? goComicChapterRef.current(1) : continueReading(tabId, side, 1))
           return
       }
       if (idx < 0) {
-        if (online?.kind === 'toki' ? goTokiChapterRef.current(-1) : continueReading(tabId, side, -1))
+        if (online?.kind === 'comic' ? goComicChapterRef.current(-1) : continueReading(tabId, side, -1))
           return
       }
       const clamped = Math.max(0, Math.min(images.length - 1, idx))
@@ -542,7 +551,7 @@ export default function Reader({
   useEffect(() => {
     const el = contentRef.current
     if (!el) return
-    const update = (): void => setPane({ w: el.clientWidth - 16, h: el.clientHeight - 8 })
+    const update = (): void => setPane({ w: el.clientWidth - 8, h: el.clientHeight - 8 }) // 4px each side
     update()
     const ro = new ResizeObserver(update)
     ro.observe(el)
@@ -593,7 +602,7 @@ export default function Reader({
               const dir: 1 | -1 = edgeAccum.current > 0 ? 1 : -1
               edgeAccum.current = 0
               // Online manga-site continues by sibling chapter; local by reading queue.
-              goTokiChapterRef.current(dir) || useStore.getState().continueReading(tabId, side, dir)
+              goComicChapterRef.current(dir) || useStore.getState().continueReading(tabId, side, dir)
             }
           } else {
             edgeAccum.current = 0
@@ -809,6 +818,31 @@ export default function Reader({
     return stops.length ? `linear-gradient(to right, ${stops.join(', ')})` : 'transparent'
   })()
 
+  syncSliderRef.current = () => {
+    const el = contentRef.current
+    const n = images.length
+    if (!el || mode !== 'scroll' || n < 2) return
+    let y = el.scrollTop / vz.current.s
+    let pos = 0
+    for (let i = 0; i < n; i++) {
+      const h = heightOf(i)
+      if (y < h || i === n - 1) {
+        pos = i + Math.max(0, Math.min(1, y / (h || 1)))
+        break
+      }
+      y -= h
+    }
+    pos = Math.min(n - 1, pos)
+    if (sliderRef.current) sliderRef.current.value = String(pos)
+    if (progressRef.current) progressRef.current.style.width = `calc(${pos / (n - 1)} * (100% - 22px) + 11px)`
+  }
+
+  // A page change re-renders the slider with the whole page number — put the
+  // fractional scroll position back before paint.
+  useLayoutEffect(() => {
+    if (mode === 'scroll') syncSliderRef.current()
+  })
+
   if (!tab) return <div className="reader empty">탭이 없습니다.</div>
 
   const title = online ? online.title : work?.title ?? '(삭제됨)'
@@ -817,7 +851,7 @@ export default function Reader({
     if (!online) return
     setDownloading(true)
     try {
-      const works = await startDownload({ kind: 'hitomi', input: online.code, title: online.title })
+      const works = await startDownload({ kind: 'doujin', input: online.code, title: online.title })
       if (!works) return // stopped
       setDlDone(true)
       setTimeout(() => setDlDone(false), 2500) // briefly flip the button to 완료 ✓
@@ -829,12 +863,12 @@ export default function Reader({
   }
 
   // Download the whole manga-site series into the local general-manga library.
-  const downloadToki = async (): Promise<void> => {
+  const downloadComic = async (): Promise<void> => {
     if (!online?.seriesUrl) return
     setDownloading(true)
     try {
       const created = await startDownload({
-        kind: 'toki',
+        kind: 'comic',
         seriesUrl: online.seriesUrl,
         title: online.title
       })
@@ -858,8 +892,17 @@ export default function Reader({
   // (15% of the width) toggle the bars; elsewhere it flips (paged) or, with
   // 하단 넘김, the lower half scrolls one screen (scroll).
   type Tap = { x: number; y: number; rect: DOMRect; el: HTMLElement }
+  // A single tap acts after 130ms unless a second finger-down arrives in that
+  // window; then it waits for that touch's tap (→ double tap) a little longer.
   const tapTimer = useRef(0)
   const lastTap = useRef<{ t: number; x: number; y: number } | null>(null)
+  const pendingSingle = useRef<(() => void) | null>(null)
+  const firePending = (): void => {
+    const f = pendingSingle.current
+    pendingSingle.current = null
+    lastTap.current = null
+    f?.()
+  }
   const handleTap = (e: React.MouseEvent, single: (t: Tap) => void): void => {
     if (Date.now() - pinchEndAt.current < 400) return // end of a pinch, not a tap
     if (Date.now() - longPressAt.current < 700) return // end of a long-press
@@ -868,16 +911,15 @@ export default function Reader({
     const now = Date.now()
     const prev = lastTap.current
     window.clearTimeout(tapTimer.current)
-    if (prev && now - prev.t < 300 && Math.hypot(prev.x - tap.x, prev.y - tap.y) < 40) {
+    if (prev && now - prev.t < 450 && Math.hypot(prev.x - tap.x, prev.y - tap.y) < 40) {
       lastTap.current = null
+      pendingSingle.current = null
       toggleZoomAt(tap)
       return
     }
     lastTap.current = { t: now, x: tap.x, y: tap.y }
-    tapTimer.current = window.setTimeout(() => {
-      lastTap.current = null
-      single(tap)
-    }, 260)
+    pendingSingle.current = () => single(tap)
+    tapTimer.current = window.setTimeout(firePending, 130)
   }
   const barsZone = (t: Tap): boolean => {
     const y = (t.y - t.rect.top) / t.rect.height
@@ -939,6 +981,11 @@ export default function Reader({
   }
   // A drag on the pages (scrolling / panning) hides the bars.
   const onPagesTouchStart = (e: React.TouchEvent): void => {
+    // A finger-down while a single tap is pending: maybe a double tap.
+    if (pendingSingle.current) {
+      window.clearTimeout(tapTimer.current)
+      tapTimer.current = window.setTimeout(firePending, 320)
+    }
     const t = e.touches[0]
     touchStart.current = t ? { x: t.clientX, y: t.clientY } : null
     swipe.current = t && e.touches.length === 1 ? { x: t.clientX, y: t.clientY, t: Date.now() } : null
@@ -993,7 +1040,7 @@ export default function Reader({
     onContextMenu: onPageContext
   }
   // Long-press the title: copy the title / the work number.
-  const workCode = online ? (online.kind === 'toki' ? null : online.code) : (work?.code ?? null)
+  const workCode = online ? (online.kind === 'comic' ? null : online.code) : (work?.code ?? null)
   const onTitleContext = (e: React.MouseEvent): void => {
     e.preventDefault()
     // (Android 13+ shows its own "copied" confirmation.)
@@ -1037,7 +1084,7 @@ export default function Reader({
         {/* Icon buttons, flat group (default design). Download shows its state
             in the icon: arrow → (busy, dimmed) → check when done. */}
         <span className="flat-group reader-head-btns">
-          {online && online.kind !== 'toki' ? (
+          {online && online.kind !== 'comic' ? (
             <button
               className={`mini icon ${dlDone ? 'dl-ok' : ''} ${downloading ? 'busy' : ''}`}
               onClick={download}
@@ -1046,10 +1093,10 @@ export default function Reader({
             >
               {dlDone ? <CheckMarkIcon /> : <DownloadIcon />}
             </button>
-          ) : online && online.kind === 'toki' && online.seriesUrl ? (
+          ) : online && online.kind === 'comic' && online.seriesUrl ? (
             <button
               className={`mini icon ${dlDone ? 'dl-ok' : ''} ${downloading ? 'busy' : ''}`}
-              onClick={downloadToki}
+              onClick={downloadComic}
               disabled={downloading || dlDone}
               title={downloading ? '다운로드 중…' : dlDone ? '다운로드 완료' : '전체 다운로드'}
             >
@@ -1070,7 +1117,7 @@ export default function Reader({
         </span>
       </div>
 
-      {loadingImgs && <div className="reader-loading">{(online?.kind === 'toki' && tokiStatus) || '이미지 로딩 중…'}</div>}
+      {loadingImgs && <div className="reader-loading">{(online?.kind === 'comic' && comicStatus) || '이미지 로딩 중…'}</div>}
 
       {mode === 'scroll' ? (
         (() => {
@@ -1208,22 +1255,22 @@ export default function Reader({
               </button>
             </div>
           )}
-          {online?.kind === 'toki' && side === 'left' && tokiChs.length > 1 && (
+          {online?.kind === 'comic' && side === 'left' && comicChs.length > 1 && (
             <div className="chapter-nav">
               <button
                 className="mini"
-                disabled={tokiIdx <= 0}
-                onClick={() => goTokiChapter(-1)}
+                disabled={comicIdx <= 0}
+                onClick={() => goComicChapter(-1)}
               >
                 ‹ 이전화
               </button>
               <span className="chapter-pos">
-                {tokiIdx + 1}/{tokiChs.length}
+                {comicIdx + 1}/{comicChs.length}
               </span>
               <button
                 className="mini"
-                disabled={tokiIdx < 0 || tokiIdx >= tokiChs.length - 1}
-                onClick={() => goTokiChapter(1)}
+                disabled={comicIdx < 0 || comicIdx >= comicChs.length - 1}
+                onClick={() => goComicChapter(1)}
               >
                 다음화 ›
               </button>
@@ -1235,17 +1282,20 @@ export default function Reader({
             <div className="page-track" aria-hidden>
               {online && <div className="page-loaded" style={{ background: loadedTrack }} />}
               <div
+                ref={progressRef}
                 className="page-progress"
                 style={{ width: `calc(${images.length > 1 ? pageIdx / (images.length - 1) : 0} * (100% - 22px) + 11px)` }}
               />
             </div>
             <input
+              ref={sliderRef}
               type="range"
               className="page-slider"
               min={0}
               max={images.length - 1}
+              step="any"
               value={pageIdx}
-              onChange={(e) => goToPage(Number(e.target.value))}
+              onChange={(e) => goToPage(Math.round(Number(e.target.value)))}
             />
           </div>
           <span className="page-label">

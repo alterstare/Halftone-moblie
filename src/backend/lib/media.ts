@@ -3,8 +3,8 @@
 // Urls are same-origin paths served by the native interceptor
 // (MMWebViewClient.java), segment = base64url of the target:
 //   /_mm/img/<abs path>    local file
-//   /_mm/web/<https url>   hitomi image (DoH + Referer, disk-cached)
-//   /_mm/toki/<https url>  general-manga online image (toki WebView cookies)
+//   /_mm/web/<https url>   doujin image (DoH + Referer, disk-cached)
+//   /_mm/comic/<https url>  general-manga online image (comic WebView cookies)
 import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { b64url } from '../node/bytes'
@@ -12,11 +12,11 @@ import { paths } from '../context'
 
 export const encodeImg = (path: string): string => '/_mm/img/' + b64url(path)
 export const encodeWeb = (url: string): string => '/_mm/web/' + b64url(url)
-export const encodeToki = (url: string): string => '/_mm/toki/' + b64url(url)
+export const encodeComic = (url: string): string => '/_mm/comic/' + b64url(url)
 
 // Reverse of the encoders (for a url the UI hands back, e.g. a picked image).
 export function decodeMM(url: string): { kind: string; target: string } | null {
-  const m = url.match(/\/_mm\/(img|web|toki)\/([A-Za-z0-9_-]+)/)
+  const m = url.match(/\/_mm\/(img|web|comic)\/([A-Za-z0-9_-]+)/)
   if (!m) return null
   const b64 = m[2].replace(/-/g, '+').replace(/_/g, '/')
   const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))

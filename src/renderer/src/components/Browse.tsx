@@ -17,13 +17,13 @@ import Caret from './Caret'
 import Dropdown from './Dropdown'
 import { CheckIcon, PauseIcon, PlayIcon, SyncIcon, GridIcon, MenuIcon, FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon } from './icons'
 import { OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
-import { hitomiFavCodes, hitomiFavGalleries } from '../favorites'
+import { doujinFavCodes, doujinFavGalleries } from '../favorites'
 import type { OnlineGallery } from '../store'
 import MoreClamp from './MoreClamp'
 import { ArtistLinks } from './ArtistLinks'
 import TileBar, { CompactBar } from './TileBar'
 import CardMore from './CardMore'
-import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab } from './libraryTools'
+import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav } from './libraryTools'
 
 const LANGS = [
   ['all', '전체'],
@@ -125,7 +125,7 @@ export default function Browse(): JSX.Element {
     setError(null)
     setItems([]) // drop the previous page so it doesn't linger under the loader
     window.api
-      .hitomiList(activeSource, fetchPage)
+      .doujinList(activeSource, fetchPage)
       .then((r) => {
         if (!alive) return
         setItems(r.items)
@@ -221,12 +221,12 @@ export default function Browse(): JSX.Element {
   // "내 즐겨찾기" view: render the persisted online favorites instead of doujin
   // results, sorted by rank or recency.
   // Favorites are stored without tags → fetch their gallery summaries (cached).
-  const favCodes = useMemo(() => hitomiFavCodes(onlineFavs), [onlineFavs])
+  const favCodes = useMemo(() => doujinFavCodes(onlineFavs), [onlineFavs])
   const sumVer = useFavSummaries(favMode ? favCodes : [])
   // Unified favorites (online + locally favorited coded works), sorted by
   // favorite time or rating. sumVer re-runs it as summaries (tags) arrive.
   const favGalleries = useMemo(
-    () => hitomiFavGalleries(onlineFavs, works, favSort),
+    () => doujinFavGalleries(onlineFavs, works, favSort),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [onlineFavs, favSort, works, sumVer]
   )
@@ -245,7 +245,7 @@ export default function Browse(): JSX.Element {
     let alive = true
     setListLoading(true)
     window.api
-      .hitomiSummaries(codes)
+      .doujinSummaries(codes)
       .then((r) => alive && setListGallery(r))
       .finally(() => alive && setListLoading(false))
     return () => {
@@ -282,12 +282,12 @@ export default function Browse(): JSX.Element {
   const shown = favMode ? ordered.slice(favPage * pageSize, favPage * pageSize + pageSize) : ordered
 
   // Direct download from a card (feature 10). Progress shows in the shared
-  // download manager (fed by the hitomiProgress channel).
+  // download manager (fed by the doujinProgress channel).
   const dlOf = (code: string): (typeof downloads)[number] | undefined =>
     downloads.find((d) => d.code === code)
   const download = async (code: string, title?: string): Promise<void> => {
     try {
-      await startDownload({ kind: 'hitomi', input: code, title })
+      await startDownload({ kind: 'doujin', input: code, title })
     } catch (e: any) {
       alert(String(e?.message ?? e))
     }
@@ -306,6 +306,8 @@ export default function Browse(): JSX.Element {
       setTimeout(res, 15000) // never spin forever
     })
   const ptrSpinner = usePullRefresh(rootRef, refresh, browseView)
+  // Swipe right → back to 라이브러리.
+  useSwipeNav(rootRef, null, () => useStore.getState().goHome(), browseView && !sel.selecting)
   const downloadSelected = (): void => {
     const picked = shown.filter((g) => sel.selected.has(g.code))
     sel.stop()
@@ -346,7 +348,7 @@ export default function Browse(): JSX.Element {
             onChange={setQuery}
             onEnter={() => runSearch()}
             tokens={libTokens}
-            fetchTokens={(q) => window.api.hitomiSuggest(q)}
+            fetchTokens={(q) => window.api.doujinSuggest(q)}
             history={searchHistory}
             onPickHistory={(q) => {
               setQuery(q)
@@ -474,16 +476,16 @@ export default function Browse(): JSX.Element {
           const dlPct = d?.total ? Math.round((d.done / d.total) * 100) : 0
           const have = libCodes.has(g.code) || phase === 'done'
           const thumb = (
-            <OnlineThumb getImgs={() => getOnlineImages(g.code)} thumbUrl={g.thumbUrl} localWorkId={codeWorkId.get(g.code)}>
-              {(dlActive || dlPaused || have) && (
-                <div className="gcard-dlbar">
-                  <div
-                    className={`gcard-dlbar-fill ${have ? 'done' : ''} ${dlPaused ? 'paused' : ''}`}
-                    style={{ width: have ? '100%' : `${dlPct}%` }}
-                  />
-                </div>
-              )}
-            </OnlineThumb>
+            <OnlineThumb getImgs={() => getOnlineImages(g.code)} thumbUrl={g.thumbUrl} localWorkId={codeWorkId.get(g.code)} />
+          )
+          // Download progress: a thin bar along the card's top edge.
+          const dlBar = (dlActive || dlPaused || have) && (
+            <div className="gcard-dlbar">
+              <div
+                className={`gcard-dlbar-fill ${have ? 'done' : ''} ${dlPaused ? 'paused' : ''}`}
+                style={{ width: have ? '100%' : `${dlPct}%` }}
+              />
+            </div>
           )
           const stars = (size?: number): JSX.Element => (
             <Stars rank={f?.rank ?? 0} onChange={(r) => setOnlineRank(g.code, r, favMeta(g))} size={size} />
@@ -564,12 +566,24 @@ export default function Browse(): JSX.Element {
             }}
           >
             {sel.selecting && <SelBox on={sel.selected.has(g.code)} />}
+            {dlBar}
             {browseLayout === 'grid' ? (
               // 격자형: cover, title, [code] · artist, 즐겨찾기 | 다운로드.
               <>
                 <div className="ctile-thumb">{thumb}</div>
                 <div className="ctile-title">{g.title}</div>
-                <div className="ctile-meta">{[`[${g.code}]`, g.artists.join(', ')].filter(Boolean).join(' · ')}</div>
+                {g.artists.length > 0 && (
+                  <div className="ctile-artist">
+                    <ArtistLinks
+                      artist={g.artists.join(', ')}
+                      onPick={(a) => runSearch(a.includes(' ') ? `artist:"${a}"` : `artist:${a}`)}
+                      onMenu={(a, e) => openTagMenu(e, tagToken(`artist:${a}`), a)}
+                    />
+                  </div>
+                )}
+                <div className="ctile-meta">
+                  <CopyCode code={g.code} /> · {g.pageCount}p
+                </div>
                 <CompactBar fav={heart} action={dlBtn} />
               </>
             ) : (

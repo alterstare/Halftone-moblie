@@ -37,8 +37,8 @@ export default function StyleSection(): JSX.Element {
             onChange={(v) => patch({ startScreen: v })}
             options={[
               ['last', '마지막으로 보던 탭'],
-              ['hitomi-home', '동인지 라이브러리'],
-              ['hitomi-online', '동인지 온라인'],
+              ['doujin-home', '동인지 라이브러리'],
+              ['doujin-online', '동인지 온라인'],
               ['normal-home', '일반 만화 라이브러리'],
               ['normal-online', '일반 만화 온라인']
             ]}
@@ -68,6 +68,9 @@ export default function StyleSection(): JSX.Element {
         <h2>뷰어 스타일</h2>
         <SettingRow title="이어보기" desc="일반 만화 시리즈를 열면 1화 대신 마지막으로 본 화를 엽니다. 화 목록에서는 마지막으로 본 화가 보라색 테두리로 표시됩니다.">
           <Toggle checked={draft.resumeReading !== false} onChange={(v) => patch({ resumeReading: v })} />
+        </SettingRow>
+        <SettingRow title="감상창 사이드바" desc="끄면 감상창 왼쪽의 작품 목록(사이드바)과 여는 버튼이 사라집니다.">
+          <Toggle checked={draft.readerSidebar !== false} onChange={(v) => patch({ readerSidebar: v })} />
         </SettingRow>
         <SettingRow title="스크롤 넘김에서 페이지 간격" desc="스크롤 감상 시 페이지 사이에 간격을 둡니다.">
           <Toggle checked={draft.readerPageGap} onChange={(v) => patch({ readerPageGap: v })} />

@@ -295,7 +295,7 @@ export function chapterLabel(w: Work): string {
   return n != null ? `${n}화` : baseName(w.path) || w.title
 }
 
-const isNormal = (w: Work): boolean => (w.library ?? 'hitomi') === 'normal'
+const isNormal = (w: Work): boolean => (w.library ?? 'doujin') === 'normal'
 
 // Strip a leading index run ("0008 8 - - …" → "…") so the series name is exposed.
 const cleanLeading = (name: string): string => name.replace(/^[\s\d.\-_]+/, '').trim()
@@ -520,10 +520,10 @@ export function groupSeries(works: Work[], roots: string[]): SeriesGroup[] {
 // card, so generating a thumb per chapter is wasteful (thousands vs a handful).
 export function thumbTargetIds(
   works: Work[],
-  mode: 'hitomi' | 'normal',
+  mode: 'doujin' | 'normal',
   normalRoots: string[]
 ): string[] {
-  const inMode = works.filter((w) => (w.library ?? 'hitomi') === mode)
+  const inMode = works.filter((w) => (w.library ?? 'doujin') === mode)
   if (mode !== 'normal') return inMode.map((w) => w.id)
   return groupSeries(inMode, normalRoots)
     .map((s) => s.chapters[0]?.id)
@@ -578,7 +578,7 @@ export function titleKey(s: string): string {
 
 // Online favorites live in one map keyed by "code": a numeric gallery id for
 // doujin, the series URL for manga-site (general manga). This tells them apart.
-export function isTokiCode(code: string): boolean {
+export function isComicCode(code: string): boolean {
   return /^https?:/.test(code)
 }
 
@@ -587,7 +587,7 @@ export function isTokiCode(code: string): boolean {
 // shows a heart set from the online side.
 export function isOnlineTitleFav(onlineFavs: Record<string, OnlineFav>, title: string): boolean {
   const k = titleKey(title)
-  return !!k && Object.values(onlineFavs).some((f) => f.favorite && isTokiCode(f.code) && titleKey(f.title) === k)
+  return !!k && Object.values(onlineFavs).some((f) => f.favorite && isComicCode(f.code) && titleKey(f.title) === k)
 }
 
 // Order general-manga series for the home list. A series takes its chapters'

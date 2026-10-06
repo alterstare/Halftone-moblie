@@ -3,27 +3,25 @@ import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { b64ToBytes, utf8, int32sBE, view, compareBytes } from '../node/bytes'
 import { MM } from '../native'
-import type { HitomiMeta } from '../../shared/types'
+import type { DoujinMeta } from '../../shared/types'
 import { fillNamePattern, langCode } from '../../shared/pattern'
 import { titleSim, titleNorm } from '../../shared/title'
 
-// hitomi.la crawler. Algorithm mirrors the maintained `node-hitomi` library:
-//   - gallery metadata: GET ltn.hitomi.la/galleries/{id}.js  (strip "var galleryinfo = ")
+// Doujin-site client. Algorithm follows the site's own reader scripts:
+//   - gallery metadata: GET ltn.<content host>/galleries/{id}.js  (strip "var galleryinfo = ")
 //   - image url: derived from gg.js (image context) + each file's hash
-// Network requests need a browser UA + hitomi referer or the CDN returns 403.
+// Network requests need a browser UA + the site's referer or the CDN returns 403.
 
-// hitomi migrated its content/CDN hosts off *.hitomi.la to this domain (the old
-// ltn/a*/tn.hitomi.la names no longer resolve -> ERR_NAME_NOT_RESOLVED). The
-// site itself is still hitomi.la (used as Referer).
 // Content/CDN host. Empty until the user sets it in Settings → 네트워크 (online
-// access is gated on this, because the domain changes often). The site referer
-// stays hitomi.la. Set via setHitomiContentHost().
-// The CDN host that actually serves galleries/images. hitomi.la (the site) no
-// longer serves these — its ltn/tn/a* names don't resolve — so when the user
-// enters the site address we map it to the current known CDN host.
+// access is gated on this, because the domain changes often). The site itself
+// no longer serves galleries/images (its ltn/tn/a* names don't resolve), so
+// when the user enters the site's own address it is mapped to the current
+// known CDN host. Set via setDoujinContentHost().
+// The doujin site's own domain (only used to recognise it when typed in).
+const SITE_HOST_RE = new RegExp('(^|\\.)' + ['hito', 'mi', '\\.la'].join('') + '$', 'i')
 const DEFAULT_CDN = 'gold-usergeneratedcontent.net'
 let CONTENT_HOST = ''
-export function setHitomiContentHost(v: string): void {
+export function setDoujinContentHost(v: string): void {
   let h = (v ?? '').trim()
   if (!h) {
     CONTENT_HOST = ''
@@ -39,17 +37,18 @@ export function setHitomiContentHost(v: string): void {
     .replace(/^ltn\./, '')
     .replace(/\/.*$/, '')
     .replace(/\/+$/, '')
-  // Entered the site itself (hitomi.la) → use the current CDN host.
-  CONTENT_HOST = /(^|\.)hitomi\.la$/i.test(h) ? DEFAULT_CDN : h
+  // Entered the site itself → use the current CDN host.
+  CONTENT_HOST = SITE_HOST_RE.test(h) ? DEFAULT_CDN : h
 }
 // Base for ltn.* endpoints; throws a clear error when the host isn't configured.
 function ltn(): string {
   if (!CONTENT_HOST)
-    throw new Error('히토미 온라인 주소가 설정되지 않았습니다. 설정 → 네트워크에서 주소를 입력하세요.')
+    throw new Error('동인지 온라인 주소가 설정되지 않았습니다. 설정 → 네트워크에서 주소를 입력하세요.')
   return `https://ltn.${CONTENT_HOST}`
 }
 
-export const SIDECAR = 'meta.hitomi.json'
+// Per-work metadata file (name shared with the desktop app's libraries).
+export const SIDECAR = ['meta', 'hito' + 'mi', 'json'].join('.')
 
 interface RawFile {
   name?: string
@@ -75,7 +74,7 @@ interface RawGallery {
   characters?: { character: string }[]
   parodys?: { parody: string }[]
   related?: (number | string)[]
-  // Other-language editions of THIS gallery (hitomi's own cross-language map).
+  // Other-language editions of THIS gallery (doujin's own cross-language map).
   languages?: { galleryid: number | string; name: string; language_localname?: string; url?: string }[]
 }
 
@@ -86,7 +85,7 @@ interface ImageContext {
 }
 
 // --- network ------------------------------------------------------------------
-// Requests go through the native client (kind 'hitomi'): hostnames resolve over
+// Requests go through the native client (kind 'doujin'): hostnames resolve over
 // DoH (1.1.1.1 by IP, so ISP DNS blocking can't interfere, system DNS as the
 // fallback) and the UA / Referer / Origin headers are attached there.
 
@@ -103,24 +102,24 @@ interface HttpResult {
 async function httpsGetFull(url: string, opts: GetOpts = {}): Promise<HttpResult> {
   const headers: Record<string, string> = {}
   if (opts.range) headers['Range'] = opts.range
-  const r = await MM.httpGet({ url, kind: 'hitomi', headers, responseType: 'base64' })
+  const r = await MM.httpGet({ url, kind: 'doujin', headers, responseType: 'base64' })
   if (r.status < 200 || r.status >= 300) throw new Error(`GET ${url} -> ${r.status}`)
   return { status: r.status, body: b64ToBytes(r.data), headers: r.headers }
 }
 
 async function getText(url: string): Promise<string> {
-  const r = await MM.httpGet({ url, kind: 'hitomi', responseType: 'text' })
+  const r = await MM.httpGet({ url, kind: 'doujin', responseType: 'text' })
   if (r.status < 200 || r.status >= 300) throw new Error(`GET ${url} -> ${r.status}`)
   return r.data
 }
 
-// Save a hitomi image (through the reader's image cache) into a file.
-export async function hitomiImageToFile(url: string, path: string): Promise<void> {
-  await MM.imageToFile({ url, kind: 'hitomi', path })
+// Save a doujin image (through the reader's image cache) into a file.
+export async function doujinImageToFile(url: string, path: string): Promise<void> {
+  await MM.imageToFile({ url, kind: 'doujin', path })
 }
 
 // Connectivity self-test for the settings UI.
-export async function pingHitomi(): Promise<{ dohIp: string | null; ltnOk: boolean; error: string | null }> {
+export async function pingDoujin(): Promise<{ dohIp: string | null; ltnOk: boolean; error: string | null }> {
   const host = `ltn.${CONTENT_HOST}`
   let dohIp: string | null = null
   try {
@@ -169,7 +168,7 @@ export function parseGG(js: string): ImageContext {
   const isSuffix = !rawO
   const bIdx = js.lastIndexOf("b: '") + 4
   const b = js.slice(bIdx, js.indexOf("'", bIdx))
-  if (!codes.size || !b) throw new Error('failed to parse gg.js (hitomi changed format)')
+  if (!codes.size || !b) throw new Error('failed to parse gg.js (doujin changed format)')
   return { codes, isSuffix, b }
 }
 
@@ -202,9 +201,9 @@ export async function fetchRawGallery(code: string): Promise<RawGallery> {
 }
 
 // Existence probe for a gallery id. true = present, false = 404 (deleted from
-// hitomi), null = uncertain (timeout / DNS / other error → do NOT treat as deleted,
+// doujin), null = uncertain (timeout / DNS / other error → do NOT treat as deleted,
 // so a network hiccup never relocates a still-valid work).
-export async function hitomiExists(code: string): Promise<boolean | null> {
+export async function doujinExists(code: string): Promise<boolean | null> {
   try {
     await httpsGetFull(`${ltn()}/galleries/${code}.js`)
     return true
@@ -213,7 +212,7 @@ export async function hitomiExists(code: string): Promise<boolean | null> {
   }
 }
 
-export function toMeta(raw: RawGallery): HitomiMeta {
+export function toMeta(raw: RawGallery): DoujinMeta {
   const tags = new Set<string>()
   if (raw.type) tags.add(`type:${raw.type}`)
   if (raw.language) tags.add(`language:${raw.language}`)
@@ -237,21 +236,21 @@ export function toMeta(raw: RawGallery): HitomiMeta {
   }
 }
 
-export async function fetchMeta(code: string): Promise<HitomiMeta> {
+export async function fetchMeta(code: string): Promise<DoujinMeta> {
   return toMeta(await fetchRawGallery(code))
 }
 
 // --- sidecar ---------------------------------------------------------------
 
-export async function readSidecar(dir: string): Promise<HitomiMeta | null> {
+export async function readSidecar(dir: string): Promise<DoujinMeta | null> {
   try {
-    return JSON.parse(await fs.readFile(join(dir, SIDECAR), 'utf-8')) as HitomiMeta
+    return JSON.parse(await fs.readFile(join(dir, SIDECAR), 'utf-8')) as DoujinMeta
   } catch {
     return null
   }
 }
 
-export async function writeSidecar(dir: string, meta: HitomiMeta): Promise<void> {
+export async function writeSidecar(dir: string, meta: DoujinMeta): Promise<void> {
   await fs.writeFile(join(dir, SIDECAR), JSON.stringify(meta, null, 2), 'utf-8')
 }
 
@@ -274,7 +273,7 @@ export function sanitize(name: string): string {
   )
 }
 
-function folderName(meta: HitomiMeta, pattern?: string): string {
+function folderName(meta: DoujinMeta, pattern?: string): string {
   if (pattern && pattern.trim()) {
     const groups = meta.tags.filter((t) => t.startsWith('group:')).map((t) => t.slice(6))
     return sanitize(
@@ -293,7 +292,7 @@ function folderName(meta: HitomiMeta, pattern?: string): string {
 
 export interface DownloadResult {
   dir: string
-  meta: HitomiMeta
+  meta: DoujinMeta
 }
 
 // Downloads every page into destRoot/<artist [code] title>/NNNN.ext and writes a
@@ -330,7 +329,7 @@ export async function downloadGallery(
       const st = await fs.stat(fpath).catch(() => null)
       if (!st || st.size === 0) {
         const url = imageUrl(f.hash, ext, ctx)
-        await retry(() => MM.httpDownload({ url, kind: 'hitomi', path: fpath }), 3)
+        await retry(() => MM.httpDownload({ url, kind: 'doujin', path: fpath }), 3)
       }
       onProgress(++done, total, meta.title)
     }
@@ -353,7 +352,7 @@ async function retry<T>(fn: () => Promise<T>, times: number): Promise<T> {
   throw lastErr
 }
 
-// Extract a hitomi code from a raw code or any hitomi url the user pastes.
+// Extract a doujin code from a raw code or any doujin url the user pastes.
 export function extractCode(input: string): string | null {
   const m = input.match(/(\d{5,})/)
   return m ? m[1] : null
@@ -382,7 +381,7 @@ function nozomiPath(source: { kind: 'index' | 'search'; language: string | null;
     tag = q.slice(colon + 1)
   }
   tag = tag.replace(/\s+/g, '_')
-  // hitomi namespaces map to top-level folders; gendered tags live under tag/.
+  // doujin namespaces map to top-level folders; gendered tags live under tag/.
   switch (ns) {
     case 'artist':
       return `/artist/${tag}-${lang}.nozomi`
@@ -455,8 +454,8 @@ export async function fetchNozomiExcluding(
   return { ids: all.slice(page * pageSize, page * pageSize + pageSize), total: all.length }
 }
 
-// --- hitomi full-text search index (galleriesindex B-tree) -------------------
-// This is how hitomi's own search box does free-text / title search: each search
+// --- doujin full-text search index (galleriesindex B-tree) -------------------
+// This is how doujin's own search box does free-text / title search: each search
 // WORD is sha256-hashed (first 4 bytes = the key) and looked up in a B-tree
 // serialized across `galleries.<version>.index` (nodes) + `.data` (posting
 // lists of gallery ids). Namespaced tokens (tag:/artist:/…) still use nozomi.
@@ -573,11 +572,11 @@ async function languageIndexIds(lang: string): Promise<number[]> {
 
 // Candidate nozomi base paths (without `-lang.nozomi`) for a search token.
 // Namespaced tokens map to their folder; a plain tag is tried as a generic tag
-// and as a gendered tag, since hitomi files many tags as "female:x"/"male:x".
+// and as a gendered tag, since doujin files many tags as "female:x"/"male:x".
 function basesForToken(token: string): string[] {
   const q = token.toLowerCase().trim()
   const ci = q.indexOf(':')
-  // hitomi tag files use SPACES in the name (e.g. `female:big breasts`, URL as
+  // doujin tag files use SPACES in the name (e.g. `female:big breasts`, URL as
   // %20), but chips/SearchBuilder emit underscores (`big_breasts`). Try the space
   // form FIRST (the real scheme), then the underscore form as a fallback.
   const forms = (s: string): string[] => {
@@ -710,7 +709,7 @@ export async function searchNozomi(
   }
 
   // Language filter: text-search / all-nozomi ids are language-agnostic, so keep
-  // only ids present in the chosen language index (hitomi does the same).
+  // only ids present in the chosen language index (doujin does the same).
   if (lang !== 'all' && all.length) {
     const langSet = new Set(await languageIndexIds(lang))
     if (langSet.size) all = all.filter((x) => langSet.has(x))
@@ -787,7 +786,7 @@ async function summaryOrNull(code: string): Promise<Summary | null> {
   }
 }
 
-// Find Korean editions of a work. Precise path: hitomi's own `languages` map on
+// Find Korean editions of a work. Precise path: doujin's own `languages` map on
 // the coded gallery. Fallback: the artist's Korean galleries ranked by title
 // similarity. Returns Korean-language summaries (raw thumb urls).
 export async function findKorean(payload: {

@@ -34,7 +34,7 @@ const KEEP_ON_RESET = [
 ] as const
 
 export default function ManageSection(): JSX.Element {
-  const { draft, patch, applySaved, isHitomi, works, notify } = useSettings()
+  const { draft, patch, applySaved, isDoujin, works, notify } = useSettings()
   const goManage = useStore((s) => s.goManage)
   const scanLibraryJob = useStore((s) => s.scanLibraryJob)
   const scanning = useStore((s) => s.loading)
@@ -57,7 +57,7 @@ export default function ManageSection(): JSX.Element {
   // General-manga series, grouped the same way the library shows them.
   const normalSeries = (): SeriesGroup[] =>
     groupSeries(
-      works.filter((w) => (w.library ?? 'hitomi') === 'normal'),
+      works.filter((w) => (w.library ?? 'doujin') === 'normal'),
       seriesRoots(draft)
     )
 
@@ -66,7 +66,7 @@ export default function ManageSection(): JSX.Element {
   const organizeJobRef = useRef<string | null>(null)
   useEffect(
     () =>
-      window.api.onHitomiProgress((p) => {
+      window.api.onDoujinProgress((p) => {
         if (p.phase === 'enriching') {
           setEnrichProg({ done: p.done, total: p.total })
           if (enrichJobRef.current) updateJob(enrichJobRef.current, { done: p.done, total: p.total })
@@ -102,15 +102,15 @@ export default function ManageSection(): JSX.Element {
   // while running cancels.
   const enrichAll = async (): Promise<void> => {
     if (enriching) {
-      window.api.hitomiCancelEnrich()
+      window.api.doujinCancelEnrich()
       return
     }
     setEnriching(true)
     setEnrichProg({ done: 0, total: 0 })
-    const jid = startJob('meta', 'hitomi', '메타 채우기 (작가·태그·언어)')
+    const jid = startJob('meta', 'doujin', '메타 채우기 (작가·태그·언어)')
     enrichJobRef.current = jid
     try {
-      await window.api.hitomiEnrichAll()
+      await window.api.doujinEnrichAll()
       setWorks(await window.api.getWorks())
       endJob(jid, { status: 'done' })
     } catch (e: any) {
@@ -125,7 +125,7 @@ export default function ManageSection(): JSX.Element {
   // Move non-Korean works into their language folders.
   const organize = async (): Promise<void> => {
     setOrganizeProg({ moved: 0, current: '' })
-    const jid = startJob('organize', 'hitomi', '언어별 폴더 정리')
+    const jid = startJob('organize', 'doujin', '언어별 폴더 정리')
     organizeJobRef.current = jid
     try {
       setWorks(await window.api.organizeLanguages())
@@ -141,13 +141,13 @@ export default function ManageSection(): JSX.Element {
   // Rebuild every doujin thumbnail: the online cover when the work has a code,
   // else (or if that fails) the local first page.
   const regenThumbs = async (): Promise<void> => {
-    const ids = thumbTargetIds(works, 'hitomi', seriesRoots(draft))
+    const ids = thumbTargetIds(works, 'doujin', seriesRoots(draft))
     if (!ids.length) {
       notify('동인지 작품이 없습니다.')
       return
     }
     setRegenProg({ done: 0, total: ids.length })
-    const jid = startJob('thumb', 'hitomi', '썸네일 재생성')
+    const jid = startJob('thumb', 'doujin', '썸네일 재생성')
     updateJob(jid, { total: ids.length })
     const byId = new Map(works.map((w) => [w.id, w]))
     let done = 0
@@ -155,7 +155,7 @@ export default function ManageSection(): JSX.Element {
       const code = byId.get(id)?.code ?? null
       const ok = code
         ? await window.api
-            .hitomiRegenCover(id, code)
+            .doujinRegenCover(id, code)
             .then((r) => r.ok)
             .catch(() => false)
         : false
@@ -209,7 +209,7 @@ export default function ManageSection(): JSX.Element {
       const rep = series[i].chapters[0]
       if (rep) {
         let done = await window.api
-          .tokiRegenCover([rep.id], series[i].title)
+          .comicRegenCover([rep.id], series[i].title)
           .then((r) => r.ok)
           .catch(() => false)
         if (!done) done = await regenLocalThumb(rep.id).then(() => true).catch(() => false)
@@ -238,7 +238,7 @@ export default function ManageSection(): JSX.Element {
     for (let i = 0; i < series.length; i++) {
       const s = series[i]
       try {
-        const updated = await window.api.tokiFillArtist(s.chapters.map((c) => c.id), s.title)
+        const updated = await window.api.comicFillArtist(s.chapters.map((c) => c.id), s.title)
         if (updated.length) {
           ok++
           updated.forEach(upsertWork)
@@ -313,7 +313,7 @@ export default function ManageSection(): JSX.Element {
     <>
       <section data-cat="manage">
         <h2>라이브러리</h2>
-        {isHitomi ? (
+        {isDoujin ? (
           <>
             <SettingRow
               title="라이브러리 스캔 후 자동으로 언어별 폴더 정리"
@@ -411,7 +411,7 @@ export default function ManageSection(): JSX.Element {
 
       <section data-cat="manage">
         <h2>작품</h2>
-        {isHitomi ? (
+        {isDoujin ? (
           <>
             <div className="set-block">
               <SettingRow
@@ -491,7 +491,7 @@ export default function ManageSection(): JSX.Element {
         )}
       </section>
 
-      {isHitomi && (
+      {isDoujin && (
         <section data-cat="manage">
           <h2>모드</h2>
           <SettingRow title="일반 만화 모드와 탭 통합" desc="동인지와 일반 만화의 탭을 한 줄로 함께 표시합니다. 끄면 모드별로 탭이 분리됩니다.">
@@ -499,6 +499,13 @@ export default function ManageSection(): JSX.Element {
           </SettingRow>
         </section>
       )}
+
+      <section data-cat="manage">
+        <h2>업데이트</h2>
+        <SettingRow title="자동 업데이트" desc="앱을 켤 때 새 버전이 있는지 확인하고, 있으면 미리 받아 둡니다. 설치는 작업 바의 “설치”를 눌러야 진행됩니다.">
+          <Toggle checked={draft.autoUpdate !== false} onChange={(v) => patch({ autoUpdate: v })} />
+        </SettingRow>
+      </section>
 
       {confirmReset && (
         <ConfirmModal

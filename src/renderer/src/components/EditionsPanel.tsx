@@ -39,7 +39,7 @@ export default function EditionsPanel({
   const download = async (code: string): Promise<void> => {
     setDownloading(code)
     try {
-      await startDownload({ kind: 'hitomi', input: code })
+      await startDownload({ kind: 'doujin', input: code })
     } catch (e: any) {
       alert(String(e?.message ?? e))
     } finally {
@@ -58,7 +58,7 @@ export default function EditionsPanel({
     setEds(null)
     setError(null)
     window.api
-      .hitomiFindEditions({ code, artist, title, language })
+      .doujinFindEditions({ code, artist, title, language })
       .then((r) => alive && setEds(r))
       .catch((e) => alive && setError(String(e?.message ?? e)))
     return () => {

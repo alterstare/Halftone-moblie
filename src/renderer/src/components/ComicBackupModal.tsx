@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
-import type { TokiChapter, HitomiProgress } from '../../../shared/ipc'
+import type { ComicChapter, DoujinProgress } from '../../../shared/ipc'
 import { ChapterPicker, DownloadStatus } from './DownloadParts'
 
 // Backup (gnuboard-style) site downloader. The site isn't scraped into our
 // browse UI — the user opens it as a plain web page, navigates to a chapter LIST
 // page, then we read that page's chapter list and download (in the background,
 // via the hidden window) to the general-manga folder.
-export default function TokiBackupModal({ onClose }: { onClose: () => void }): JSX.Element {
+export default function ComicBackupModal({ onClose }: { onClose: () => void }): JSX.Element {
   const startDownload = useStore((s) => s.startDownload)
   // No built-in address — the user enters the backup site themselves.
   const [url, setUrl] = useState('')
   const [title, setTitle] = useState('')
-  const [chapters, setChapters] = useState<TokiChapter[] | null>(null)
+  const [chapters, setChapters] = useState<ComicChapter[] | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [phase, setPhase] = useState<'setup' | 'downloading' | 'done' | 'error'>('setup')
@@ -21,7 +21,7 @@ export default function TokiBackupModal({ onClose }: { onClose: () => void }): J
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    return window.api.onHitomiProgress((p: HitomiProgress) => {
+    return window.api.onDoujinProgress((p: DoujinProgress) => {
       if (p.code !== 'backup:' + title) return
       if (p.phase === 'downloading' || p.phase === 'fetching')
         setProg({ done: p.done, total: p.total, label: p.title })
@@ -35,14 +35,14 @@ export default function TokiBackupModal({ onClose }: { onClose: () => void }): J
       return
     }
     setErr(null)
-    window.api.tokiOpenSite(/^https?:\/\//i.test(u) ? u : `https://${u}`)
+    window.api.comicOpenSite(/^https?:\/\//i.test(u) ? u : `https://${u}`)
   }
 
   const loadList = async (): Promise<void> => {
     setLoading(true)
     setErr(null)
     try {
-      const list = await window.api.tokiScrapeList()
+      const list = await window.api.comicScrapeList()
       setChapters(list)
       setSelected(new Set(list.map((c) => c.url))) // default: all selected
       if (!title && list.length) {

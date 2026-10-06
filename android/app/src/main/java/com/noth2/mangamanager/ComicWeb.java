@@ -32,19 +32,19 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-// The toki scraper: a second WebView that lives BEHIND the app's WebView (so it
+// The comic scraper: a second WebView that lives BEHIND the app's WebView (so it
 // lays out and runs scripts like a real, visible page), brought to the front
 // when the user has to clear a Cloudflare check or browse a backup site by
-// hand. Mobile counterpart of the desktop hidden BrowserWindow (lib/toki.ts).
+// hand. Mobile counterpart of the desktop hidden BrowserWindow (lib/comic.ts).
 //
-// JS (backend/toki.ts) drives it: load(url) → poll eval(probe) → eval(scrape).
-final class TokiWeb {
+// JS (backend/comic.ts) drives it: load(url) → poll eval(probe) → eval(scrape).
+final class ComicWeb {
     interface Listener {
         void onVisible(boolean visible);
     }
 
     // Main-world script run before the site's own: hide automation tells and stub
-    // WebRTC (STUN probes), same as the desktop preload/toki.ts.
+    // WebRTC (STUN probes), same as the desktop preload/comic.ts.
     private static final String DOC_START =
         "try{Object.defineProperty(navigator,'webdriver',{get:()=>false})}catch(e){}" +
         "try{class F{createDataChannel(){return null}createOffer(){return Promise.reject(new Error('disabled'))}" +
@@ -74,7 +74,7 @@ final class TokiWeb {
         void done(String json);
     }
 
-    TokiWeb(Activity act, ViewGroup root, Listener listener) {
+    ComicWeb(Activity act, ViewGroup root, Listener listener) {
         this.act = act;
         this.root = root;
         this.listener = listener;
@@ -123,14 +123,14 @@ final class TokiWeb {
         // Plain mobile Chrome UA (drop the WebView "; wv" marker some sites block).
         String ua = s.getUserAgentString().replace("; wv)", ")");
         s.setUserAgentString(ua);
-        Net.tokiUA = ua;
+        Net.comicUA = ua;
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         cm.setAcceptThirdPartyCookies(web, true);
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, DOC_START, Collections.singleton("*"));
         }
-        web.addJavascriptInterface(new Bridge(), "MMToki");
+        web.addJavascriptInterface(new Bridge(), "MMComic");
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
@@ -217,7 +217,7 @@ final class TokiWeb {
         String id = UUID.randomUUID().toString();
         pending.put(id, cb);
         String js = "(async()=>{let r;try{r={ok:true,v:await (" + expr + ")}}catch(e){r={ok:false,e:String(e)}}" +
-            "try{MMToki.done('" + id + "',JSON.stringify(r===undefined?null:r))}catch(e){}})();void 0";
+            "try{MMComic.done('" + id + "',JSON.stringify(r===undefined?null:r))}catch(e){}})();void 0";
         ui.post(() -> {
             ensure();
             web.evaluateJavascript(js, null);

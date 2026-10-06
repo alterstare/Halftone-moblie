@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { JSX } from 'react'
 import { useLibraryCodes, useStore } from '../store'
-import type { GallerySummary, HitomiListSource, OnlineSort } from '../../../shared/ipc'
+import type { GallerySummary, DoujinListSource, OnlineSort } from '../../../shared/ipc'
 import Pager from './Pager'
 import CopyCode from './CopyCode'
 import ContextMenu from './ContextMenu'
 import { useTagMenu } from './useTagMenu'
-import { hitomiFavCodes, hitomiFavGalleries } from '../favorites'
+import { doujinFavCodes, doujinFavGalleries } from '../favorites'
 import Stars from './Stars'
 import Dropdown from './Dropdown'
 import { CheckIcon, PauseIcon, PlayIcon, FavoriteIcon, DownloadIcon, SyncIcon, SortIcon } from './icons'
@@ -45,7 +45,7 @@ export default function OnlineList(): JSX.Element {
   // sorts or pages, it keeps its own (per tab — other tabs' lists stay as is).
   const globalSource = useStore((s) => s.browseSource)
   const globalPage = useStore((s) => s.browsePage)
-  const [tabSource, setBrowseSource] = useTabState<HitomiListSource | null>('source', null)
+  const [tabSource, setBrowseSource] = useTabState<DoujinListSource | null>('source', null)
   const [tabPage, setBrowsePage] = useTabState<number | null>('page', null)
   const source = tabSource ?? globalSource
   const page = tabPage ?? globalPage
@@ -63,10 +63,10 @@ export default function OnlineList(): JSX.Element {
   // + locally-favorited works) instead of the latest online listing.
   const onlineListFav = useStore((s) => s.onlineListFav)
   const works = useStore((s) => s.works)
-  const favCodes = useMemo(() => hitomiFavCodes(onlineFavs), [onlineFavs])
+  const favCodes = useMemo(() => doujinFavCodes(onlineFavs), [onlineFavs])
   const sumVer = useFavSummaries(onlineListFav ? favCodes : [])
   const favList = useMemo(
-    () => hitomiFavGalleries(onlineFavs, works),
+    () => doujinFavGalleries(onlineFavs, works),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [onlineFavs, works, sumVer]
   )
@@ -80,7 +80,7 @@ export default function OnlineList(): JSX.Element {
     setLoading(true)
     setError(null)
     window.api
-      .hitomiList(source, page)
+      .doujinList(source, page)
       .then((r) => {
         if (!alive) return
         setItems(r.items)
@@ -96,7 +96,7 @@ export default function OnlineList(): JSX.Element {
   const lang = source.language
   const apply = (): void => {
     const q = input.trim()
-    const s: HitomiListSource = q ? { kind: 'search', query: q, language: lang } : { kind: 'index', language: lang }
+    const s: DoujinListSource = q ? { kind: 'search', query: q, language: lang } : { kind: 'index', language: lang }
     setBrowsePage(0)
     setBrowseSource(s)
   }
@@ -111,11 +111,11 @@ export default function OnlineList(): JSX.Element {
   const activeCode = tabs.find((t) => t.id === activeTabId)?.online?.code
 
   // Download a gallery straight from the list (feature 5). Progress shows in the
-  // shared download manager (fed by the hitomiProgress channel).
+  // shared download manager (fed by the doujinProgress channel).
   const dlOf = (code: string): DownloadItem | undefined => downloads.find((d) => d.code === code)
   const download = async (g: GallerySummary): Promise<void> => {
     try {
-      await startDownload({ kind: 'hitomi', input: g.code, title: g.title })
+      await startDownload({ kind: 'doujin', input: g.code, title: g.title })
     } catch (e: any) {
       alert(String(e?.message ?? e))
     }

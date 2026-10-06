@@ -8,7 +8,7 @@
 // the right PIN is entered. PINs are stored only as salted SHA-256 hashes.
 import { create } from 'zustand'
 import type { OnlineFav, Work } from '../../shared/types'
-import { isTokiCode } from './util'
+import { isComicCode } from './util'
 import { useStore, effectiveSettings } from './store'
 import type { Tab } from './store'
 
@@ -20,8 +20,8 @@ export const useLock = create<{
   decoy: boolean // entered with the decoy PIN → empty doujin library
 }>(() => ({ prompt: null, unlocked: false, decoy: false }))
 
-const isDoujin = (w: Work): boolean => (w.library ?? 'hitomi') !== 'normal'
-const isDoujinTab = (t: Tab): boolean => (t.mode ?? 'hitomi') !== 'normal'
+const isDoujin = (w: Work): boolean => (w.library ?? 'doujin') !== 'normal'
+const isDoujinTab = (t: Tab): boolean => (t.mode ?? 'doujin') !== 'normal'
 
 // Decoy mode hides these; they come back when doujin mode is left.
 let hiddenWorks: Work[] = []
@@ -85,11 +85,11 @@ function hideDoujin(): void {
   hiddenWorks = [...hiddenWorks, ...st.works.filter(isDoujin)]
   hiddenTabs = [...hiddenTabs, ...st.tabs.filter(isDoujinTab)]
   const favs = Object.entries(st.onlineFavs)
-  hiddenFavs = { ...hiddenFavs, ...Object.fromEntries(favs.filter(([c]) => !isTokiCode(c))) }
+  hiddenFavs = { ...hiddenFavs, ...Object.fromEntries(favs.filter(([c]) => !isComicCode(c))) }
   useStore.setState({
     works: st.works.filter((w) => !isDoujin(w)),
     tabs: st.tabs.filter((t) => !isDoujinTab(t)),
-    onlineFavs: Object.fromEntries(favs.filter(([c]) => isTokiCode(c)))
+    onlineFavs: Object.fromEntries(favs.filter(([c]) => isComicCode(c)))
   })
 }
 
@@ -132,7 +132,7 @@ export function startLockGuard(): () => void {
     // In decoy mode, keep doujin works/tabs out even if a rescan brings them back.
     if (
       lock.decoy &&
-      (st.works.some(isDoujin) || st.tabs.some(isDoujinTab) || Object.keys(st.onlineFavs).some((c) => !isTokiCode(c)))
+      (st.works.some(isDoujin) || st.tabs.some(isDoujinTab) || Object.keys(st.onlineFavs).some((c) => !isComicCode(c)))
     ) {
       quietSet(hideDoujin)
       return
@@ -164,7 +164,7 @@ export async function tryPin(pin: string): Promise<PinResult> {
   useLock.setState({ prompt: null, unlocked: true, decoy })
   quietSet(() => {
     if (decoy) hideDoujin()
-    useStore.getState().setLibraryMode('hitomi')
+    useStore.getState().setLibraryMode('doujin')
     // Real PIN: replay where the user was heading (a reader tab / online).
     if (!decoy && target && target.view !== 'home')
       useStore.setState({ view: target.view, activeTabId: target.activeTabId })

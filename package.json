@@ -1,6 +1,6 @@
 {
   "name": "manga-manager-mobile",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Manga Manager for Android (Capacitor): hitomi / general-manga online reading and downloads",
   "author": "noth2",
   "type": "module",

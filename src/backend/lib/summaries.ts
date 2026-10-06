@@ -1,4 +1,4 @@
-// On-disk cache of hitomi gallery summaries (title, thumb, tags…) keyed by
+// On-disk cache of doujin gallery summaries (title, thumb, tags…) keyed by
 // gallery code — <data>/onlineSummaries.json. Online favorite lists and the
 // unified favorites view render from it, so a list seen once shows instantly
 // instead of re-fetching every gallery.
@@ -6,7 +6,7 @@ import { join } from '../node/path'
 import * as fs from '../node/fs'
 import { paths } from '../context'
 import type { GallerySummary } from '../../shared/ipc'
-import { summary } from './hitomi'
+import { summary } from './doujin'
 import { encodeWeb } from './media'
 
 const FILE = (): string => join(paths.data, 'onlineSummaries.json')

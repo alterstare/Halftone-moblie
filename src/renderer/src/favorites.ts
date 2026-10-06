@@ -10,7 +10,7 @@
 // together.
 import type { Work, OnlineFav } from '../../shared/types'
 import type { GallerySummary } from '../../shared/ipc'
-import { CHAP_FAV_PREFIX, allTags, isTokiCode, titleKey, type SeriesGroup } from './util'
+import { CHAP_FAV_PREFIX, allTags, isComicCode, titleKey, type SeriesGroup } from './util'
 import { getFavSummary } from './favSummaries'
 
 export type FavEntry =
@@ -38,7 +38,7 @@ export function mergeFavorites(p: {
   } else {
     // Local series ↔ online manga-site favorite are linked by normalized title.
     const byTitle = new Map<string, OnlineFav>()
-    for (const f of Object.values(p.onlineFavs)) if (f.favorite && isTokiCode(f.code)) byTitle.set(titleKey(f.title), f)
+    for (const f of Object.values(p.onlineFavs)) if (f.favorite && isComicCode(f.code)) byTitle.set(titleKey(f.title), f)
     for (const sg of p.series) {
       // Single-chapter entries are keyed by the chapter's work id.
       const key = sg.key.startsWith(CHAP_FAV_PREFIX) ? sg.key.slice(CHAP_FAV_PREFIX.length) : sg.key
@@ -54,7 +54,7 @@ export function mergeFavorites(p: {
 
 // Codes of doujin online favorites (numeric gallery ids) — the ones whose
 // summaries (tags…) must be fetched for display.
-export function hitomiFavCodes(onlineFavs: Record<string, OnlineFav>): string[] {
+export function doujinFavCodes(onlineFavs: Record<string, OnlineFav>): string[] {
   return Object.values(onlineFavs)
     .filter((f) => f.favorite && /^\d+$/.test(f.code))
     .map((f) => f.code)
@@ -65,7 +65,7 @@ export function hitomiFavCodes(onlineFavs: Record<string, OnlineFav>): string[] 
 // coded works, deduped by code. Tags come from the local work when downloaded,
 // else from the cached gallery summary. With `sort`, ordered by favorite time
 // or rating; without, online favorites first, then local-only ones.
-export function hitomiFavGalleries(
+export function doujinFavGalleries(
   onlineFavs: Record<string, OnlineFav>,
   works: Work[],
   sort?: 'rank' | 'recent'
@@ -75,7 +75,7 @@ export function hitomiFavGalleries(
   const rows: { g: GallerySummary; t: number; r: number }[] = []
   const seen = new Set<string>()
   for (const f of Object.values(onlineFavs)) {
-    if (!f.favorite || isTokiCode(f.code) || seen.has(f.code)) continue
+    if (!f.favorite || isComicCode(f.code) || seen.has(f.code)) continue
     seen.add(f.code)
     const sum = getFavSummary(f.code)
     const local = byCode.get(f.code)
@@ -95,7 +95,7 @@ export function hitomiFavGalleries(
     })
   }
   for (const w of works) {
-    if (!w.favorite || !w.code || isTokiCode(w.code) || seen.has(w.code)) continue
+    if (!w.favorite || !w.code || isComicCode(w.code) || seen.has(w.code)) continue
     seen.add(w.code)
     rows.push({
       g: {

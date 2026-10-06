@@ -3,9 +3,9 @@
 // optional SNI-bypass tunnel for the manga site (설정 › 네트워크 › 우회).
 import type { Settings } from '../shared/types'
 import { MM } from './native'
-import { setHitomiContentHost } from './lib/hitomi'
+import { setDoujinContentHost } from './lib/doujin'
 
 export async function applyNetwork(s: Settings): Promise<void> {
-  setHitomiContentHost(s.hitomiBaseUrl ?? '')
-  await MM.setNetwork({ proxy: s.proxyServer ?? '', tokiBase: s.tokiBaseUrl ?? '', tunnel: s.bypassTunnel === true })
+  setDoujinContentHost(s.doujinBaseUrl ?? '')
+  await MM.setNetwork({ proxy: s.proxyServer ?? '', comicBase: s.comicBaseUrl ?? '', tunnel: s.bypassTunnel === true })
 }

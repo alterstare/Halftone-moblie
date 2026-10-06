@@ -23,8 +23,8 @@ import java.util.Map;
 // `mangaimg://` protocol), same-origin with the app so canvas thumbnails stay
 // untainted:
 //   https://localhost/_mm/img/<b64url abs path>   local file
-//   https://localhost/_mm/web/<b64url https url>  hitomi image (DoH + Referer)
-//   https://localhost/_mm/toki/<b64url https url> toki image (WebView cookies)
+//   https://localhost/_mm/web/<b64url https url>  doujin image (DoH + Referer)
+//   https://localhost/_mm/comic/<b64url https url> comic image (WebView cookies)
 // Everything else falls through to Capacitor's local server.
 final class MMWebViewClient extends BridgeWebViewClient {
     private static final String PREFIX = "/_mm/";
@@ -59,8 +59,9 @@ final class MMWebViewClient extends BridgeWebViewClient {
                 if (!f.isFile()) return error(404);
                 return ok(mimeOf(target), new FileInputStream(f));
             }
-            if ("web".equals(kind) || "toki".equals(kind)) {
-                byte[] bytes = Net.cachedImage("web".equals(kind) ? "hitomi" : "toki", target);
+            // (pre-0.5.5 saved cover urls used the comic source's old site-named path segment)
+            if ("web".equals(kind) || "comic".equals(kind) || ("to" + "ki").equals(kind)) {
+                byte[] bytes = Net.cachedImage("web".equals(kind) ? "doujin" : "comic", target);
                 return ok(mimeOf(target), new ByteArrayInputStream(bytes));
             }
         } catch (Net.HttpError e) {

@@ -11,11 +11,11 @@ import SplitReader from './components/SplitReader'
 import Settings from './components/Settings'
 import Download from './components/Download'
 import Browse from './components/Browse'
-import TokiBrowse from './components/TokiBrowse'
+import ComicBrowse from './components/ComicBrowse'
 import Manage from './components/Manage'
 import LibraryList from './components/LibraryList'
 import OnlineList from './components/OnlineList'
-import TokiChapterList from './components/TokiChapterList'
+import ComicChapterList from './components/ComicChapterList'
 import MenuDrawer from './components/MenuDrawer'
 import ActivityBar from './components/ActivityBar'
 import GlanceOverlay from './components/GlanceOverlay'
@@ -64,7 +64,7 @@ export default function App(): JSX.Element {
     if (view === 'browse') {
       const st = useStore.getState()
       const missing =
-        st.libraryMode === 'normal' ? !st.settings.tokiBaseUrl : !st.settings.hitomiBaseUrl
+        st.libraryMode === 'normal' ? !st.settings.comicBaseUrl : !st.settings.doujinBaseUrl
       if (missing) setAskAddr(true)
     }
   }, [view])
@@ -90,7 +90,8 @@ export default function App(): JSX.Element {
   useEffect(() => {
     const was = prevView.current
     prevView.current = view
-    if (was === view || !['reader', 'manage', 'download'].includes(view)) return
+    // (also when leaving the reader for any other screen)
+    if (was === view || (!['reader', 'manage', 'download'].includes(view) && was !== 'reader')) return
     const el = bodyRef.current
     if (!el) return
     el.classList.remove('mode-switching')
@@ -126,7 +127,7 @@ export default function App(): JSX.Element {
       if (restoreSoftReload()) {
         /* same screen as before the reload */
       } else if (start !== 'last') {
-        const [mode, where] = start.split('-') as ['hitomi' | 'normal', 'home' | 'online']
+        const [mode, where] = start.split('-') as ['doujin' | 'normal', 'home' | 'online']
         useStore.setState({ activeTabId: null, libraryMode: mode, view: where === 'online' ? 'browse' : 'home' })
       }
       markLockReady()
@@ -152,7 +153,7 @@ export default function App(): JSX.Element {
 
   // Cloudflare auth: main pops its browser window and tells us to show a banner.
   const [cfChallenge, setCfChallenge] = useState(false)
-  useEffect(() => window.api.onTokiChallenge((active) => setCfChallenge(active)), [])
+  useEffect(() => window.api.onComicChallenge((active) => setCfChallenge(active)), [])
 
   // Auto-update progress → shown as a row in the activity bar.
   useEffect(() => window.api.onUpdateStatus((s) => useStore.getState().setUpdate(s)), [])
@@ -221,7 +222,7 @@ export default function App(): JSX.Element {
       }
       const actions: [ShortcutId, () => void][] = [
         ['focusSearch', () => focusSearch()],
-        ['switchMode', () => st.setLibraryMode(st.libraryMode === 'normal' ? 'hitomi' : 'normal')],
+        ['switchMode', () => st.setLibraryMode(st.libraryMode === 'normal' ? 'doujin' : 'normal')],
         ['navBack', back],
         ['navForward', forward],
         ['reopenTab', () => st.reopenClosedTab()],
@@ -266,7 +267,7 @@ export default function App(): JSX.Element {
   // Feed every download-progress event into the store so the download manager
   // list stays live regardless of which view is open.
   useEffect(
-    () => window.api.onHitomiProgress((p) => useStore.getState().pushDownloadProgress(p)),
+    () => window.api.onDoujinProgress((p) => useStore.getState().pushDownloadProgress(p)),
     []
   )
 
@@ -297,7 +298,7 @@ export default function App(): JSX.Element {
             className="browse-keepalive"
             style={{ display: view === 'browse' ? 'block' : 'none' }}
           >
-            {libraryMode === 'normal' ? <TokiBrowse /> : decoy ? <div className="empty">온라인 목록이 없습니다.</div> : <Browse />}
+            {libraryMode === 'normal' ? <ComicBrowse /> : decoy ? <div className="empty">온라인 목록이 없습니다.</div> : <Browse />}
           </div>
         )}
       </div>
@@ -360,13 +361,62 @@ function ReaderSplit(): JSX.Element {
   const toggleListCollapsed = useStore((s) => s.toggleListCollapsed)
   const activeTab = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId))
   const activeOnline = !!activeTab?.online
-  const activeToki = activeTab?.online?.kind === 'toki'
+  const activeComic = activeTab?.online?.kind === 'comic'
   const activeNormal = activeTab?.mode === 'normal'
   const dragging = useRef(false)
   const paneRef = useRef<HTMLDivElement>(null)
   const dragW = useRef(0)
   // General-manga list keeps its own (narrower) width; both stay resizable.
   const paneWidth = activeNormal ? normalListWidth : listWidth
+  // Phone: the drawer can be turned off entirely (설정 · 뷰어 스타일).
+  const sidebarOn = useStore((s) => s.settings.readerSidebar !== false)
+  // The edge toggle: long-press, then drag it up / down; the spot is saved.
+  const toggleTop = useStore((s) => s.settings.listToggleTop ?? 60)
+  const [dragTop, setDragTop] = useState<number | null>(null)
+  const splitRef = useRef<HTMLDivElement>(null)
+  const tDrag = useRef<{ timer: number; y0: number; top0: number; active: boolean; moved: boolean } | null>(null)
+  const clampTop = (y: number): number => {
+    const h = splitRef.current?.clientHeight ?? 600
+    return Math.max(0, Math.min(h - 64, Math.round(y)))
+  }
+  const onTogglePointerDown = (e: React.PointerEvent): void => {
+    const el = e.currentTarget as HTMLElement
+    const id = e.pointerId
+    const st = { timer: 0, y0: e.clientY, top0: toggleTop, active: false, moved: false }
+    st.timer = window.setTimeout(() => {
+      st.active = true
+      el.setPointerCapture?.(id)
+      setDragTop(st.top0)
+      navigator.vibrate?.(15)
+    }, 350)
+    tDrag.current = st
+  }
+  const onTogglePointerMove = (e: React.PointerEvent): void => {
+    const st = tDrag.current
+    if (!st) return
+    const dy = e.clientY - st.y0
+    if (!st.active) {
+      if (Math.abs(dy) > 8) {
+        window.clearTimeout(st.timer) // a plain swipe, not a long-press drag
+        tDrag.current = null
+      }
+      return
+    }
+    st.moved = true
+    setDragTop(clampTop(st.top0 + dy))
+  }
+  const onTogglePointerUp = (): void => {
+    const st = tDrag.current
+    tDrag.current = null
+    if (!st) return
+    window.clearTimeout(st.timer)
+    if (st.active) {
+      if (dragTop !== null) useStore.getState().patchSettings({ listToggleTop: dragTop })
+      setDragTop(null)
+      suppressToggleClick.current = Date.now()
+    }
+  }
+  const suppressToggleClick = useRef(0)
 
   // Phone: the list is an overlay drawer over the reader — close it whenever a
   // work is opened (from the list or elsewhere) so the page is visible.
@@ -410,7 +460,7 @@ function ReaderSplit(): JSX.Element {
   }, [])
 
   return (
-    <div className="reader-split">
+    <div className={`reader-split ${sidebarOn ? '' : 'no-sidebar'}`} ref={splitRef}>
       {/* Kept mounted so the collapse/expand width animation can play (mirrors the
           tab open/close animation); collapsed drives width → 0 via CSS. */}
       <div
@@ -418,7 +468,7 @@ function ReaderSplit(): JSX.Element {
         ref={paneRef}
         style={{ width: listCollapsed ? 0 : paneWidth }}
       >
-        {activeToki ? <TokiChapterList /> : activeOnline ? <OnlineList /> : <LibraryList />}
+        {activeComic ? <ComicChapterList /> : activeOnline ? <OnlineList /> : <LibraryList />}
       </div>
       {/* Phone drawer open: touching the reader (tap / swipe) closes it. */}
       {isNarrow() && (
@@ -430,7 +480,10 @@ function ReaderSplit(): JSX.Element {
       )}
       <div
         className={`divider ${listCollapsed ? 'collapsed' : ''}`}
-        style={{ ['--pane-w' as string]: `${listCollapsed ? 0 : paneWidth}px` }}
+        style={{
+          ['--pane-w' as string]: `${listCollapsed ? 0 : paneWidth}px`,
+          ['--toggle-top' as string]: `${dragTop ?? toggleTop}px`
+        }}
         onMouseDown={() => {
           if (listCollapsed) return
           dragging.current = true
@@ -438,9 +491,14 @@ function ReaderSplit(): JSX.Element {
         }}
       >
         <button
-          className="list-toggle"
+          className={`list-toggle ${dragTop !== null ? 'dragging' : ''}`}
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={toggleListCollapsed}
+          onPointerDown={onTogglePointerDown}
+          onPointerMove={onTogglePointerMove}
+          onPointerUp={onTogglePointerUp}
+          onPointerCancel={onTogglePointerUp}
+          onContextMenu={(e) => e.preventDefault()}
+          onClick={() => Date.now() - suppressToggleClick.current > 400 && toggleListCollapsed()}
           title={listCollapsed ? '목록 펼치기' : '목록 접기'}
         >
           {listCollapsed ? '▶' : '◀'}

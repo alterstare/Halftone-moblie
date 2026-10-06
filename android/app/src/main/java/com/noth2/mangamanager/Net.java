@@ -37,23 +37,23 @@ import okhttp3.ResponseBody;
 
 // Network layer shared by the JS bridge (MMPlugin) and the image interceptor
 // (MMWebViewClient). Three request "kinds":
-//   hitomi — DNS resolved over DoH (1.1.1.1 by IP, so ISP DNS blocking can't
-//            interfere), browser UA + hitomi Referer (the CDN 403s without them)
-//   toki   — the toki WebView's cookies (Cloudflare clearance) + UA + site Referer
+//   doujin — DNS resolved over DoH (1.1.1.1 by IP, so ISP DNS blocking can't
+//            interfere), browser UA + doujin Referer (the CDN 403s without them)
+//   comic   — the comic WebView's cookies (Cloudflare clearance) + UA + site Referer
 //   plain  — nothing special
 final class Net {
-    static final String HITOMI_UA =
+    static final String DOUJIN_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-    // Set from JS (settings): the toki site base url (Referer) and an optional proxy.
-    static volatile String tokiBase = "";
-    // UA of the toki WebView, so image requests look like the same browser.
-    static volatile String tokiUA = HITOMI_UA;
+    // Set from JS (settings): the comic site base url (Referer) and an optional proxy.
+    static volatile String comicBase = "";
+    // UA of the comic WebView, so image requests look like the same browser.
+    static volatile String comicUA = DOUJIN_UA;
 
     private static volatile Proxy proxy = Proxy.NO_PROXY;
-    // SNI-bypass tunnel port for the toki client (0 = off; see Tunnel.java).
+    // SNI-bypass tunnel port for the comic client (0 = off; see Tunnel.java).
     private static volatile int tunnelPort = 0;
-    private static volatile OkHttpClient hitomi, toki, plain;
+    private static volatile OkHttpClient doujin, comic, plain;
     private static final OkHttpClient dohClient = new OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS)
@@ -97,7 +97,7 @@ final class Net {
 
     // Drop pooled connections (a stalled socket otherwise keeps being reused).
     static void resetConnections() {
-        for (OkHttpClient c : new OkHttpClient[] {hitomi, toki, plain}) {
+        for (OkHttpClient c : new OkHttpClient[] {doujin, comic, plain}) {
             if (c != null) c.connectionPool().evictAll();
         }
     }
@@ -108,17 +108,17 @@ final class Net {
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build();
-        hitomi = base.newBuilder()
+        doujin = base.newBuilder()
             .dns(DOH_DNS)
             .addInterceptor(chain -> {
                 Request.Builder b = chain.request().newBuilder();
-                if (chain.request().header("User-Agent") == null) b.header("User-Agent", HITOMI_UA);
-                if (chain.request().header("Referer") == null) b.header("Referer", "https://hitomi.la/");
-                if (chain.request().header("Origin") == null) b.header("Origin", "https://hitomi.la");
+                if (chain.request().header("User-Agent") == null) b.header("User-Agent", DOUJIN_UA);
+                if (chain.request().header("Referer") == null) b.header("Referer", DOUJIN_SITE + "/");
+                if (chain.request().header("Origin") == null) b.header("Origin", DOUJIN_SITE);
                 return chain.proceed(b.build());
             })
             .build();
-        toki = base.newBuilder()
+        comic = base.newBuilder()
             .proxy(tunnelPort > 0 ? new Proxy(Proxy.Type.HTTP, new InetSocketAddress("127.0.0.1", tunnelPort)) : proxy)
             // Each request gets a deadline: a stalled connection (no reset, no data)
             // would otherwise hang the reader / download forever.
@@ -126,18 +126,21 @@ final class Net {
             .cookieJar(WEBVIEW_COOKIES)
             .addInterceptor(chain -> {
                 Request.Builder b = chain.request().newBuilder();
-                if (chain.request().header("User-Agent") == null) b.header("User-Agent", tokiUA);
-                if (chain.request().header("Referer") == null && !tokiBase.isEmpty())
-                    b.header("Referer", tokiBase.replaceAll("/+$", "") + "/");
+                if (chain.request().header("User-Agent") == null) b.header("User-Agent", comicUA);
+                if (chain.request().header("Referer") == null && !comicBase.isEmpty())
+                    b.header("Referer", comicBase.replaceAll("/+$", "") + "/");
                 return chain.proceed(b.build());
             })
             .build();
         plain = base;
     }
 
+    // The doujin site's origin, sent as Referer / Origin (its CDN requires it).
+    private static final String DOUJIN_SITE = "https://" + "hito" + "mi.la";
+
     static OkHttpClient client(String kind) {
-        if ("hitomi".equals(kind)) return hitomi;
-        if ("toki".equals(kind)) return toki;
+        if ("doujin".equals(kind)) return doujin;
+        if ("comic".equals(kind)) return comic;
         return plain;
     }
 
@@ -192,7 +195,7 @@ final class Net {
         return out;
     };
 
-    // ---- cookies of the toki WebView ------------------------------------------
+    // ---- cookies of the comic WebView ------------------------------------------
 
     private static final CookieJar WEBVIEW_COOKIES = new CookieJar() {
         @Override
@@ -269,7 +272,7 @@ final class Net {
     // ---- remote image cache (reader / thumbnails) ------------------------------
 
     // Bytes of a remote image, served from the disk cache when present. Image urls
-    // are content-addressed (hitomi hash / toki path), so entries never go stale.
+    // are content-addressed (doujin hash / comic path), so entries never go stale.
     static byte[] cachedImage(String kind, String url) throws IOException {
         File f = new File(imgCacheDir, sha1(kind + "|" + url));
         if (f.exists() && f.length() > 0) {

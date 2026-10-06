@@ -33,7 +33,7 @@ export default function LibraryList(): JSX.Element {
   const groups = useStore((s) => s.settings.groups)
   const groupFilter = useStore((s) => s.groupFilter)
   const showUngrouped = useStore((s) => s.showUngrouped)
-  const hitomiGroups = useMemo(() => groups.filter((g) => (g.mode ?? 'hitomi') === 'hitomi'), [groups])
+  const doujinGroups = useMemo(() => groups.filter((g) => (g.mode ?? 'doujin') === 'doujin'), [groups])
   const scheme = useStore((s) => s.settings.normalChapterScheme)
   const tabs = useStore((s) => s.tabs)
   const activeTabId = useStore((s) => s.activeTabId)
@@ -57,14 +57,14 @@ export default function LibraryList(): JSX.Element {
   const activeWorkId = tabs.find((t) => t.id === activeTabId)?.workId
   const activeWork = works.find((w) => w.id === activeWorkId)
   const normalRoots = useSeriesRoots()
-  const isNormalActive = !!activeWork && (activeWork.library ?? 'hitomi') === 'normal'
+  const isNormalActive = !!activeWork && (activeWork.library ?? 'doujin') === 'normal'
   const flattenRoots = useStore((s) => s.settings.flattenRoots)
   // If the active doujin work sits under an "artist folder" (flattenRoots), the
   // left list is locked to just that folder's works (that artist), and continuous
   // reading flows across them automatically.
   const activeArtistFolder = useMemo(
     () =>
-      activeWork && (activeWork.library ?? 'hitomi') !== 'normal'
+      activeWork && (activeWork.library ?? 'doujin') !== 'normal'
         ? artistFolderOf(activeWork.path, flattenRoots ?? [])
         : null,
     [activeWork, flattenRoots]
@@ -90,7 +90,7 @@ export default function LibraryList(): JSX.Element {
       return applied.trim() ? activeGroup.chapters.filter((w) => matchesSearch(w, applied)) : activeGroup.chapters
     }
     // Doujin list must not include general-manga works (separate libraries).
-    const libWorks = works.filter((w) => (w.library ?? 'hitomi') !== 'normal')
+    const libWorks = works.filter((w) => (w.library ?? 'doujin') !== 'normal')
     // Under an artist folder → lock the list to that folder's works (that artist),
     // regardless of the search/filter box.
     if (activeArtistFolder) {
@@ -100,12 +100,12 @@ export default function LibraryList(): JSX.Element {
       return selectWorks(inFolder, '', { kind: 'all' }, sort, seed, ignoreBrackets)
     }
     // 그룹 분류 (shared with the home screen's filter).
-    const hitomiWorks = libWorks.filter((w) => {
+    const doujinWorks = libWorks.filter((w) => {
       const gids = w.groups ?? []
       if (gids.length === 0) return showUngrouped
       return gids.some((id) => groupFilter[id] !== false)
     })
-    return selectWorks(hitomiWorks, applied, filter, sort, seed, ignoreBrackets)
+    return selectWorks(doujinWorks, applied, filter, sort, seed, ignoreBrackets)
   }, [activeGroup, activeArtistFolder, flattenRoots, works, applied, filter, sort, seed, ignoreBrackets, groupFilter, showUngrouped])
 
   // Publish the current list order as the reading queue so the reader can flow
@@ -172,9 +172,9 @@ export default function LibraryList(): JSX.Element {
       ...(w ? [{ label: '제목 복사', onClick: () => void window.api.clipboardWriteText(w.title) }] : [])
     ]
     if (w) {
-      const wMode = w.library ?? 'hitomi'
+      const wMode = w.library ?? 'doujin'
       const sub: MenuItem[] = groups
-        .filter((g) => (g.mode ?? 'hitomi') === wMode)
+        .filter((g) => (g.mode ?? 'doujin') === wMode)
         .map((g) => ({
         label: (w.groups ?? [])[0] === g.id ? `✓ ${g.name}` : g.name,
         onClick: () => pickGroup(w, g.id, g.name)
@@ -239,7 +239,7 @@ export default function LibraryList(): JSX.Element {
             </span>
           )}
         </div>
-        {!activeGroup && !activeArtistFolder && hitomiGroups.length > 0 && <GroupFilterMenu groups={hitomiGroups} />}
+        {!activeGroup && !activeArtistFolder && doujinGroups.length > 0 && <GroupFilterMenu groups={doujinGroups} />}
       </div>
       {applied && (
         <div className="applied-row">

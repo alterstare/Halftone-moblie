@@ -7,16 +7,16 @@ import { create } from 'zustand'
 import { useMemo } from 'react'
 import type { Work, Settings, SortMode, SessionState, OnlineFav, FitMode, ReadProgress, OnlineHistoryEntry } from '../../shared/types'
 import { DEFAULT_SETTINGS, SPLIT_SETTING_KEYS } from '../../shared/types'
-import type { HitomiListSource, HitomiProgress, TokiChapter, UpdateStatus } from '../../shared/ipc'
+import type { DoujinListSource, DoujinProgress, ComicChapter, UpdateStatus } from '../../shared/ipc'
 import { warmThumbs, invalidateThumb } from './thumbs'
 import { convertWorkToWebp } from './convert'
-import { thumbTargetIds, groupSeries, titleKey, seriesRoots, isTokiCode } from './util'
+import { thumbTargetIds, groupSeries, titleKey, seriesRoots, isComicCode } from './util'
 import { getFavSummary } from './favSummaries'
 
 // Merge the active mode's per-mode overrides over the base settings so doujin and
 // general-manga keep independent display/reader/sort prefs. The result still
 // carries `perMode`, so it round-trips through saveSettings unchanged.
-export function effectiveSettings(s: Settings, mode: 'hitomi' | 'normal'): Settings {
+export function effectiveSettings(s: Settings, mode: 'doujin' | 'normal'): Settings {
   const overlay = s.perMode?.[mode]
   if (!overlay) return s
   // Only keys that are still split apply — stale overlay entries from keys that
@@ -34,7 +34,7 @@ export interface OnlineGallery {
   code: string
   title: string
   artist: string | null
-  kind?: 'hitomi' | 'toki' // undefined = doujin (legacy)
+  kind?: 'doujin' | 'comic' // undefined = doujin (legacy)
   seriesUrl?: string // manga-site: the series page, for the sibling-chapter list
   chapterLabel?: string // manga-site: current chapter label ("n화"), shown in the tab title
   thumb?: string | null // manga-site: wrapped cover url (doujin fetches its own)
@@ -43,14 +43,14 @@ export interface OnlineGallery {
 // Everything needed to (re)start a download. Stored on the DownloadItem so a
 // stopped/failed download can be retried or resumed from the activity list.
 export type DownloadSpec =
-  | { kind: 'hitomi'; input: string; title?: string }
-  | { kind: 'toki'; seriesUrl: string; title: string; chapterUrls?: string[] }
-  | { kind: 'generic'; title: string; chapters: TokiChapter[]; only?: string[] }
+  | { kind: 'doujin'; input: string; title?: string }
+  | { kind: 'comic'; seriesUrl: string; title: string; chapterUrls?: string[] }
+  | { kind: 'generic'; title: string; chapters: ComicChapter[]; only?: string[] }
 
 // The progress code a spec reports under (matches main's emitted code).
 export function specCode(s: DownloadSpec): string {
-  if (s.kind === 'hitomi') return (s.input.match(/\d{5,}/) ?? [s.input])[0]
-  if (s.kind === 'toki') return s.seriesUrl
+  if (s.kind === 'doujin') return (s.input.match(/\d{5,}/) ?? [s.input])[0]
+  if (s.kind === 'comic') return s.seriesUrl
   return 'backup:' + s.title
 }
 
@@ -60,7 +60,7 @@ export interface DownloadItem {
   title: string
   done: number
   total: number
-  phase: HitomiProgress['phase']
+  phase: DoujinProgress['phase']
   error?: string
   spec?: DownloadSpec // how to (re)start this download; set on dispatch
 }
@@ -71,7 +71,7 @@ export interface DownloadItem {
 export interface Job {
   id: string
   kind: 'scan' | 'meta' | 'thumb' | 'organize' | 'convert'
-  mode: 'hitomi' | 'normal' // which library the task belongs to (bar is per-mode)
+  mode: 'doujin' | 'normal' // which library the task belongs to (bar is per-mode)
   title: string
   status: 'running' | 'done' | 'error'
   done: number
@@ -84,8 +84,8 @@ export interface Job {
 
 // A download's library mode is encoded in its code: numeric = doujin gallery;
 // an http(s) url (manga-site chapter) or a "backup:" code = general-manga (normal).
-export function downloadMode(code: string): 'hitomi' | 'normal' {
-  return isTokiCode(code) || code.startsWith('backup:') ? 'normal' : 'hitomi'
+export function downloadMode(code: string): 'doujin' | 'normal' {
+  return isComicCode(code) || code.startsWith('backup:') ? 'normal' : 'doujin'
 }
 
 export interface Tab {
@@ -105,7 +105,7 @@ export interface Tab {
   rightPagePos?: { workId: string; idx: number }
   splitRatio?: number // left pane fraction, 0..1 (default 0.5)
   groupId?: string // manual tab group membership
-  mode?: 'hitomi' | 'normal' // which library this tab belongs to
+  mode?: 'doujin' | 'normal' // which library this tab belongs to
   // Glance (peek) tab: rendered in a floating overlay, hidden from the tab bar,
   // discarded on close. Promote clears the flag → becomes a normal tab.
   glance?: boolean
@@ -151,18 +151,18 @@ type View = 'home' | 'reader' | 'settings' | 'download' | 'browse' | 'manage' | 
 export interface NavEntry {
   view: View
   activeTabId: string | null
-  libraryMode: 'hitomi' | 'normal'
+  libraryMode: 'doujin' | 'normal'
   manageMode: 'duplicates' | 'translations' | 'merge' | 'collections'
   // Only meaningful when view === 'browse': the online list source + page, so back
   // steps through previous online searches/pages before leaving the online view.
-  browseSource?: HitomiListSource
+  browseSource?: DoujinListSource
   browsePage?: number
 }
 
 // One reversible navBack step, consumed by navForward.
 type RedoEntry =
   // In-tab work rewind: restore the tab's work + its back stack to before the back.
-  | { kind: 'work'; tabId: string; workId: string; back: string[]; libraryMode: 'hitomi' | 'normal' }
+  | { kind: 'work'; tabId: string; workId: string; back: string[]; libraryMode: 'doujin' | 'normal' }
   // Tab was closed while stepping out: reopen it and step the nav history forward.
   | { kind: 'close'; tab: Tab }
   // Plain history step: just move the nav position forward.
@@ -177,7 +177,7 @@ interface AppState {
   view: View
   manageMode: 'duplicates' | 'translations' | 'merge' | 'collections'
   // Which library the home/list views show: doujin galleries or general manga.
-  libraryMode: 'hitomi' | 'normal'
+  libraryMode: 'doujin' | 'normal'
   menuOpen: boolean // ☰ left nav drawer
   // Unsaved-settings guard. Settings marks itself dirty; any attempt to navigate
   // away while dirty is stashed in `pendingNav` so a confirm modal can offer
@@ -226,15 +226,15 @@ interface AppState {
   homeLayout: 'list' | 'grid'
 
   // online
-  browseSource: HitomiListSource
+  browseSource: DoujinListSource
   browsePage: number
   // Bumped when the online (🌐) button is pressed while already on the browse
   // view → tells the open browse component to jump to the first page + scroll
   // top, WITHOUT resetting the language/sort/genre filters.
   browseTopNonce: number
   // Seed for a general-manga online author search, set from a clicked author
-  // name elsewhere (reader header / card). TokiBrowse consumes it on change.
-  tokiAuthorSeed: { name: string; nonce: number } | null
+  // name elsewhere (reader header / card). ComicBrowse consumes it on change.
+  comicAuthorSeed: { name: string; nonce: number } | null
   onlineProgress: Record<string, { scrollTop: number; pageIdx: number }>
   // Reader left-list UI state per tab (search box, query, page) — see useTabState.
   sideState: Record<string, Record<string, unknown>>
@@ -307,7 +307,7 @@ interface AppState {
   goDownload: () => void
   goBrowse: () => void
   goManage: (mode: 'duplicates' | 'translations' | 'merge' | 'collections') => void
-  setLibraryMode: (m: 'hitomi' | 'normal') => void
+  setLibraryMode: (m: 'doujin' | 'normal') => void
   toggleMenu: () => void
   setMenuOpen: (b: boolean) => void
   toggleListCollapsed: () => void
@@ -329,11 +329,11 @@ interface AppState {
   openTab: (workId: string) => void
   openOnline: (g: OnlineGallery) => void
   // Open a manga-site (general-manga online) chapter, keeping general-manga mode.
-  openToki: (g: OnlineGallery) => void
+  openComic: (g: OnlineGallery) => void
   // Open in a background tab: add the tab but stay on the current view/tab.
   openTabBackground: (workId: string) => void
   openOnlineBackground: (g: OnlineGallery) => void
-  openTokiBackground: (g: OnlineGallery) => void
+  openComicBackground: (g: OnlineGallery) => void
   closeTab: (tabId: string) => void
   // Tabs currently collapse-animating before closeTab actually removes them. The
   // tab bar renders these with a closing animation; requestCloseTab starts it.
@@ -396,7 +396,7 @@ interface AppState {
   // Rename a group (and its folders on disk). Throws with a Korean message on failure.
   renameGroup: (id: string, name: string) => Promise<void>
   setSeriesTags: (key: string, tags: string[]) => Promise<void>
-  pushDownloadProgress: (p: HitomiProgress) => void
+  pushDownloadProgress: (p: DoujinProgress) => void
   // Dispatch (or redispatch) a download through the main queue. Records the spec
   // on the item so it can be stopped/retried later, calls the right IPC, and
   // adds the resulting work(s) to the library. Returns created works, or null if
@@ -405,19 +405,21 @@ interface AppState {
   stopDownload: (code: string) => void // abort a running/queued download
   retryDownload: (code: string) => void // restart a stopped/failed download
   removeDownload: (code: string) => void // cancel + drop from the activity list
-  stopAllDownloads: (mode: 'hitomi' | 'normal') => void
-  startAllDownloads: (mode: 'hitomi' | 'normal') => void
+  stopAllDownloads: (mode: 'doujin' | 'normal') => void
+  startAllDownloads: (mode: 'doujin' | 'normal') => void
   setListWidth: (px: number, persist?: boolean) => void
   setNormalListWidth: (px: number, persist?: boolean) => void
   setReaderMode: (m: 'scroll' | 'paged' | 'spread') => void
-  setLastReaderMode: (lib: 'hitomi' | 'normal', m: 'scroll' | 'paged' | 'spread') => void
-  setLastFit: (lib: 'hitomi' | 'normal', f: FitMode) => void
+  setLastReaderMode: (lib: 'doujin' | 'normal', m: 'scroll' | 'paged' | 'spread') => void
+  setLastFit: (lib: 'doujin' | 'normal', f: FitMode) => void
+  // Save a few (shared) settings directly, e.g. the dragged sidebar-toggle spot.
+  patchSettings: (p: Partial<Settings>) => void
   // Reader 넘김 button: tap-to-flip side (paged) / bottom tap (scroll). Per-mode
   // settings, so the current library mode's overlay is updated as well.
   setTapFlip: (p: Partial<Pick<Settings, 'pagedFlipSide' | 'scrollTapFlip'>>) => void
-  setLastZoom: (lib: 'hitomi' | 'normal', z: number) => void
+  setLastZoom: (lib: 'doujin' | 'normal', z: number) => void
   setHomeLayout: (l: 'list' | 'grid') => void
-  setBrowseSource: (s: HitomiListSource) => void
+  setBrowseSource: (s: DoujinListSource) => void
   // Cross-search: jump to the online browse and run a query (from a local card),
   // or jump to the local home and search there (from an online card).
   searchOnline: (query: string) => void
@@ -425,7 +427,7 @@ interface AppState {
   addFavoriteTag: (tag: string) => void // add a tag/artist to the highlighted set
   toggleExcludeTag: (token: string) => void // add/remove a doujin 검색 제외 태그 (search token)
   setBrowsePage: (p: number) => void
-  searchTokiAuthor: (name: string) => void
+  searchComicAuthor: (name: string) => void
   setOnlineProgress: (code: string, p: { scrollTop: number; pageIdx: number }) => void
   setOnlineFavs: (list: OnlineFav[]) => void
   toggleOnlineFav: (code: string, meta?: Partial<OnlineFav>) => Promise<void>
@@ -459,7 +461,7 @@ const TAB_GROUP_COLORS = ['#4c8dff', '#3ddc84', '#ff9b4d', '#c77dff', '#ff5d8f',
 // tab starts unset so the Reader restores that library's own last-used mode.
 function inheritReader(
   st: AppState,
-  newMode?: 'hitomi' | 'normal'
+  newMode?: 'doujin' | 'normal'
 ): { zoom?: number; readerMode?: Tab['readerMode']; fit?: Tab['fit'] } {
   const cur = st.tabs.find((t) => t.id === st.activeTabId)
   const sameLib = !newMode || cur?.mode === newMode
@@ -518,11 +520,11 @@ function splitInto(st: AppState, src: PaneSrc): Partial<AppState> {
   }
   // New split tab (opened from the library/home). Stamp the tab's library mode
   // from the work so it lands in the right tab bar and switches the mode.
-  const mode: 'hitomi' | 'normal' = src.online
-    ? src.online.kind === 'toki'
+  const mode: 'doujin' | 'normal' = src.online
+    ? src.online.kind === 'comic'
       ? 'normal'
-      : 'hitomi'
-    : (st.works.find((w) => w.id === src.workId)?.library ?? 'hitomi')
+      : 'doujin'
+    : (st.works.find((w) => w.id === src.workId)?.library ?? 'doujin')
   const tab: Tab = { ...makeTab(src), mode, split: true, splitRatio: 0.5 }
   return { tabs: [...st.tabs, tab], activeTabId: tab.id, view: 'reader', libraryMode: mode }
 }
@@ -580,9 +582,9 @@ function recordOnline(
   get: () => AppState,
   set: (p: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void,
   g: OnlineGallery,
-  kind: 'hitomi' | 'toki'
+  kind: 'doujin' | 'comic'
 ): void {
-  const key = kind === 'toki' ? (g.seriesUrl ?? g.code) : g.code
+  const key = kind === 'comic' ? (g.seriesUrl ?? g.code) : g.code
   const fav = get().onlineFavs[key]
   const entry = {
     key,
@@ -604,7 +606,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   view: 'home',
   manageMode: 'duplicates',
-  libraryMode: 'hitomi',
+  libraryMode: 'doujin',
   menuOpen: false,
   settingsDirty: false,
   pendingNav: null,
@@ -644,7 +646,7 @@ export const useStore = create<AppState>((set, get) => ({
   browseSource: { kind: 'index', language: 'korean' },
   browsePage: 0,
   browseTopNonce: 0,
-  tokiAuthorSeed: null,
+  comicAuthorSeed: null,
   onlineProgress: {},
   sideState: {},
   readProgress: {},
@@ -737,7 +739,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (tab && tab.back && tab.back.length) {
           const back = [...tab.back]
           const prev = back.pop()!
-          const mode = (st.works.find((w) => w.id === prev)?.library ?? 'hitomi') as 'hitomi' | 'normal'
+          const mode = (st.works.find((w) => w.id === prev)?.library ?? 'doujin') as 'doujin' | 'normal'
           // Redo restores the work we're leaving + its back stack as it is now.
           pushRedo({ kind: 'work', tabId: tab.id, workId: tab.workId, back: tab.back ?? [], libraryMode: st.libraryMode })
           set({
@@ -840,7 +842,7 @@ export const useStore = create<AppState>((set, get) => ({
   // ---------- tabs: replace / continuous reading / open ----------
   replaceTabWork: (tabId, side, workId) =>
     set((st) => {
-      const mode = (st.works.find((w) => w.id === workId)?.library ?? 'hitomi') as 'hitomi' | 'normal'
+      const mode = (st.works.find((w) => w.id === workId)?.library ?? 'doujin') as 'doujin' | 'normal'
       return {
         tabs: st.tabs.map((t) => {
           if (t.id !== tabId) return t
@@ -894,8 +896,8 @@ export const useStore = create<AppState>((set, get) => ({
     })),
 
   openTab: (workId) => {
-    const modeOf = (id: string): 'hitomi' | 'normal' =>
-      (get().works.find((w) => w.id === id)?.library ?? 'hitomi') as 'hitomi' | 'normal'
+    const modeOf = (id: string): 'doujin' | 'normal' =>
+      (get().works.find((w) => w.id === id)?.library ?? 'doujin') as 'doujin' | 'normal'
     const existing = get().tabs.find((t) => t.workId === workId)
     if (existing) {
       set({ activeTabId: existing.id, view: 'reader', libraryMode: existing.mode ?? modeOf(workId) })
@@ -909,22 +911,22 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   openOnline: (g) => {
-    recordOnline(get, set, g, 'hitomi')
+    recordOnline(get, set, g, 'doujin')
     const existing = get().tabs.find((t) => t.online?.code === g.code)
     if (existing) {
-      set({ activeTabId: existing.id, view: 'reader', libraryMode: 'hitomi' })
+      set({ activeTabId: existing.id, view: 'reader', libraryMode: 'doujin' })
       return
     }
     set((st) => {
-      const tab: Tab = { id: `t${tabSeq++}`, workId: '', online: g, scrollTop: 0, mode: 'hitomi', ...inheritReader(st, 'hitomi') }
-      return { tabs: [...st.tabs, tab], activeTabId: tab.id, view: 'reader', libraryMode: 'hitomi' }
+      const tab: Tab = { id: `t${tabSeq++}`, workId: '', online: g, scrollTop: 0, mode: 'doujin', ...inheritReader(st, 'doujin') }
+      return { tabs: [...st.tabs, tab], activeTabId: tab.id, view: 'reader', libraryMode: 'doujin' }
     })
   },
 
   // Same as openOnline but stays in general-manga mode and stamps the tab as
   // normal, so the reader shows the manga-site chapter list (not the doujin browse).
-  openToki: (g) => {
-    recordOnline(get, set, g, 'toki')
+  openComic: (g) => {
+    recordOnline(get, set, g, 'comic')
     const existing = get().tabs.find((t) => t.online?.code === g.code)
     if (existing) {
       set({ activeTabId: existing.id, view: 'reader', libraryMode: 'normal' })
@@ -934,7 +936,7 @@ export const useStore = create<AppState>((set, get) => ({
       const tab: Tab = {
         id: `t${tabSeq++}`,
         workId: '',
-        online: { ...g, kind: 'toki' },
+        online: { ...g, kind: 'comic' },
         scrollTop: 0,
         mode: 'normal',
         ...inheritReader(st, 'normal')
@@ -946,7 +948,7 @@ export const useStore = create<AppState>((set, get) => ({
   openTabBackground: (workId) =>
     set((st) => {
       if (st.tabs.some((t) => t.workId === workId)) return {} // already open
-      const mode = (st.works.find((w) => w.id === workId)?.library ?? 'hitomi') as 'hitomi' | 'normal'
+      const mode = (st.works.find((w) => w.id === workId)?.library ?? 'doujin') as 'doujin' | 'normal'
       const tab: Tab = { id: `t${tabSeq++}`, workId, scrollTop: 0, mode, ...inheritReader(st, mode) }
       return { tabs: [...st.tabs, tab] } // no activeTabId / view change
     }),
@@ -954,17 +956,17 @@ export const useStore = create<AppState>((set, get) => ({
   openOnlineBackground: (g) =>
     set((st) => {
       if (st.tabs.some((t) => t.online?.code === g.code)) return {}
-      const tab: Tab = { id: `t${tabSeq++}`, workId: '', online: g, scrollTop: 0, mode: 'hitomi', ...inheritReader(st, 'hitomi') }
+      const tab: Tab = { id: `t${tabSeq++}`, workId: '', online: g, scrollTop: 0, mode: 'doujin', ...inheritReader(st, 'doujin') }
       return { tabs: [...st.tabs, tab] }
     }),
 
-  openTokiBackground: (g) =>
+  openComicBackground: (g) =>
     set((st) => {
       if (st.tabs.some((t) => t.online?.code === g.code)) return {}
       const tab: Tab = {
         id: `t${tabSeq++}`,
         workId: '',
-        online: { ...g, kind: 'toki' },
+        online: { ...g, kind: 'comic' },
         scrollTop: 0,
         mode: 'normal',
         ...inheritReader(st, 'normal')
@@ -1196,8 +1198,8 @@ export const useStore = create<AppState>((set, get) => ({
     // duration (content + tab finish together — Chrome-like).
     if (st.activeTabId === tabId) {
       const idx = st.tabs.findIndex((t) => t.id === tabId)
-      const mode = st.tabs[idx]?.mode ?? 'hitomi'
-      const sameMode = (t: Tab): boolean => (t.mode ?? 'hitomi') === mode && t.id !== tabId
+      const mode = st.tabs[idx]?.mode ?? 'doujin'
+      const sameMode = (t: Tab): boolean => (t.mode ?? 'doujin') === mode && t.id !== tabId
       const next = st.tabs.slice(idx + 1).find(sameMode) ?? [...st.tabs.slice(0, idx)].reverse().find(sameMode)
       // Last tab closed → back to where it came from: the online list for an
       // online tab, the library otherwise.
@@ -1218,7 +1220,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((st) => {
       const idx = st.tabs.findIndex((t) => t.id === tabId)
       const closing = st.tabs[idx]
-      const mode = closing?.mode ?? 'hitomi'
+      const mode = closing?.mode ?? 'doujin'
       const tabs = st.tabs.filter((t) => t.id !== tabId)
       // Remember it for Ctrl+Shift+T (most-recent-first, cap 15).
       const closedTabs = closing ? [closing, ...st.closedTabs].slice(0, 15) : st.closedTabs
@@ -1230,7 +1232,7 @@ export const useStore = create<AppState>((set, get) => ({
         // general manga are separate, so closing the last normal tab must not
         // jump into a doujin tab (and vice versa). None left → go home in that
         // mode instead of yanking into the other library.
-        const sameMode = (t: Tab): boolean => (t.mode ?? 'hitomi') === mode
+        const sameMode = (t: Tab): boolean => (t.mode ?? 'doujin') === mode
         const after = tabs.slice(idx).find(sameMode)
         const before = [...tabs.slice(0, idx)].reverse().find(sameMode)
         const next = after ?? before
@@ -1249,7 +1251,7 @@ export const useStore = create<AppState>((set, get) => ({
       set((st) => {
         const [tab, ...rest] = st.closedTabs
         if (!tab) return {}
-        const mode = tab.mode ?? 'hitomi'
+        const mode = tab.mode ?? 'doujin'
         // If somehow still open, just re-focus it; otherwise re-add.
         const tabs = st.tabs.some((t) => t.id === tab.id) ? st.tabs : [...st.tabs, tab]
         return { tabs, closedTabs: rest, activeTabId: tab.id, view: 'reader', libraryMode: mode }
@@ -1267,8 +1269,8 @@ export const useStore = create<AppState>((set, get) => ({
   openGlance: (src) =>
     set((st) => {
       const id = `glance${tabSeq++}`
-      const mode: 'hitomi' | 'normal' =
-        'online' in src ? (src.online.kind === 'toki' ? 'normal' : 'hitomi') : ((st.works.find((w) => w.id === src.workId)?.library ?? 'hitomi') as 'hitomi' | 'normal')
+      const mode: 'doujin' | 'normal' =
+        'online' in src ? (src.online.kind === 'comic' ? 'normal' : 'doujin') : ((st.works.find((w) => w.id === src.workId)?.library ?? 'doujin') as 'doujin' | 'normal')
       const tab: Tab =
         'online' in src
           ? { id, workId: '', online: src.online, scrollTop: 0, mode, glance: true, ...inheritReader(st, mode) }
@@ -1322,8 +1324,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   restoreSession: (s) =>
     set((st) => {
-      const modeOf = (id: string): 'hitomi' | 'normal' =>
-        (st.works.find((w) => w.id === id)?.library ?? 'hitomi') as 'hitomi' | 'normal'
+      const modeOf = (id: string): 'doujin' | 'normal' =>
+        (st.works.find((w) => w.id === id)?.library ?? 'doujin') as 'doujin' | 'normal'
       const tabs: Tab[] = s.tabs.map((t) => ({
         id: t.id,
         workId: t.workId,
@@ -1435,7 +1437,7 @@ export const useStore = create<AppState>((set, get) => ({
     // settings) instead of letting the download fail with a raw alert.
     const s = get().settings
     const destReady =
-      spec.kind === 'hitomi'
+      spec.kind === 'doujin'
         ? !!(s.downloadDir || s.libraryRoots[0])
         : !!(s.normalDownloadDir || s.normalRoots?.[0])
     if (!destReady) {
@@ -1462,20 +1464,20 @@ export const useStore = create<AppState>((set, get) => ({
     })
     try {
       let works: Work[]
-      if (spec.kind === 'hitomi') {
-        works = [await window.api.hitomiDownload(spec.input)]
-      } else if (spec.kind === 'toki') {
+      if (spec.kind === 'doujin') {
+        works = [await window.api.doujinDownload(spec.input)]
+      } else if (spec.kind === 'comic') {
         works = spec.chapterUrls?.length
-          ? await window.api.tokiDownloadChapters(spec.seriesUrl, spec.title, spec.chapterUrls)
-          : await window.api.tokiDownload(spec.seriesUrl, spec.title)
+          ? await window.api.comicDownloadChapters(spec.seriesUrl, spec.title, spec.chapterUrls)
+          : await window.api.comicDownload(spec.seriesUrl, spec.title)
       } else {
-        works = await window.api.tokiDownloadGeneric(spec.title, spec.chapters, spec.only)
+        works = await window.api.comicDownloadGeneric(spec.title, spec.chapters, spec.only)
       }
       works.forEach((w) => get().addWork(w))
       // doujin often ships avif only; if the user picked webp, convert the pages
       // right on THIS download's item (phase 'converting') — one row per work, no
       // separate job. (Pupil compatibility.)
-      if (spec.kind === 'hitomi' && get().settings.downloadImageFormat === 'webp') {
+      if (spec.kind === 'doujin' && get().settings.downloadImageFormat === 'webp') {
         const patchItem = (p: Partial<DownloadItem>): void =>
           set((st) => ({ downloads: st.downloads.map((d) => (d.code === code ? { ...d, ...p } : d)) }))
         patchItem({ phase: 'converting', done: 0, total: 0 })
@@ -1593,7 +1595,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
     // Auto-fill doujin metadata for coded works.
     if (get().settings.autoEnrichOnScan && w.some((x) => x.code && !x.language)) {
-      window.api.hitomiEnrichAll().then(() => window.api.getWorks().then((ws) => set({ works: ws })))
+      window.api.doujinEnrichAll().then(() => window.api.getWorks().then((ws) => set({ works: ws })))
     }
     // Auto-move works into their genre rule's folder.
     if (get().settings.autoMoveByGenre && get().settings.genreRules.some((r) => r.genre && r.moveDir)) {
@@ -1637,13 +1639,18 @@ export const useStore = create<AppState>((set, get) => ({
   // so a freshly opened tab restores that library's preferred view after a
   // restart or navigating home.
   setLastReaderMode: (lib, m) => {
-    const cur = get().settings.lastReaderMode ?? { hitomi: 'scroll', normal: 'scroll' }
+    const cur = get().settings.lastReaderMode ?? { doujin: 'scroll', normal: 'scroll' }
     if (cur[lib] === m) return
     const s = { ...get().settings, lastReaderMode: { ...cur, [lib]: m } }
     set({ settings: s })
     window.api.saveSettings(s)
   },
   // Persist the fit mode / free zoom per library (same pattern as reader mode).
+  patchSettings: (p) => {
+    const s = { ...get().settings, ...p }
+    set({ settings: s })
+    window.api.saveSettings(s)
+  },
   setTapFlip: (p) => {
     const cur = get().settings
     const mode = get().libraryMode
@@ -1652,14 +1659,14 @@ export const useStore = create<AppState>((set, get) => ({
     window.api.saveSettings(s)
   },
   setLastFit: (lib, f) => {
-    const cur = get().settings.lastFit ?? { hitomi: 'contain', normal: 'width' }
+    const cur = get().settings.lastFit ?? { doujin: 'contain', normal: 'width' }
     if (cur[lib] === f) return
     const s = { ...get().settings, lastFit: { ...cur, [lib]: f } }
     set({ settings: s })
     window.api.saveSettings(s)
   },
   setLastZoom: (lib, z) => {
-    const cur = get().settings.lastZoom ?? { hitomi: 1, normal: 1 }
+    const cur = get().settings.lastZoom ?? { doujin: 1, normal: 1 }
     if (cur[lib] === z) return
     const s = { ...get().settings, lastZoom: { ...cur, [lib]: z } }
     set({ settings: s })
@@ -1678,14 +1685,14 @@ export const useStore = create<AppState>((set, get) => ({
     guardLeave(get, set, () =>
       set({
         view: 'browse',
-        libraryMode: 'hitomi', // online browse is the doujin gallery index
+        libraryMode: 'doujin', // online browse is the doujin gallery index
         browsePage: 0,
         browseSource: { kind: 'search', query, language: null, sort: 'date' }
       })
     ),
   searchLocal: (query) =>
     guardLeave(get, set, () => {
-      set({ view: 'home', libraryMode: 'hitomi', activeTabId: null, filter: { kind: 'all' } })
+      set({ view: 'home', libraryMode: 'doujin', activeTabId: null, filter: { kind: 'all' } })
       set({ search: query })
     }),
   addFavoriteTag: async (tag) => {
@@ -1707,11 +1714,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
   setBrowsePage: (p) => set({ browsePage: p }),
   // Jump to general-manga online browse and run an author search for `name`.
-  searchTokiAuthor: (name) =>
+  searchComicAuthor: (name) =>
     set((st) => ({
       view: 'browse',
       libraryMode: 'normal',
-      tokiAuthorSeed: { name, nonce: (st.tokiAuthorSeed?.nonce ?? 0) + 1 }
+      comicAuthorSeed: { name, nonce: (st.comicAuthorSeed?.nonce ?? 0) + 1 }
     })),
   setOnlineProgress: (code, p) =>
     set((st) => ({ onlineProgress: { ...st.onlineProgress, [code]: p } })),
@@ -1742,7 +1749,7 @@ export const useStore = create<AppState>((set, get) => ({
     for (const w of r.works) get().upsertWork(w)
   },
   setWorkFavorite: async (work, fav) => {
-    if (work.code && /^\d+$/.test(work.code) && (work.library ?? 'hitomi') === 'hitomi') {
+    if (work.code && /^\d+$/.test(work.code) && (work.library ?? 'doujin') === 'doujin') {
       const r = await window.api.setFavoriteByCode(work.code, fav, {
         title: work.title,
         artist: work.artist,
@@ -1763,14 +1770,14 @@ export const useStore = create<AppState>((set, get) => ({
     const localKeys = localKey
       ? [localKey]
       : k
-        ? groupSeries(st.works.filter((w) => (w.library ?? 'hitomi') === 'normal'), roots)
+        ? groupSeries(st.works.filter((w) => (w.library ?? 'doujin') === 'normal'), roots)
             .filter((g) => titleKey(g.title) === k)
             .map((g) => g.key)
         : []
     const urls = new Set<string>(url ? [url] : [])
     if (k) {
       for (const f of Object.values(st.onlineFavs)) {
-        if (isTokiCode(f.code) && titleKey(f.title) === k) urls.add(f.code)
+        if (isComicCode(f.code) && titleKey(f.title) === k) urls.add(f.code)
       }
     }
     const favS = s.normalFavSeries ?? []
@@ -1802,7 +1809,7 @@ useStore.subscribe((st, prev) => {
   warmTimer = window.setTimeout(() => {
     const { works, settings: s, startJob, updateJob, endJob } = useStore.getState()
     const normalRoots = seriesRoots(s)
-    for (const mode of ['hitomi', 'normal'] as const) {
+    for (const mode of ['doujin', 'normal'] as const) {
       // Keyed by page count too: a work registered mid-download (no images yet →
       // "no cover" cached) gets re-checked once its pages land, without a restart.
       const pc = new Map(works.map((w) => [w.id, w.pageCount]))

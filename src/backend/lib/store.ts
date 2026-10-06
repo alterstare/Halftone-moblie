@@ -1,3 +1,4 @@
+import { migrateNames } from './legacyNames'
 import { sha1 } from '@noble/hashes/legacy.js'
 import { bytesToHex } from '@noble/hashes/utils.js'
 import * as fs from '../node/fs'
@@ -11,11 +12,11 @@ import { isUnder } from './favorites'
 // memory; searching/sorting happens in JS. Files live in the app's private
 // files dir (set by init).
 
-// Stable id for a work. Coded works key on the globally-unique hitomi id.
+// Stable id for a work. Coded works key on the globally-unique doujin id.
 // Uncoded works hash a basis string: callers pass `uniqueKey` (the full path)
 // for general manga, because chapter folder names repeat across series
 // ("0001 1 - - 1화", "1화") and a name-only hash collides → one chapter silently
-// overwrites another. Hitomi uncoded works pass no uniqueKey so they keep the
+// overwrites another. Doujin uncoded works pass no uniqueKey so they keep the
 // folder-name hash (gallery names are unique, and the id survives a move).
 export function deriveId(folderName: string, code: string | null, uniqueKey?: string): string {
   if (code) return `h:${code}`
@@ -64,14 +65,15 @@ export class Store {
   }
 
   async load(): Promise<void> {
-    this.settings = { ...DEFAULT_SETTINGS, ...(await readJson(this.settingsFile, {})) }
-    this.session = await readJson(this.sessionFile, { tabs: [], activeTabId: null })
-    const data = await readJson<PersistShape>(this.worksFile, { works: [] })
+    // migrateNames: map pre-0.5.5 site-named keys / values (see legacyNames.ts).
+    this.settings = { ...DEFAULT_SETTINGS, ...migrateNames(await readJson(this.settingsFile, {})) }
+    this.session = migrateNames(await readJson(this.sessionFile, { tabs: [], activeTabId: null }))
+    const data = migrateNames(await readJson<PersistShape>(this.worksFile, { works: [] }))
     this.works = new Map(data.works.map((w) => [w.id, w]))
     const ofavs = await readJson<{ favs: OnlineFav[] }>(this.onlineFile, { favs: [] })
     this.onlineFavs = new Map(ofavs.favs.map((f) => [f.code, f]))
     this.readProgress = await readJson<Record<string, ReadProgress>>(this.progressFile, {})
-    this.onlineHistory = await readJson<Record<string, OnlineHistoryEntry>>(this.historyFile, {})
+    this.onlineHistory = migrateNames(await readJson<Record<string, OnlineHistoryEntry>>(this.historyFile, {}))
   }
 
   // Record an online view (newest wins; capped to the most recent HISTORY_MAX).
@@ -121,7 +123,7 @@ export class Store {
   // startup): (scanned work, stored predecessor, found inside favoritesDir).
   favoriteRule: ((w: Work, prev: Work | undefined, inFavDir: boolean) => boolean) | null = null
 
-  // Update favorite/rank for an online gallery (hitomi code or toki url); cache
+  // Update favorite/rank for an online gallery (doujin code or comic url); cache
   // its display meta on first touch. Un-favorited + unranked entries are dropped.
   // `addedAt` may be given to keep an original favorite time (migration).
   setOnlineFav(
@@ -170,7 +172,7 @@ export class Store {
     const favorite = this.favoriteRule ? this.favoriteRule(w, prev, inFavDir) : (prev?.favorite ?? inFavDir)
     const favoritedAt = favorite ? (prev?.favoritedAt ?? Date.now()) : prev?.favoritedAt
     if (!prev) return { ...w, favorite, favoritedAt }
-    const locAuth = (w.library ?? 'hitomi') === 'hitomi' && !!this.settings.favoritesDir
+    const locAuth = (w.library ?? 'doujin') === 'doujin' && !!this.settings.favoritesDir
     return {
       ...w,
       tags: w.tags,

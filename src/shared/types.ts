@@ -24,11 +24,11 @@ export interface Work {
   lastViewedAt: number | null
   addedAt: number
   mtime: number // folder modified time, for "recent" sort
-  source: 'local' | 'hitomi'
-  // Which library this work belongs to: 'hitomi' (coded/tagged galleries) or
+  source: 'local' | 'doujin'
+  // Which library this work belongs to: 'doujin' (coded/tagged galleries) or
   // 'normal' (general manga, manual tags, chapter folders). Stamped by the
-  // scanner from the root the folder was found under. Missing = 'hitomi' (legacy).
-  library?: 'hitomi' | 'normal'
+  // scanner from the root the folder was found under. Missing = 'doujin' (legacy).
+  library?: 'doujin' | 'normal'
   coverHash?: string // dHash of the cover page, for duplicate detection
   coverW?: number // cover pixel width (quality signal for keeper pick)
   coverH?: number
@@ -45,7 +45,7 @@ export interface Work {
 // manga-site series (key = series url). Local works use Work.lastViewedAt.
 export interface OnlineHistoryEntry {
   key: string
-  kind: 'hitomi' | 'toki'
+  kind: 'doujin' | 'comic'
   code: string // doujin: gallery code; manga-site: last opened chapter url
   title: string
   artist: string | null
@@ -64,7 +64,7 @@ export interface ReadProgress {
 export interface ManualCollection {
   title: string
   artist: string | null
-  library: 'hitomi' | 'normal'
+  library: 'doujin' | 'normal'
   dirs: string[] // absolute paths of the folders whose images are concatenated
 }
 
@@ -72,8 +72,8 @@ export interface WorkGroup {
   id: string
   name: string
   // Which library the group belongs to; groups are scoped per mode so doujin
-  // group names don't appear in the general-manga view. Missing = 'hitomi'.
-  mode?: 'hitomi' | 'normal'
+  // group names don't appear in the general-manga view. Missing = 'doujin'.
+  mode?: 'doujin' | 'normal'
 }
 
 export interface GenreRule {
@@ -84,7 +84,7 @@ export interface GenreRule {
   moveDir?: string | null
 }
 
-export interface HitomiMeta {
+export interface DoujinMeta {
   code: string
   title: string
   japaneseTitle: string | null
@@ -129,10 +129,10 @@ export interface Settings {
   // Where doujin-coded works that no longer exist on doujin (deleted) are swept to
   // when the user runs "삭제된 작품 분류". Unset → the classify action errors.
   deletedDir: string | null
-  // General-manga online source (manga-site-family mirror, e.g. sbxh9.com). The site
+  // General-manga online source (a manga-site mirror; address entered by the user). The site
   // bot-blocks raw requests, so we scrape it through a hidden BrowserWindow. The
-  // domain rotates, so it is configurable; selectors live in main/lib/toki.ts.
-  tokiBaseUrl: string
+  // domain rotates, so it is configurable; selectors live in main/lib/comic.ts.
+  comicBaseUrl: string
   organizeByLanguage: boolean
   // Target folders for language-based auto move. Korean = default, stays put.
   langDirs: { english: string | null; japanese: string | null; other: string | null }
@@ -169,23 +169,29 @@ export interface Settings {
   // 이어보기: clicking a general-manga series opens its last-read chapter
   // (store.readProgress) instead of the first.
   resumeReading: boolean
+  // Phone reader: the left list drawer (and its edge toggle) on/off, and the
+  // toggle's vertical position in px from the reader's top (user-dragged).
+  readerSidebar: boolean
+  // Check GitHub releases on start and download a newer APK (phone).
+  autoUpdate: boolean
+  listToggleTop: number
   // General-manga online: genres hidden from browse/search results (client-side;
   // the site has no exclude filter). Matched against each card's genre list.
-  tokiExcludeGenres: string[]
+  comicExcludeGenres: string[]
   // Keyboard shortcut overrides (설정 › 단축키): action id → combos. Missing =
   // the defaults in shared/shortcuts.ts; an empty list = disabled.
   shortcuts: Partial<Record<string, string[]>>
-  hitomiBaseUrl: string // doujin content/CDN host (e.g. 'gold-usergeneratedcontent.net'); '' = online disabled
+  doujinBaseUrl: string // doujin content/CDN host (e.g. 'gold-usergeneratedcontent.net'); '' = online disabled
   readerMode: 'scroll' | 'paged' | 'spread'
   // Last-used reader mode, remembered separately per library so doujin and
   // general-manga keep their own preferred view across restarts. Falls back to
   // readerMode when unset.
-  lastReaderMode: { hitomi: 'scroll' | 'paged' | 'spread'; normal: 'scroll' | 'paged' | 'spread' }
+  lastReaderMode: { doujin: 'scroll' | 'paged' | 'spread'; normal: 'scroll' | 'paged' | 'spread' }
   // Last-used fit mode + free zoom factor, also per library. fit sizes the page
   // (width/height/contain/cover); zoom is the extra multiplier from Ctrl+wheel
   // (1 = pure fit). Both survive restarts.
-  lastFit: { hitomi: FitMode; normal: FitMode }
-  lastZoom: { hitomi: number; normal: number }
+  lastFit: { doujin: FitMode; normal: FitMode }
+  lastZoom: { doujin: number; normal: number }
   // Two-page (spread) view: which side the NEXT page sits on. 'left' = manga
   // right-to-left (current page on the right), 'right' = left-to-right.
   spreadNextSide: 'left' | 'right'
@@ -224,7 +230,7 @@ export interface Settings {
   // Per-mode overrides for the "split" keys (SPLIT_SETTING_KEYS) so doujin and
   // general-manga keep independent display/reader/sort preferences even when the
   // setting name is shared. The active mode's overlay is merged over the base.
-  perMode?: Partial<Record<'hitomi' | 'normal', Partial<Settings>>>
+  perMode?: Partial<Record<'doujin' | 'normal', Partial<Settings>>>
   // General-manga (normal) favorites are managed IN-APP as lists (no folder move,
   // which used to break series grouping). A series favorite stores the series key;
   // a single-chapter favorite stores the work id (opens that chapter directly).
@@ -235,7 +241,7 @@ export interface Settings {
   // 동인지 잠금: PIN to enter doujin mode; decoy PIN opens an empty library.
   // Salted SHA-256 hashes only (never the PIN itself).
   doujinLock: { enabled: boolean; pinHash: string; decoyHash: string; salt: string }
-  startScreen: 'last' | 'hitomi-home' | 'hitomi-online' | 'normal-home' | 'normal-online'
+  startScreen: 'last' | 'doujin-home' | 'doujin-online' | 'normal-home' | 'normal-online'
   // When each general-manga favorite (series key / chapter work id) was added.
   normalFavAt?: Record<string, number>
   // One-time flag: existing folder-moved normal favorites were un-favorited and
@@ -251,17 +257,17 @@ export interface Settings {
   // A folder is a doujin work only if it matches one of these AND the -id- slot
   // holds digits — so an incidental 7-digit number in the title no longer looks
   // like a code. Patterns are tried in order (first match wins). Empty = defaults.
-  hitomiNamePatterns: string[]
-  // Index into hitomiNamePatterns of the pattern used to name downloaded folders.
-  hitomiDownloadPatternIdx: number
+  doujinNamePatterns: string[]
+  // Index into doujinNamePatterns of the pattern used to name downloaded folders.
+  doujinDownloadPatternIdx: number
   // Max number of online works (doujin galleries / manga-site series) downloading at
   // once. Extra downloads queue until a slot frees. 0 = unlimited.
   maxConcurrentDownloads: number
 }
 
-// Built-in fallback patterns (used when hitomiNamePatterns is empty). Bracketed
+// Built-in fallback patterns (used when doujinNamePatterns is empty). Bracketed
 // forms only, so a stray number in a title is never mistaken for an id.
-export const DEFAULT_HITOMI_PATTERNS = [
+export const DEFAULT_DOUJIN_PATTERNS = [
   '-artist- [-id-] -title-',
   '[-id-] -title-',
   '-title- (-id-)'
@@ -332,7 +338,7 @@ export const DEFAULT_SETTINGS: Settings = {
   manualCollections: [],
   normalDownloadDir: null,
   deletedDir: null,
-  tokiBaseUrl: '', // '' = online disabled until the user enters the current site address
+  comicBaseUrl: '', // '' = online disabled until the user enters the current site address
   organizeByLanguage: false,
   langDirs: { english: null, japanese: null, other: null },
   autoOrganizeOnScan: false,
@@ -357,13 +363,16 @@ export const DEFAULT_SETTINGS: Settings = {
   proxyServer: '',
   bypassTunnel: false,
   resumeReading: true,
-  tokiExcludeGenres: [],
+  readerSidebar: true,
+  autoUpdate: true,
+  listToggleTop: 60,
+  comicExcludeGenres: [],
   shortcuts: {},
-  hitomiBaseUrl: '',
+  doujinBaseUrl: '',
   readerMode: 'scroll',
-  lastReaderMode: { hitomi: 'scroll', normal: 'scroll' },
-  lastFit: { hitomi: 'contain', normal: 'width' },
-  lastZoom: { hitomi: 1, normal: 1 },
+  lastReaderMode: { doujin: 'scroll', normal: 'scroll' },
+  lastFit: { doujin: 'contain', normal: 'width' },
+  lastZoom: { doujin: 1, normal: 1 },
   spreadNextSide: 'left',
   pagedFlipSide: 'right',
   scrollTapFlip: 'off',
@@ -385,8 +394,8 @@ export const DEFAULT_SETTINGS: Settings = {
   doujinLock: { enabled: false, pinHash: '', decoyHash: '', salt: '' },
   normalFavMigrated: false,
   favoritesUnified: false,
-  hitomiNamePatterns: [...DEFAULT_HITOMI_PATTERNS],
-  hitomiDownloadPatternIdx: 0,
+  doujinNamePatterns: [...DEFAULT_DOUJIN_PATTERNS],
+  doujinDownloadPatternIdx: 0,
   maxConcurrentDownloads: 2
 }
 

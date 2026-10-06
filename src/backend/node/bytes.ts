@@ -26,7 +26,7 @@ export function b64url(s: string): string {
 
 export const view = (b: Uint8Array): DataView => new DataView(b.buffer, b.byteOffset, b.byteLength)
 
-// Big-endian int32s (hitomi .nozomi files / search-index posting lists).
+// Big-endian int32s (doujin .nozomi files / search-index posting lists).
 export function int32sBE(b: Uint8Array, from = 0, count = Math.floor((b.length - from) / 4)): number[] {
   const v = view(b)
   const out: number[] = []

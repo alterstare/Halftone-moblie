@@ -1,9 +1,10 @@
-// General-manga online source: 뉴토끼(newtoki)-style mirror, default sbxh9.com.
+// General-manga online source (comic site): a mirror whose address the user
+// enters in Settings (it changes often).
 //
 // The site is a React SPA behind a Cloudflare bot challenge. The CF "Just a
 // moment" / Turnstile check can NOT be solved headlessly — so when we hit it we
 // SHOW the window and let the user clear it by hand once; the clearance cookie
-// then persists in our `persist:toki` session, so later loads stay hidden.
+// then persists in the scraper WebView's cookie jar, so later loads stay hidden.
 //
 // Real structure (verified against saved pages, 2026-07):
 //   manga list   : /manhwa            webtoon list : /ing
@@ -18,18 +19,18 @@ import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { MM } from '../native'
 import type {
-  TokiListSource,
-  TokiSort,
-  TokiType,
-  TokiChapter,
-  TokiListResult,
-  TokiSummary
+  ComicListSource,
+  ComicSort,
+  ComicType,
+  ComicChapter,
+  ComicListResult,
+  ComicSummary
 } from '../../shared/ipc'
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 // Sort tab labels as they appear on the site (we click the matching button).
-const SORT_LABEL: Record<TokiSort, string> = {
+const SORT_LABEL: Record<ComicSort, string> = {
   date: '최신순',
   new: '신작순',
   bookmark: '북마크순',
@@ -38,22 +39,22 @@ const SORT_LABEL: Record<TokiSort, string> = {
   chapter: '화수순'
 }
 
-// --- scraper WebView (native TokiWeb, serialized) ---
-// The page lives in a second WebView behind the app (TokiWeb.java); it is
+// --- scraper WebView (native ComicWeb, serialized) ---
+// The page lives in a second WebView behind the app (ComicWeb.java); it is
 // brought to the front only for a Cloudflare check or manual browsing.
 let chain: Promise<unknown> = Promise.resolve()
 
 // Notified when a Cloudflare challenge needs the user (overlay shown) and when it
 // clears, so the app can show/hide an "인증이 필요합니다" banner.
 let onChallenge: ((active: boolean) => void) | null = null
-export function setTokiChallengeHandler(fn: (active: boolean) => void): void {
+export function setComicChallengeHandler(fn: (active: boolean) => void): void {
   onChallenge = fn
 }
 
 // What the scraper is doing right now (shown instead of a bare "불러오는 중…"
 // while the site is slow / being retried); null = idle.
 let onStatus: ((msg: string | null) => void) | null = null
-export function setTokiStatusHandler(fn: (msg: string | null) => void): void {
+export function setComicStatusHandler(fn: (msg: string | null) => void): void {
   onStatus = fn
 }
 const status = (msg: string | null): void => onStatus?.(msg)
@@ -61,7 +62,7 @@ const status = (msg: string | null): void => onStatus?.(msg)
 // True once the user has a Cloudflare clearance cookie for `url`'s site.
 async function hasClearance(url: string): Promise<boolean> {
   try {
-    const c = (await MM.tokiCookie({ url })).cookie ?? ''
+    const c = (await MM.comicCookie({ url })).cookie ?? ''
     return /(^|;\s*)cf_clearance=/.test(c)
   } catch {
     return false
@@ -109,7 +110,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 // Run an expression in the scraper page; resolves to its (JSON-able) value, or
 // rejects when the in-page code threw.
 async function evalRaw<T>(script: string): Promise<T> {
-  const { json } = await MM.tokiEval({ script })
+  const { json } = await MM.comicEval({ script })
   const r = JSON.parse(json) as { ok: boolean; v?: T; e?: string } | null
   if (!r || !r.ok) throw new Error(r?.e ?? 'eval failed')
   return r.v as T
@@ -141,10 +142,10 @@ const dropConnections = (): Promise<void> => MM.netReset().catch(() => {})
 // failed (connection reset, or nothing within STALL_MS).
 async function navigate(target: string, retries: number): Promise<boolean> {
   status(retries ? `연결이 끊겨 다시 시도하는 중… (${retries}/${MAX_RETRIES})` : '사이트에 연결하는 중…')
-  const { nav } = await MM.tokiLoad({ url: target })
+  const { nav } = await MM.comicLoad({ url: target })
   const t0 = Date.now()
   for (;;) {
-    const st = await MM.tokiState()
+    const st = await MM.comicState()
     if (st.nav !== nav) return false // superseded
     if (st.errorDesc && isReset(st.errorDesc)) return true
     if (st.committed) return false
@@ -154,7 +155,7 @@ async function navigate(target: string, retries: number): Promise<boolean> {
 }
 
 async function ensure(url: string, needContent: boolean): Promise<void> {
-  if (sameUrl((await MM.tokiState()).url, url)) {
+  if (sameUrl((await MM.comicState()).url, url)) {
     const p = await probe()
     if (p && !p.challenge && (p.ready || !needContent)) return // already good — no reload
   }
@@ -173,7 +174,7 @@ async function ensure(url: string, needContent: boolean): Promise<void> {
   if (!failed) status('페이지를 읽는 중…')
   for (let first = true; ; first = false) {
     if (!first) await delay(300)
-    const st = await MM.tokiState()
+    const st = await MM.comicState()
     // Connection reset after the page started (late failure) → reload.
     if (st.errorDesc && isReset(st.errorDesc) && retries < MAX_RETRIES) {
       retries++
@@ -192,7 +193,7 @@ async function ensure(url: string, needContent: boolean): Promise<void> {
       // Still being challenged and no clearance cookie yet → let the user solve.
       if (!shown) {
         shown = true
-        await MM.tokiShow({ title: '사람 확인을 완료해 주세요' })
+        await MM.comicShow({ title: '사람 확인을 완료해 주세요' })
         onChallenge?.(true) // tell the app to show the "인증 필요" banner
         status('사이트 인증 대기 중 — 열린 화면에서 인증을 마쳐 주세요')
       } else if (!st.visible) {
@@ -220,7 +221,7 @@ async function ensure(url: string, needContent: boolean): Promise<void> {
   }
   if (failed) status('연결할 수 없습니다 — 잠시 후 다시 시도해 주세요')
   // Only hide if we popped it open for a challenge AND it's now resolved.
-  if (shown && (await hasClearance(url))) await MM.tokiHide()
+  if (shown && (await hasClearance(url))) await MM.comicHide()
   if (shown) onChallenge?.(false) // clear the banner (solved, or gave up)
 }
 
@@ -231,7 +232,7 @@ async function evalPage<T>(script: string, fallback: T): Promise<T> {
 }
 
 // Sort tab → the site's `sort` query value (verified 2026-10; 최신순 = none).
-const SORT_PARAM: Record<TokiSort, string> = {
+const SORT_PARAM: Record<ComicSort, string> = {
   date: '',
   new: 'fresh',
   bookmark: 'hot',
@@ -244,7 +245,7 @@ const SORT_PARAM: Record<TokiSort, string> = {
 // search: &page=<n>), so open the exact page directly instead of loading page 1
 // and clicking through genre/sort/pager (that took seconds per call and forced
 // a reload whenever the previous click had changed the URL). 1-based `page`.
-function listUrl(base: string, src: TokiListSource, page: number): string {
+function listUrl(base: string, src: ComicListSource, page: number): string {
   const b = base.replace(/\/+$/, '')
   const u = new URL(
     src.query && src.query.trim() ? `${b}/search` : src.type === 'webtoon' ? `${b}/ing` : `${b}/manhwa`
@@ -415,8 +416,8 @@ const CHAPTERS_SCRIPT = `(() => {
 // <img class="viewer-lazy-img" data-src="<real cdn url>" alt="page N"> inside
 // .vw-imgs; the real URL is in data-src (present at load, no scroll needed).
 // Ad images have no viewer-lazy-img class, so this never picks them up. Image
-// host varies per chapter (booktoki/…); referer = the toki domain (set by
-// the native toki client). img_list kept as a legacy fallback.
+// host varies per chapter; referer = the comic site's domain (set by
+// the native comic client). img_list kept as a legacy fallback.
 const READ_SCRIPT = `(() => {
   const abs = (u) => { if (!u) return null; if (u.startsWith('//')) return 'https:' + u; try { return new URL(u, location.href).href } catch { return u } }
   const out = []
@@ -461,14 +462,14 @@ const READ_SCRIPT = `(() => {
   return out
 })()`
 
-export async function tokiList(base: string, src: TokiListSource, page: number): Promise<TokiListResult> {
+export async function comicList(base: string, src: ComicListSource, page: number): Promise<ComicListResult> {
   return queue(async () => {
     // URL already selects genre/sort/page; the in-page script then finds them
     // active and does nothing (its clicking stays as a fallback).
     await ensure(listUrl(base, src, page + 1), true)
     // On a search results page there are no genre/sort tabs to drive — passing
     // '전체'/'' skips those in-page clicks (which would otherwise no-op or churn).
-    const r = await evalPage<{ items: TokiListResult['items']; hasNext: boolean; genres: string[]; page?: number }>(
+    const r = await evalPage<{ items: ComicListResult['items']; hasNext: boolean; genres: string[]; page?: number }>(
       listScript(src.query ? '전체' : src.genre, src.query ? '' : SORT_LABEL[src.sort], page + 1),
       { items: [], hasNext: false, genres: [] }
     )
@@ -479,9 +480,9 @@ export async function tokiList(base: string, src: TokiListSource, page: number):
   })
 }
 
-export async function tokiChapters(seriesUrl: string): Promise<TokiChapter[]> {
+export async function comicChapters(seriesUrl: string): Promise<ComicChapter[]> {
   return queue(async () => {
-    type R = { items: TokiChapter[]; last: number }
+    type R = { items: ComicChapter[]; last: number }
     await ensure(seriesUrl, true)
     const first = await evalPage<R>(CHAPTERS_SCRIPT, { items: [], last: 1 })
     const all = [...(first.items ?? [])]
@@ -511,7 +512,7 @@ const AUTHOR_SCRIPT = `(() => {
   return out.length ? out.join(', ') : null
 })()`
 
-export async function tokiSeriesAuthor(seriesUrl: string): Promise<string | null> {
+export async function comicSeriesAuthor(seriesUrl: string): Promise<string | null> {
   return queue(async () => {
     await ensure(seriesUrl, true)
     return evalPage<string | null>(AUTHOR_SCRIPT, null)
@@ -530,7 +531,7 @@ const TITLE_SCRIPT = `(() => {
   return d || null
 })()`
 
-export async function tokiSeriesTitle(seriesUrl: string): Promise<string | null> {
+export async function comicSeriesTitle(seriesUrl: string): Promise<string | null> {
   return queue(async () => {
     await ensure(seriesUrl, true)
     return evalPage<string | null>(TITLE_SCRIPT, null)
@@ -582,16 +583,16 @@ const isComicUrl = (u: string): boolean => /\/(manhwa|webtoon)\//.test(u)
 async function firstMatch(
   base: string,
   title: string,
-  pick: (it: TokiSummary) => boolean
-): Promise<TokiSummary | null> {
+  pick: (it: ComicSummary) => boolean
+): Promise<ComicSummary | null> {
   const want = normTitle(title)
-  let loose: TokiSummary | null = null
+  let loose: ComicSummary | null = null
   // Search the manga section, then webtoon (search is filtered by kind=, see
   // listUrl) — a webtoon's cover/author only shows up in the webtoon section.
   // isComicUrl guards against anime/novel entries of the same name.
   for (const q of titleQueries(title)) {
     for (const type of ['manga', 'webtoon'] as const) {
-      const r = await tokiList(base, { genre: '전체', sort: 'date', type, query: q }, 0).catch(() => null)
+      const r = await comicList(base, { genre: '전체', sort: 'date', type, query: q }, 0).catch(() => null)
       const ok = r?.items.filter((it) => isComicUrl(it.url) && pick(it) && titleMatches(title, it.title)) ?? []
       const exact = ok.find((it) => normTitle(it.title) === want)
       if (exact) return exact
@@ -604,11 +605,11 @@ async function firstMatch(
 // Best-guess author for a local work by its title: search → confirm the result
 // is the same title → its page → author. Returns null (leave artist empty)
 // unless a confident title match is found — never guesses.
-export async function tokiAuthorForTitle(base: string, title: string): Promise<string | null> {
+export async function comicAuthorForTitle(base: string, title: string): Promise<string | null> {
   if (!title.trim()) return null
   const hit = await firstMatch(base, title, (it) => !!it.url)
   if (!hit?.url) return null
-  return tokiSeriesAuthor(hit.url)
+  return comicSeriesAuthor(hit.url)
 }
 
 // The viewer box (.vw-imgs) exists as soon as the page renders, but its <img>s
@@ -622,7 +623,7 @@ async function waitPageImages(ms: number): Promise<void> {
   while (!(await evalPage<boolean>(HAS_PAGE_IMG, false)) && Date.now() < end) await delay(300)
 }
 
-export async function tokiReadUrls(chapterUrl: string): Promise<string[]> {
+export async function comicReadUrls(chapterUrl: string): Promise<string[]> {
   return queue(async () => {
     await ensure(chapterUrl, true)
     status('만화 이미지를 기다리는 중…')
@@ -633,20 +634,20 @@ export async function tokiReadUrls(chapterUrl: string): Promise<string[]> {
 
 // Manually open a site in the visible overlay (default the configured base) so
 // the user can clear Cloudflare, log in, or navigate a backup site by hand.
-export async function tokiOpenSite(base: string, url?: string): Promise<void> {
+export async function comicOpenSite(base: string, url?: string): Promise<void> {
   return queue(async () => {
     const target = url && url.trim() ? url.trim() : base.replace(/\/+$/, '') + '/'
     // Show first: the hidden-page image block must not strip the page the user
     // is about to browse by hand.
-    await MM.tokiShow({ title: target })
-    await MM.tokiLoad({ url: target })
+    await MM.comicShow({ title: target })
+    await MM.comicLoad({ url: target })
   })
 }
 
 // --- Generic (gnuboard-style backup site) adapter ---
-// These sites aren't the newtoki React SPA: the user opens the site by hand,
+// These sites aren't the main comic site's React SPA: the user opens the site by hand,
 // navigates to a chapter-LIST page, and we scrape whatever is currently loaded.
-// Selectors mirror the user's tokidownloader.txt (list + viewer variants).
+// Selectors mirror the user's own downloader notes (list + viewer variants).
 
 // Scrape the chapter list from the page CURRENTLY loaded in the window (no
 // navigation) — the user must be on a list page. Returns ascending chapters.
@@ -689,9 +690,9 @@ const GENERIC_LIST_SCRIPT = `(() => {
   return { items: out }
 })()`
 
-export async function tokiScrapeList(): Promise<TokiChapter[]> {
+export async function comicScrapeList(): Promise<ComicChapter[]> {
   return queue(async () => {
-    const r = await evalPage<{ items: TokiChapter[] }>(GENERIC_LIST_SCRIPT, { items: [] })
+    const r = await evalPage<{ items: ComicChapter[] }>(GENERIC_LIST_SCRIPT, { items: [] })
     return r.items ?? []
   })
 }
@@ -718,7 +719,7 @@ const GENERIC_READ_SCRIPT = `(() => {
 // chapter page is loaded in the (hidden) window and its images extracted, so it
 // runs in the background — the user need not keep the site window open.
 export async function downloadGenericChapters(
-  chapters: TokiChapter[],
+  chapters: ComicChapter[],
   title: string,
   destRoot: string,
   onProgress: (done: number, total: number, label: string) => void,
@@ -756,9 +757,9 @@ export async function downloadGenericChapters(
 }
 
 // Best-guess cover image url for a series title (search → first card thumb).
-// Returns the raw CDN url (unwrapped); the caller fetches it via the toki
+// Returns the raw CDN url (unwrapped); the caller fetches it via the comic
 // session. Used by the offline library's "cover regen from online" feature.
-export async function tokiCoverForTitle(base: string, title: string): Promise<string | null> {
+export async function comicCoverForTitle(base: string, title: string): Promise<string | null> {
   if (!title.trim()) return null
   // Take the first result that actually carries a cover (the first card's thumb
   // can be null when only the platform-icon img is present).
@@ -766,10 +767,10 @@ export async function tokiCoverForTitle(base: string, title: string): Promise<st
   return hit?.thumb ?? null
 }
 
-// Save a toki image (through the reader's image cache: WebView cookies + site
+// Save a comic image (through the reader's image cache: WebView cookies + site
 // referer) into a file. Used for cover regeneration.
-export async function tokiImageToFile(url: string, path: string): Promise<void> {
-  await MM.imageToFile({ url, kind: 'toki', path })
+export async function comicImageToFile(url: string, path: string): Promise<void> {
+  await MM.imageToFile({ url, kind: 'comic', path })
 }
 
 // --- download a whole series into the local general-manga library ---
@@ -795,7 +796,7 @@ function extOf(url: string): string {
 // at a time, written natively. Resumable: an image already on disk (non-empty)
 // is skipped, so a retry continues where a stopped/failed download left off. A
 // failing image is skipped; the rest still download. `referer` overrides the
-// toki site referer (backup sites need their own domain).
+// comic site referer (backup sites need their own domain).
 async function saveChapterImages(chDir: string, urls: string[], referer?: string): Promise<void> {
   const headers: Record<string, string> = referer ? { Referer: referer } : {}
   let next = 0
@@ -809,7 +810,7 @@ async function saveChapterImages(chDir: string, urls: string[], referer?: string
       // Retry network errors (connection resets); HTTP errors fail at once.
       for (let attempt = 0; ; attempt++) {
         try {
-          await MM.httpDownload({ url: urls[j], kind: 'toki', headers, path: fp })
+          await MM.httpDownload({ url: urls[j], kind: 'comic', headers, path: fp })
           break
         } catch (e) {
           if (attempt >= 4 || /->\s*\d{3}/.test(String(e))) break // skip a bad image
@@ -845,7 +846,7 @@ export function chapterFolderName(seriesTitle: string, chTitle: string, n: numbe
   return s ? `${label} ${s}` : label
 }
 
-export async function tokiDownloadSeries(
+export async function comicDownloadSeries(
   seriesUrl: string,
   title: string,
   destRoot: string,
@@ -853,7 +854,7 @@ export async function tokiDownloadSeries(
   only?: string[], // when set, download only these chapter urls (선택/이어서)
   signal?: AbortSignal
 ): Promise<string> {
-  const all = await tokiChapters(seriesUrl)
+  const all = await comicChapters(seriesUrl)
   if (!all.length) throw new Error('화 목록을 찾지 못했습니다')
   const pick = only ? new Set(only) : null
   const chapters = pick ? all.filter((c) => pick.has(c.url)) : all
@@ -865,15 +866,15 @@ export async function tokiDownloadSeries(
     signal?.throwIfAborted()
     const ch = chapters[i]
     onProgress(i, total, ch.title)
-    let urls = await tokiReadUrls(ch.url)
+    let urls = await comicReadUrls(ch.url)
     if (!urls.length) {
       // Page didn't deliver its images (slow/stalled load) → load it once more
       // from scratch before giving up on this chapter.
       await queue(async () => {
         await dropConnections()
-        await MM.tokiLoad({ url: 'about:blank' })
+        await MM.comicLoad({ url: 'about:blank' })
       })
-      urls = await tokiReadUrls(ch.url)
+      urls = await comicReadUrls(ch.url)
     }
     if (!urls.length) continue
     // Folder = "<n>화 <subtitle>" (series name is only on the parent). The chapter
@@ -887,4 +888,4 @@ export async function tokiDownloadSeries(
   return seriesDir
 }
 
-export type { TokiType, TokiSort }
+export type { ComicType, ComicSort }

@@ -1,3 +1,7 @@
+> Desktop architecture notes (copied from the desktop repo). File names here use
+> this repo's neutral naming (doujin / comic) — the desktop repo names those
+> files after the sites.
+
 # manga-viewer-2 — Developer / AI Handoff Notes
 
 Windows Electron manga viewer. Two independent library modes: **doujin** (coded
@@ -43,8 +47,8 @@ auto-update, startup migrations) and registers the IPC modules:
 | `main/context.ts` | shared `store`, `appState` (closing/quitting), `getMainWindow`, `sendToRenderer` |
 | `main/ipc/library.ts` | settings, scan, works (rank/groups/tags/views), folders, thumbnails, translation, exports, exit/reset |
 | `main/ipc/favorites.ts` | hearts by code, favorites file (export/import/merge), favorite lists, gallery summaries |
-| `main/ipc/hitomi.ts` | doujin browse/search, metadata enrich, deleted-sweep, cover regen, download |
-| `main/ipc/toki.ts` | general-manga online: list/chapters/images/author/cover, downloads |
+| `main/ipc/doujin.ts` | doujin browse/search, metadata enrich, deleted-sweep, cover regen, download |
+| `main/ipc/comic.ts` | general-manga online: list/chapters/images/author/cover, downloads |
 | `main/downloads.ts` | `runDownload(code, title, task)` — slot gate, stop, progress for ALL downloads |
 | `main/lib/media.ts` | `mangaimg://` protocol, url encoders, thumbnail cache files |
 | `main/lib/favoriteSync.ts` | the favorites model (see §10) |
@@ -81,12 +85,12 @@ Renderer calls everything via `window.api.*` (typed by `Api`).
 ### Download dispatch is centralized (recent refactor — keep it that way)
 
 All downloads go through **`store.startDownload(spec)`** — never call
-`window.api.hitomiDownload/tokiDownload/...` directly from a component.
+`window.api.doujinDownload/comicDownload/...` directly from a component.
 ```ts
 type DownloadSpec =
-  | { kind: 'hitomi'; input: string; title?: string }
-  | { kind: 'toki'; seriesUrl: string; title: string; chapterUrls?: string[] }
-  | { kind: 'generic'; title: string; chapters: TokiChapter[]; only?: string[] }
+  | { kind: 'doujin'; input: string; title?: string }
+  | { kind: 'comic'; seriesUrl: string; title: string; chapterUrls?: string[] }
+  | { kind: 'generic'; title: string; chapters: ComicChapter[]; only?: string[] }
 ```
 - `specCode(spec)` derives the progress code (doujin numeric code / manga-site seriesUrl /
   `backup:<title>`) — must match the `code` main emits on the progress channel.
@@ -97,7 +101,7 @@ type DownloadSpec =
 - Related actions: `stopDownload(code)`, `retryDownload(code)`,
   `stopAllDownloads(mode)`, `startAllDownloads(mode)`.
 - Progress events land in `pushDownloadProgress` (wired once in `App.tsx` via
-  `onHitomiProgress`). It rebuilds the item from the event but **preserves `spec`**
+  `onDoujinProgress`). It rebuilds the item from the event but **preserves `spec`**
   from the previous item — keep that when editing.
 
 ---
@@ -108,35 +112,35 @@ type DownloadSpec =
   **`runDownload(code, title, task)`** in `main/downloads.ts`: waits for a slot
   (`settings.maxConcurrentDownloads`, 0 = unlimited, read per acquire, FIFO),
   wires the stop button to an `AbortSignal`, and reports `queued → fetching →
-  (task reports downloading/done) | stopped | error` on the hitomiProgress channel.
+  (task reports downloading/done) | stopped | error` on the doujinProgress channel.
   The task only reports its own `downloading`/`done`.
 - Stop = `stopDownload(code)` (IPC `download:stop`) → abort → `stopped` + rejects
   with `STOP_MSG` (`'DOWNLOAD_STOPPED'`), which the renderer treats as non-error.
 - Lib functions take `signal?` and `signal?.throwIfAborted()` per loop step
   (doujin per image, manga-site per chapter). Manga-site chapter images save 4 at a time
   and are resumable (files already on disk are skipped).
-- `HitomiProgress.phase`: `'queued' | 'fetching' | 'downloading' | 'enriching' |
+- `DoujinProgress.phase`: `'queued' | 'fetching' | 'downloading' | 'enriching' |
   'done' | 'error' | 'stopped'`. Code = doujin code / manga-site seriesUrl / `backup:<title>`.
 
 ---
 
 ## 5. Scanner & classification (main)
 
-- `scanRoot` / `scanOne` stamp `work.library = 'hitomi' | 'normal'` based on **which
+- `scanRoot` / `scanOne` stamp `work.library = 'doujin' | 'normal'` based on **which
   root the folder lives under** (`normalRoots(settings)`), NOT by code presence.
 - Doujin gallery-id detection is **pattern-driven** (`src/main/lib/parser.ts`
   `parseName(folderName, patterns)`):
-  - User patterns in `settings.hitomiNamePatterns` (shared setting), tokens
+  - User patterns in `settings.doujinNamePatterns` (shared setting), tokens
     `-id-` `-title-` `-artist-` `-group-` `-language-`. `-id-` compiles to `(\d{4,})`
     and is **required** — a folder is a doujin work only if a pattern matches AND the
     id slot has digits. Prevents incidental 7-digit numbers in titles being read as
     codes.
-  - `DEFAULT_HITOMI_PATTERNS` is the fallback list. Patterns tried in order.
-  - Only applied when `library === 'hitomi'`; normal mode never parses an id.
+  - `DEFAULT_DOUJIN_PATTERNS` is the fallback list. Patterns tried in order.
+  - Only applied when `library === 'doujin'`; normal mode never parses an id.
 - Shared pattern util `src/shared/pattern.ts`: `fillNamePattern(pattern, fields)`
   (used for download folder naming + the settings live preview), `langCode(lang)`
   → `KOR/CHN/JPN/ENG/ETC`, `SAMPLE_FIELDS`.
-- Download folder naming uses the pattern at `hitomiNamePatterns[hitomiDownloadPatternIdx]`.
+- Download folder naming uses the pattern at `doujinNamePatterns[doujinDownloadPatternIdx]`.
 
 ---
 
@@ -202,7 +206,7 @@ in-progress, `✓`/`✗`/`■`/`▶`/`⏸`/`⬇` glyph prefixes for status/actio
   `TranslateSection`, `NetworkSection`, `ManageSection`; shared rows in
   `settings/parts.tsx` (`RadioCards`, `RootList`, `FolderRow`, `ChipList`).
 - Sections read/edit through `useSettings()` (`settings/context.ts`):
-  `draft`, `patch`, `applySaved`, `isHitomi`, `notify`, `pickDir`, `rescan`.
+  `draft`, `patch`, `applySaved`, `isDoujin`, `notify`, `pickDir`, `rescan`.
 - All categories render at once; CSS (`.settings-inner[data-show]`) shows the
   active one, so section state and running jobs survive tab switches.
 
@@ -219,7 +223,7 @@ in-progress, `✓`/`✗`/`■`/`▶`/`⏸`/`⬇` glyph prefixes for status/actio
 - Sandbox blocks doujin network in some contexts; real downloads run in the packaged
   app / normal dev run.
 - Online list pagination: clear items (`setItems([])`) before fetching the next page
-  so the previous page doesn't linger under the loader (Browse.tsx, TokiBrowse.tsx,
+  so the previous page doesn't linger under the loader (Browse.tsx, ComicBrowse.tsx,
   OnlineList.tsx).
 - Electron main is CJS at runtime; shared/renderer are ESM. Keep imports path-correct
   (`../../shared/...`).
@@ -236,8 +240,8 @@ in-progress, `✓`/`✗`/`■`/`▶`/`⏸`/`⬇` glyph prefixes for status/actio
 | App lifecycle | `src/main/index.ts` |
 | IPC handlers | `src/main/ipc/*.ts` (§2) |
 | Favorites model | `src/main/lib/favoriteSync.ts` |
-| Doujin client (DoH, gg.js, download) | `src/main/lib/hitomi.ts` |
-| Manga-site scraper (hidden window) | `src/main/lib/toki.ts` |
+| Doujin client (DoH, gg.js, download) | `src/main/lib/doujin.ts` |
+| Manga-site scraper (hidden window) | `src/main/lib/comic.ts` |
 | Scanner / parser | `src/main/lib/scanner.ts`, `src/main/lib/parser.ts` |
 | Renderer store (sections marked) | `src/renderer/src/store.ts` |
 | Favorites list builders | `src/renderer/src/favorites.ts` |

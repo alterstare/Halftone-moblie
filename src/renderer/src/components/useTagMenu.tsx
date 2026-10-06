@@ -29,7 +29,7 @@ export function useTagMenu(target: 'online' | 'local'): {
   const addFavoriteTag = useStore((s) => s.addFavoriteTag)
   const toggleExcludeTag = useStore((s) => s.toggleExcludeTag)
   const excludeTags = useStore((s) => s.settings.onlineExcludeTags)
-  const hitomiMode = useStore((s) => s.libraryMode !== 'normal')
+  const doujinMode = useStore((s) => s.libraryMode !== 'normal')
 
   const openTagMenu = (e: MouseEvent, query: string, raw: string): void => {
     e.preventDefault()
@@ -47,7 +47,7 @@ export function useTagMenu(target: 'online' | 'local'): {
           : { label: '로컬에서 검색', onClick: () => searchLocal(menu.query) },
         { label: '복사', onClick: () => void window.api.clipboardWriteText(menu.raw) },
         { label: '즐겨찾는 태그로 추가', onClick: () => addFavoriteTag(menu.raw) },
-        ...(hitomiMode
+        ...(doujinMode
           ? [
               {
                 label: (excludeTags ?? []).includes(menu.query) ? '검색 제외 태그에서 빼기' : '검색 제외 태그로 추가',
