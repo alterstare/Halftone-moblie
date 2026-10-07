@@ -10,6 +10,7 @@ import { NasConnModal } from '../NasDialogs'
 import ConfirmModal from '../ConfirmModal'
 import { fillNamePattern, SAMPLE_FIELDS } from '../../../../shared/pattern'
 import SettingRow from '../SettingRow'
+import Toggle from '../Toggle'
 import { useSettings } from './context'
 import { RootList, FolderRow } from './parts'
 
@@ -196,6 +197,12 @@ export default function FolderSection(): JSX.Element {
   return (
     <section data-cat="folder">
       <h2>폴더</h2>
+      <SettingRow
+        title="갤러리에서 숨기기"
+        desc="다운로드 폴더에 .nomedia 파일을 두어 휴대폰 갤러리 앱이 다운로드한 이미지를 표시하지 않게 합니다. (감상창에서 '이미지 저장'으로 저장한 이미지는 그대로 보입니다.)"
+      >
+        <Toggle checked={draft.hideFromGallery !== false} onChange={(v) => patch({ hideFromGallery: v })} />
+      </SettingRow>
       <NasConnections />
       {isDoujin ? (
         <>

@@ -703,6 +703,31 @@ public class MMPlugin extends Plugin {
         });
     }
 
+    // Rescan folders (and every file under them) so MediaStore / the gallery picks
+    // up a new or removed .nomedia: hidden folders drop out, unhidden ones come back.
+    @PluginMethod
+    public void mediaScan(PluginCall call) {
+        JSArray a = call.getArray("paths", new JSArray());
+        bg(call, () -> {
+            java.util.ArrayList<String> files = new java.util.ArrayList<>();
+            for (int i = 0; i < a.length(); i++) {
+                String p = a.optString(i, "");
+                if (p.isEmpty()) continue;
+                collect(new java.io.File(p), files, 0);
+            }
+            if (!files.isEmpty())
+                android.media.MediaScannerConnection.scanFile(getContext(), files.toArray(new String[0]), null, null);
+            call.resolve();
+        });
+    }
+
+    private static void collect(java.io.File f, java.util.List<String> out, int depth) {
+        out.add(f.getAbsolutePath());
+        if (depth > 4 || !f.isDirectory()) return;
+        java.io.File[] kids = f.listFiles();
+        if (kids != null) for (java.io.File k : kids) collect(k, out, depth + 1);
+    }
+
     @PluginMethod
     public void clearImageCache(PluginCall call) {
         bg(call, () -> {

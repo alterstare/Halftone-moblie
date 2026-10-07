@@ -28,6 +28,7 @@ import { encodeWeb, writeRawThumb } from '../lib/media'
 import { runDownload, stopDownload } from '../downloads'
 import { placeIfFavorite } from '../lib/favoriteSync'
 import { ensureStorage } from '../storage'
+import { applyGalleryHide } from '../gallery'
 
 // Summary with its thumb wrapped for the image interceptor.
 const withWebThumb = (s: GallerySummary): GallerySummary => ({
@@ -227,6 +228,7 @@ export const doujinApi: Partial<Api> = {
     const destRoot = store.settings.downloadDir ?? store.settings.libraryRoots[0]
     if (!destRoot) throw new Error('다운로드 폴더 또는 라이브러리 폴더를 먼저 설정하세요')
     await ensureStorage([destRoot])
+    await applyGalleryHide(store.settings)
     return runDownload(code, '', async (signal, report) => {
       const { dir, meta } = await downloadGallery(
         code,

@@ -177,6 +177,8 @@ export interface Settings {
   sidebarToggle: 'bar' | 'float'
   // Phone reader focus mode: hiding the reader bars also hides the tab bar.
   focusMode: boolean
+  // Phone: keep downloaded pages out of the gallery (.nomedia in the download folders).
+  hideFromGallery: boolean
   // Check GitHub releases on start and download a newer APK (phone).
   autoUpdate: boolean
   // Phone: disk cache for online / NAS images, in GB (0 = off).
@@ -373,6 +375,7 @@ export const DEFAULT_SETTINGS: Settings = {
   readerSidebar: true,
   sidebarToggle: 'bar',
   focusMode: false,
+  hideFromGallery: true,
   autoUpdate: true,
   imageCacheGB: 0.5,
   listToggleTop: 60,

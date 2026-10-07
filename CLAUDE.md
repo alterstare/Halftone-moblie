@@ -192,6 +192,9 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
     comicLoad/comicState/comicEval (`backend/lib/comic.ts`).
 - Data: app-private files dir (settings/works/online json, thumbs). First run
   sets download dirs to `Download/MangaManager/{doujin,manga}`.
+  `settings.hideFromGallery` (default on, 설정 › 폴더): `backend/gallery.ts` keeps a
+  `.nomedia` in both download dirs (startup, settings save, each download) and
+  `MM.mediaScan` rescans them so the phone gallery drops / regains the pages.
 
 Known gaps / TODO: downloads run in WebView JS (stall when app backgrounded —
 needs a foreground service); UI still desktop-shaped in places (home/browse

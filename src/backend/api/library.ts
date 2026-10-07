@@ -16,6 +16,7 @@ import { organizeByLanguage } from '../lib/organize'
 import { applyNetwork } from '../network'
 import { encodeImg, thumbFile, isRawThumb, rawMarker } from '../lib/media'
 import { ensureStorage } from '../storage'
+import { applyGalleryHide } from '../gallery'
 
 const allWorks = (): Work[] => [...store.works.values()]
 
@@ -46,6 +47,7 @@ export const libraryApi: Partial<Api> = {
   saveSettings: async (s: Settings) => {
     const saved = await store.saveSettings(s)
     await applyNetwork(saved)
+    await applyGalleryHide(saved)
     return saved
   },
 

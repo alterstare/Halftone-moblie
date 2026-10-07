@@ -17,6 +17,7 @@ import { favoritesApi } from './api/favorites'
 import { doujinApi } from './api/doujin'
 import { comicApi } from './api/comic'
 import { checkForUpdate, installUpdate } from './update'
+import { applyGalleryHide } from './gallery'
 
 // Events with no mobile source (desktop-only: OS close button, mouse forward
 // button, auto-updater) — the UI subscribes, nothing ever fires.
@@ -76,6 +77,7 @@ export async function installBackend(): Promise<void> {
   store.favoriteRule = scannedFavorite
   await firstRunFolders()
   await applyNetwork(store.settings)
+  void applyGalleryHide(store.settings)
   await migrateNormalFavorites()
   await migrateFavorites()
   await initThumbDir()

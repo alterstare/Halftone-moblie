@@ -23,6 +23,7 @@ import {
 import { encodeComic, writeRawThumb } from '../lib/media'
 import { runDownload } from '../downloads'
 import { ensureStorage } from '../storage'
+import { applyGalleryHide } from '../gallery'
 
 // Where general-manga downloads go — never the doujin library.
 function normalDestRoot(): string {
@@ -47,6 +48,7 @@ async function importDownloaded(dir: string, artist?: string | null): Promise<Wo
 async function runComicDownload(seriesUrl: string, title: string, chapterUrls?: string[]): Promise<Work[]> {
   const destRoot = normalDestRoot()
   await ensureStorage([destRoot])
+  await applyGalleryHide(store.settings)
   return runDownload(seriesUrl, title, async (signal, report) => {
     // Grab the author from the series page so downloaded chapters carry it.
     const artist = await comicSeriesAuthor(seriesUrl).catch(() => null)
@@ -92,6 +94,7 @@ export const comicApi: Partial<Api> = {
   comicDownloadGeneric: async (title: string, chapters: ComicChapter[], only?: string[]) => {
     const destRoot = normalDestRoot()
     await ensureStorage()
+    await applyGalleryHide(store.settings)
     return runDownload('backup:' + title, title, async (signal, report) => {
       const dir = await downloadGenericChapters(
         chapters,
