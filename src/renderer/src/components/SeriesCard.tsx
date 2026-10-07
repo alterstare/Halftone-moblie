@@ -201,7 +201,6 @@ export function ChapterRow({
         {info.subtitle && <span className="ch-subtitle">- {info.subtitle}</span>}
         <span className="ch-pages">{work.pageCount}p</span>
         <span className="ch-spacer" />
-        <Stars rank={work.rank} onChange={setRank} size={13} />
         <FavGroup
           favorite={isFav}
           onToggle={(e) => {
@@ -227,6 +226,10 @@ export function ChapterRow({
             placeholder="태그…"
           />
         )}
+        {/* Rating at the bottom right (tags row) → the title line gets the room. */}
+        <span className="ch-rating">
+          <Stars rank={work.rank} onChange={setRank} size={13} />
+        </span>
       </div>
     </div>
   )

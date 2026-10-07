@@ -408,7 +408,8 @@ function listScript(genres: string[], sortLabel: string, page: number): string {
     // Author isn't on the list card (only the series page) → artist stays null.
     seen.add(url); out.push({ url, title, thumb, artist: null, genre, chapter })
   }
-  const genres = genreChips().map(chipText).filter(Boolean)
+  // Active chips read "✓ 판타지" — report the bare name (the UI keeps its own selection).
+  const genres = genreChips().map((c) => chipText(c).replace(/^✓\\s*/, '')).filter(Boolean)
   const platforms = (rowChips('플랫폼') || [])
     .filter((c) => c.dataset.platformId)
     .map((c) => ({ id: c.dataset.platformId, name: (c.querySelector('img')?.alt || c.getAttribute('aria-label') || c.title || txt(c)).replace(/\\s*(포함|제외).*$/, '') }))

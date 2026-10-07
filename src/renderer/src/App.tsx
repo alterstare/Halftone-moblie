@@ -386,6 +386,7 @@ function ReaderSplit(): JSX.Element {
   const paneWidth = activeNormal ? normalListWidth : listWidth
   // Phone: the drawer can be turned off entirely (설정 · 뷰어 스타일).
   const sidebarOn = useStore((s) => s.settings.readerSidebar !== false)
+  const sidebarToggleMode = useStore((s) => s.settings.sidebarToggle ?? 'bar')
   // The edge toggle: long-press, then drag it up / down; the spot is saved.
   const toggleTop = useStore((s) => s.settings.listToggleTop ?? 60)
   const [dragTop, setDragTop] = useState<number | null>(null)
@@ -476,7 +477,7 @@ function ReaderSplit(): JSX.Element {
   }, [])
 
   return (
-    <div className={`reader-split ${sidebarOn ? '' : 'no-sidebar'}`} ref={splitRef}>
+    <div className={`reader-split ${sidebarOn ? '' : 'no-sidebar'} ${sidebarToggleMode === 'bar' && isNarrow() ? 'toggle-bar' : ''}`} ref={splitRef}>
       {/* Kept mounted so the collapse/expand width animation can play (mirrors the
           tab open/close animation); collapsed drives width → 0 via CSS. */}
       <div

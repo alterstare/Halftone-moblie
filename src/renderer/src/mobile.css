@@ -2535,3 +2535,135 @@ body:has(.activity) .fab-wrap {
   font-size: 20px;
   translate: 0 -0.8px;
 }
+
+/* 작업 목록 panel: flat buttons split by divider lines (.flat-group); the
+   cancel ✕ stays red, 업데이트 설치 purple. */
+.activity .flat-group .mini.danger:not(:disabled) {
+  color: var(--danger);
+}
+.activity-row.update .flat-group .mini,
+.activity-bar-btns.flat-group .mini {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Library toolbars under the search box (격자/목록 · 정렬 · 전체 · 즐겨찾기 …): 1.1×. */
+.home-head > .chips,
+.browse-head > .chips {
+  zoom: 1.1;
+}
+/* ☰ menu entries: 1.25×, with a wider drawer so the labels still fit. */
+.menu-drawer {
+  width: 260px;
+  max-width: 75vw;
+}
+.menu-drawer .menu-item,
+.menu-drawer .menu-mode {
+  zoom: 1.25;
+}
+
+/* Sidebar chapter rows: never wider than the list. Stars + heart (/ group) sit
+   at the right end; the title (and subtitle) shrink with an ellipsis first,
+   never into the buttons. */
+.lib-list .chapter-row {
+  min-width: 0;
+  overflow: hidden;
+}
+.lib-list .chapter-line > * {
+  flex-shrink: 0;
+}
+.lib-list .chapter-line > .ch-label,
+.lib-list .chapter-line > .ch-subtitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-list .chapter-line > .ch-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Sidebar chapter rows: the rating sits at the bottom right (online: its own
+   line; local: the end of the tags row), so the title line has the room. */
+.lib-list .chapter-sub {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -2px;
+}
+.lib-list .chapter-tags .ch-rating {
+  margin-left: auto;
+  flex: none;
+}
+
+/* Reader list drawer opened from the bottom bar's ☰ ('bar' mode): no floating
+   edge toggle. */
+/* Switching 버튼 ⇄ 플로팅 slides the floating toggle out to / in from the left. */
+.reader-split .divider .list-toggle {
+  transition:
+    scale 0.15s ease-out,
+    box-shadow 0.15s ease-out,
+    translate 0.18s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.18s ease;
+}
+.reader-split.toggle-bar > .divider .list-toggle {
+  translate: -110% 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.reader-bottom .reader-list-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  margin-right: -2px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+}
+.reader-bottom .focus-btn.focus-on {
+  color: var(--accent);
+}
+
+/* Focus mode: the tab bar folds away with the reader bars and comes back
+   with them. */
+.mtabbar {
+  transition:
+    margin-top 0.2s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.2s ease;
+}
+body.focus-hide-tabs .mtabbar {
+  margin-top: calc(-1 * var(--mtabbar-h, 48px));
+  opacity: 0;
+  pointer-events: none;
+}
+.lib-list .chapter-tags {
+  flex-wrap: nowrap;
+  align-items: flex-end;
+}
+.lib-list .chapter-tags > :not(.ch-rating) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Bottom-bar ☰: folds to 0 width (pushed out left) in 플로팅 mode, slides back in
+   for 버튼 — the slider beside it follows. */
+.reader-bottom .reader-list-btn {
+  transition:
+    width 0.18s cubic-bezier(0.2, 0, 0, 1),
+    margin 0.18s cubic-bezier(0.2, 0, 0, 1),
+    translate 0.18s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.18s ease;
+  overflow: hidden;
+}
+.reader-bottom .reader-list-btn.off {
+  width: 0;
+  margin-right: -10px; /* also swallow the bar's gap */
+  translate: -100% 0;
+  opacity: 0;
+  pointer-events: none;
+}

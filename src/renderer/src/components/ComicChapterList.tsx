@@ -162,7 +162,6 @@ export default function ComicChapterList(): JSX.Element {
               <div className="chapter-line">
                 <span className="ch-label">{c.title}</span>
                 <span className="ch-spacer" />
-                <Stars rank={fav?.rank ?? 0} onChange={(r) => setOnlineRank(c.url, r, chapterMeta(c))} size={13} />
                 <span
                   className={`ch-heart ${fav?.favorite ? 'on' : ''}`}
                   title="즐겨찾기"
@@ -173,6 +172,10 @@ export default function ComicChapterList(): JSX.Element {
                 >
                   <FavoriteIcon filled={!!fav?.favorite} />
                 </span>
+              </div>
+              {/* Rating on its own line at the bottom right → the title gets the full width. */}
+              <div className="chapter-sub">
+                <Stars rank={fav?.rank ?? 0} onChange={(r) => setOnlineRank(c.url, r, chapterMeta(c))} size={13} />
               </div>
             </div>
           )

@@ -150,7 +150,7 @@ export default function ActivityBar(): JSX.Element | null {
         <div className="activity-panel" style={{ width: Math.max(listWidth, 340) + 48 }}>
           <div className="activity-panel-head">
             <span>작업 목록 ({rows.length})</span>
-            <div className="activity-head-actions">
+            <div className="activity-head-actions flat-group">
               <button
                 className="mini"
                 title="전체 일시정지"
@@ -202,7 +202,7 @@ export default function ActivityBar(): JSX.Element | null {
                   )}
                 </div>
                 {update.state === 'downloaded' && (
-                  <div className="activity-row-actions">
+                  <div className="activity-row-actions flat-group">
                     <button
                       className="mini"
                       onClick={(e) => {
@@ -236,7 +236,7 @@ export default function ActivityBar(): JSX.Element | null {
                   )}
                 </div>
                 {r.dl ? (
-                  <div className="activity-row-actions">
+                  <div className="activity-row-actions flat-group">
                     {r.dl.canStop && (
                       <button
                         className="mini icon"
@@ -285,7 +285,7 @@ export default function ActivityBar(): JSX.Element | null {
       <div className="activity-bar" onClick={() => toggle()}>
         <span className="activity-bar-summary">{summary}</span>
         {running.length > 0 && <span className="activity-bar-count">{running.length}개 진행</span>}
-        <span className="activity-bar-btns" onClick={(e) => e.stopPropagation()}>
+        <span className="activity-bar-btns flat-group" onClick={(e) => e.stopPropagation()}>
           {update?.state === 'downloaded' && (
             <button className="mini" title="업데이트 설치" onClick={() => installUpdate()}>
               설치

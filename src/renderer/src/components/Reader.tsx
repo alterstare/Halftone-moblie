@@ -23,6 +23,7 @@ import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, fitStyle, fitHeight } 
 import { prefetchOrdered } from './reader/prefetch'
 import PageSlot from './reader/PageSlot'
 import { useComicStatus } from './useComicStatus'
+import { isNarrow } from '../mobile'
 import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
 import {
   DownloadIcon,
@@ -34,6 +35,8 @@ import {
   CheckMarkIcon,
   LanguageIcon,
   MoreVertIcon,
+  MenuIcon,
+  FullscreenIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   TouchAppIcon
@@ -175,6 +178,23 @@ export default function Reader({
   const longPressAt = useRef(0) // the finger lifting after a long-press isn't a tap
   const swipe = useRef<{ x: number; y: number; t: number } | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
+  // Phone: list drawer via a ☰ in the bottom bar ('bar') or the floating edge
+  // toggle ('float'); focus mode = the tab bar hides together with the bars.
+  const sidebarOn = useStore((s) => s.settings.readerSidebar !== false) && isNarrow()
+  const sidebarToggle = useStore((s) => s.settings.sidebarToggle ?? 'bar')
+  const focusMode = useStore((s) => !!s.settings.focusMode)
+  const patchSettings = useStore((s) => s.patchSettings)
+  const toggleListCollapsed = useStore((s) => s.toggleListCollapsed)
+  const isActiveReader = useStore((s) => s.activeTabId === tabId && s.view === 'reader')
+  useEffect(() => {
+    const on = focusMode && barsHidden && isActiveReader && side === 'left'
+    const tb = document.querySelector<HTMLElement>('.mtabbar')
+    if (on && tb) document.documentElement.style.setProperty('--mtabbar-h', `${tb.offsetHeight}px`)
+    document.body.classList.toggle('focus-hide-tabs', on)
+    return () => {
+      if (on) document.body.classList.remove('focus-hide-tabs')
+    }
+  }, [focusMode, barsHidden, isActiveReader, side])
   const headRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const [barH, setBarH] = useState({ top: 0, bottom: 0 })
@@ -511,11 +531,18 @@ export default function Reader({
       else if (side === 'right') setTabRightScroll(tabId, top)
       else setTabScroll(tabId, top)
     }
+    // Scroll mode: arriving at the very bottom shows the bars (once per arrival).
+    let atBottom = false
     const onScroll = (): void => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         computeCurrentFromScroll() // cheap; re-renders only on page change
         syncSliderToScroll()
+        if (mode === 'scroll') {
+          const bottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4
+          if (bottom && !atBottom) setBarsHidden(false)
+          atBottom = bottom
+        }
       })
       window.clearTimeout(saveTimer.current)
       saveTimer.current = window.setTimeout(save, 250)
@@ -528,6 +555,13 @@ export default function Reader({
       save() // flush on tab switch / unmount
     }
   }, [tabId, side, mode, online?.code, computeCurrentFromScroll, setOnlineProgress, setTabScroll, setTabRightScroll])
+
+  // Paged / two-page: landing on the last page shows the bars (after a flip,
+  // which itself hides them — this effect runs later and wins).
+  useEffect(() => {
+    if (mode === 'scroll' || !images.length) return
+    if (pageIdx >= images.length - (mode === 'spread' ? 2 : 1)) setBarsHidden(false)
+  }, [mode, pageIdx, images.length])
 
   const goToPage = useCallback(
     (idx: number): void => {
@@ -1055,8 +1089,24 @@ export default function Reader({
     if (pull >= EDGE_PULL) continueRef.current(p.dir)
   }
 
+  // A drag that starts at the top / bottom edge of the pages and moves inward
+  // brings the bars back.
+  const EDGE_BAND = 32
+  const edgeSwipe = useRef<{ edge: 'top' | 'bottom'; x: number; y: number } | null>(null)
   const onPagesTouchStart = (e: React.TouchEvent): void => {
     edgePull.current = null
+    {
+      const t0 = e.touches[0]
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      edgeSwipe.current =
+        t0 && e.touches.length === 1
+          ? t0.clientY - r.top < EDGE_BAND
+            ? { edge: 'top', x: t0.clientX, y: t0.clientY }
+            : r.bottom - t0.clientY < EDGE_BAND
+              ? { edge: 'bottom', x: t0.clientX, y: t0.clientY }
+              : null
+          : null
+    }
     // A finger-down while a single tap is pending: maybe a double tap.
     if (pendingSingle.current) {
       window.clearTimeout(tapTimer.current)
@@ -1085,7 +1135,29 @@ export default function Reader({
     setBarsHidden(true)
   }
   const onPagesTouchMove = (e: React.TouchEvent): void => {
+    const es = edgeSwipe.current
+    if (es && e.touches.length === 1) {
+      const dy = e.touches[0].clientY - es.y
+      const dx = e.touches[0].clientX - es.x
+      const inward = es.edge === 'top' ? dy : -dy
+      if (inward > 30 && inward > Math.abs(dx)) {
+        edgeSwipe.current = null
+        touchStart.current = null // not a "drag hides the bars" gesture
+        setBarsHidden(false)
+        return
+      }
+      if (inward < -10 || Math.abs(dx) > 30) edgeSwipe.current = null
+    }
     if (e.touches.length === 1) trackEdgePull(e.touches[0])
+    // Scroll mode at the very bottom: the bars were shown on arrival — a further
+    // drag there (e.g. pulling for the next chapter) keeps them.
+    {
+      const el = contentRef.current
+      if (mode === 'scroll' && el && el.scrollTop + el.clientHeight >= el.scrollHeight - 4) {
+        if (barsHidden) setBarsHidden(false)
+        return
+      }
+    }
     const s = touchStart.current
     const t = e.touches[0]
     if (!s || !t || barsHidden) return
@@ -1323,6 +1395,17 @@ export default function Reader({
           onTouchStart={onBarTouchStart}
           onTouchEnd={onBarTouchEnd}
         >
+          {/* Kept mounted in 'float' mode (folded to 0 width) so switching slides it in / out. */}
+          {sidebarOn && (
+            <button
+              className={`mini icon reader-list-btn ${sidebarToggle === 'bar' ? '' : 'off'}`}
+              onClick={() => toggleListCollapsed()}
+              title="목록"
+              tabIndex={sidebarToggle === 'bar' ? 0 : -1}
+            >
+              <MenuIcon />
+            </button>
+          )}
           {/* Custom track: grey base, online pages already loaded in light purple,
               read progress in purple; the native range sits on top (thumb). */}
           <div className="page-slider-wrap">
@@ -1381,6 +1464,15 @@ export default function Reader({
           <div className="reader-more">
             <div className="reader-more-inner">
               <span className="flat-group reader-btns">
+                {sidebarOn && (
+                  <button
+                    className="mini sidebar-mode-btn"
+                    onClick={() => patchSettings({ sidebarToggle: sidebarToggle === 'bar' ? 'float' : 'bar' })}
+                  >
+                    <MenuIcon />
+                    <span className="btn-label">{sidebarToggle === 'bar' ? '버튼' : '플로팅'}</span>
+                  </button>
+                )}
                 <button
                   className="mini mode-toggle"
                   onClick={() => setMode(mode === 'scroll' ? 'paged' : mode === 'paged' ? 'spread' : 'scroll')}
@@ -1424,6 +1516,10 @@ export default function Reader({
                   <span className="btn-label">
                     {mode === 'scroll' ? (scrollTapFlip === 'bottom' ? '하단' : 'OFF') : pagedFlipSide === 'left' ? '왼쪽' : '오른쪽'}
                   </span>
+                </button>
+                <button className={`mini focus-btn ${focusMode ? 'focus-on' : ''}`} onClick={() => patchSettings({ focusMode: !focusMode })}>
+                  <FullscreenIcon />
+                  <span className="btn-label">{focusMode ? '포커스 ON' : '포커스 OFF'}</span>
                 </button>
               </span>
             </div>

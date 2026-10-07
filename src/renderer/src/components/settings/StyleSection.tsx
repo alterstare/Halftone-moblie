@@ -72,6 +72,12 @@ export default function StyleSection(): JSX.Element {
         <SettingRow title="감상창 사이드바" desc="끄면 감상창 왼쪽의 작품 목록(사이드바)과 여는 버튼이 사라집니다.">
           <Toggle checked={draft.readerSidebar !== false} onChange={(v) => patch({ readerSidebar: v })} />
         </SettingRow>
+        <SettingRow title="사이드바 버튼을 하단바에" desc="켜면 하단바 왼쪽 ☰ 버튼으로 사이드바를 엽니다. 끄면 화면 가장자리의 플로팅 버튼(길게 눌러 위치 이동)을 씁니다.">
+          <Toggle checked={(draft.sidebarToggle ?? 'bar') === 'bar'} onChange={(v) => patch({ sidebarToggle: v ? 'bar' : 'float' })} />
+        </SettingRow>
+        <SettingRow title="포커스 모드" desc="감상 중 상단바·하단바를 숨기면 위쪽 탭바도 같이 숨기고, 바가 돌아오면 같이 돌아옵니다.">
+          <Toggle checked={!!draft.focusMode} onChange={(v) => patch({ focusMode: v })} />
+        </SettingRow>
         <SettingRow title="스크롤 넘김에서 페이지 간격" desc="스크롤 감상 시 페이지 사이에 간격을 둡니다.">
           <Toggle checked={draft.readerPageGap} onChange={(v) => patch({ readerPageGap: v })} />
         </SettingRow>

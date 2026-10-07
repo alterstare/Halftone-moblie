@@ -172,6 +172,11 @@ export interface Settings {
   // Phone reader: the left list drawer (and its edge toggle) on/off, and the
   // toggle's vertical position in px from the reader's top (user-dragged).
   readerSidebar: boolean
+  // Phone reader: how the list drawer opens — 'bar' = a ☰ button at the left of
+  // the bottom bar (default), 'float' = the draggable edge toggle.
+  sidebarToggle: 'bar' | 'float'
+  // Phone reader focus mode: hiding the reader bars also hides the tab bar.
+  focusMode: boolean
   // Check GitHub releases on start and download a newer APK (phone).
   autoUpdate: boolean
   // Phone: disk cache for online / NAS images, in GB (0 = off).
@@ -366,6 +371,8 @@ export const DEFAULT_SETTINGS: Settings = {
   bypassTunnel: false,
   resumeReading: true,
   readerSidebar: true,
+  sidebarToggle: 'bar',
+  focusMode: false,
   autoUpdate: true,
   imageCacheGB: 0.5,
   listToggleTop: 60,

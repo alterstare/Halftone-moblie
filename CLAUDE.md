@@ -74,7 +74,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   works by `lastViewedAt` + online works from `onlineHistory` (backend
   `history.json`, recorded in store.openOnline/openComic), newest first.
   Reader (phone): title/bottom bars overlay the pages (`.overlay-bars`), hide
-  on a drag / tap-flip, a tap toggles them in the center (paged: middle third × middle 40%; scroll: anywhere with 넘김 OFF, the middle third band with 하단 넘김 — bottom third scrolls, top third idle); no artist in the title bar
+  on a drag / tap-flip, a tap toggles them in the center (paged: middle third × middle 40%; scroll: anywhere with 넘김 OFF, the middle third band with 하단 넘김 — bottom third scrolls, top third idle); bars also come back on a drag starting in the top / bottom 32px of the pages moving inward (`edgeSwipe`), on the last page (paged/spread), and on reaching the bottom in scroll mode (a drag there doesn't re-hide them); no artist in the title bar
   (online = globe icon; local works get a favorite heart instead of 폴더 열기; the heart = that work / chapter); bottom bar = slider + ⋮, which (or a swipe up) expands
   mode · fit · 넘김 (paged: `pagedFlipSide`, scroll: `scrollTapFlip` 하단/OFF).
   Pinch zoom = visual only (`vz` ref in Reader): `.zoom-layer` (scroll: the page
@@ -119,7 +119,15 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   Reader taps: single tap fires after 130ms (a finger-down in that window
   waits for a double tap); no ‹ › page hints. Sidebar toggle: long-press +
   drag moves it, saved as `settings.listToggleTop` (px from the reader top,
-  default 60); `settings.readerSidebar` off hides drawer + toggle. Scroll-mode
+  default 60); `settings.readerSidebar` off hides drawer + toggle.
+  `settings.sidebarToggle`: 'bar' (default) = ☰ at the left of the reader bottom
+  bar opens the drawer, floating edge toggle hidden (`.reader-split.toggle-bar`);
+  'float' = the draggable edge toggle. `settings.focusMode`: hiding the reader
+  bars also folds the tab bar away (`body.focus-hide-tabs`, margin-top =
+  -measured height). Both switch from the ⋮ row (left end: 버튼/플로팅, right
+  end: 포커스) and 설정 › 뷰어 스타일. Sidebar chapter rows: title (ellipsis) +
+  heart/group on line 1, rating bottom-right (online `.chapter-sub`, local end
+  of the tags row). Scroll-mode
   slider follows scroll fractionally (`syncSliderRef`, DOM writes, re-applied
   in a layout effect after each render).
   Reader chapter navigation (`chNav`: online comic siblings or local series):

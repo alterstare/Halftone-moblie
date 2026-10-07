@@ -128,7 +128,10 @@ export default function ComicBrowse(): JSX.Element {
           setPage(r.page)
         }
         // Use the genre chips the live page actually offers (per type).
-        if (r.genres && r.genres.length) setGenres(['전체', ...r.genres.filter((g) => g !== '전체')])
+        if (r.genres && r.genres.length) {
+          const names = r.genres.map((g) => g.replace(/^✓\s*/, '')).filter((g) => g && g !== '전체')
+          setGenres(['전체', ...new Set(names)])
+        }
         if (r.platforms && r.platforms.length) setPlatforms(r.platforms)
       })
       .catch((e) => alive && setError(String(e?.message ?? e)))
