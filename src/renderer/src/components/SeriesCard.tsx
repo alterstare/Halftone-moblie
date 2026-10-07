@@ -11,6 +11,7 @@ import TagList from './TagList'
 import { useSeriesCard } from './useSeriesCard'
 import { useSel } from './libraryTools'
 import ConfirmModal from './ConfirmModal'
+import Caret from './Caret'
 
 // Open a folder's parent in Explorer (so we don't descend into chapter 1).
 function parentOf(p: string): string {
@@ -119,7 +120,7 @@ export default function SeriesCard({ series }: { series: SeriesGroup }): JSX.Ele
                 setOpen((o) => !o)
               }}
             >
-              화 목록 <span className={`dt ${open ? 'up' : ''}`} />
+              화 목록 <Caret up={open} sm />
             </button>
           </div>
         </div>

@@ -12,6 +12,7 @@ import FavGroup from './FavGroup'
 import { useWorkCard } from './useWorkCard'
 import { useSel } from './libraryTools'
 import ConfirmModal from './ConfirmModal'
+import Caret from './Caret'
 
 // List row for a local work on the home library: thumb, title + favorite,
 // meta line (pages · code · language · artist), tags, and the action row
@@ -128,7 +129,7 @@ export default function WorkCard({ work }: { work: Work }): JSX.Element {
               setFindKo((v) => !v)
             }}
           >
-            다른 언어 <span className={`dt ${findKo ? 'up' : ''}`} />
+            다른 언어 <Caret up={findKo} sm />
           </button>
         </div>
       </div>

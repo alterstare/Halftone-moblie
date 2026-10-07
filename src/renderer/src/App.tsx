@@ -28,6 +28,7 @@ import { setExcluded } from './exclude'
 import { startLockGuard, markLockReady, useLock, decoyHiddenTabs } from './lock'
 import LockPrompt from './components/LockPrompt'
 import { softReload, restoreSoftReload } from './softReload'
+import Caret from './components/Caret'
 
 export default function App(): JSX.Element {
   const view = useStore((s) => s.view)
@@ -518,7 +519,7 @@ function ReaderSplit(): JSX.Element {
           onClick={() => Date.now() - suppressToggleClick.current > 400 && toggleListCollapsed()}
           title={listCollapsed ? '목록 펼치기' : '목록 접기'}
         >
-          {listCollapsed ? '▶' : '◀'}
+          <Caret side open={false} className={`list-toggle-arrow ${listCollapsed ? '' : 'back'}`} />
         </button>
       </div>
       <div className="reader-pane">

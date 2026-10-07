@@ -3,7 +3,7 @@ import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { NasConn } from '../../../shared/ipc'
 import { useNas, splitNasPath } from '../nas'
-import { CloseIcon, ArrowBackIcon, FolderIcon } from './icons'
+import { CloseIcon, ChevronLeftIcon, FolderIcon } from './icons'
 
 // Add / edit a NAS connection: WebDAV (address) or SMB (host + share), user,
 // password (kept natively, encrypted), and a 연결 테스트 before saving.
@@ -168,7 +168,7 @@ export function NasBrowser({
         <div className="nas-head">
           {path !== root && (
             <button className="icon-close" onClick={up} title="상위 폴더">
-              <ArrowBackIcon />
+              <ChevronLeftIcon />
             </button>
           )}
           <b className="nas-where">

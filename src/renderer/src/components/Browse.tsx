@@ -408,7 +408,7 @@ export default function Browse(): JSX.Element {
                 <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favGalleries.length}
               </span>
               <span className="fav-caret" onClick={() => setFavPanel((v) => !v)} title="즐겨찾기 목록">
-                <span className={`dt ${favPanel ? 'up' : ''}`} />
+                <Caret up={favPanel} sm />
               </span>
             </span>
             {favPanel && (

@@ -13,15 +13,17 @@ function Item({
   icon,
   label,
   active,
-  onClick
+  onClick,
+  className
 }: {
   icon: ReactNode
   label: string
   active?: boolean
   onClick: () => void
+  className?: string
 }): JSX.Element {
   return (
-    <button className={`menu-item ${active ? 'active' : ''}`} onClick={onClick}>
+    <button className={`menu-item ${active ? 'active' : ''} ${className ?? ''}`} onClick={onClick}>
       <span className="menu-item-ico">{icon}</span>
       <span className="menu-item-label">{label}</span>
     </button>
@@ -90,14 +92,14 @@ export default function MenuDrawer(): JSX.Element {
           }
         >
           <span className="menu-item-ico"><CompareArrowsIcon /></span>
-          {normal ? '동인지 뷰어로 전환' : '일반 만화 뷰어로 전환'}
+          <span className="menu-mode-label">{normal ? '동인지 뷰어로 전환' : '일반 만화 뷰어로 전환'}</span>
         </button>
         <div className="menu-mode-cur">현재: {normal ? '일반 만화' : '동인지'}</div>
 
         <div className="menu-sep" />
         <Item icon={<HomeIcon />} label="라이브러리" active={view === 'home'} onClick={libraryClick} />
         {!decoy && <Item icon={<LanguageIcon />} label="온라인" active={view === 'browse'} onClick={onlineClick} />}
-        <Item icon={<FavoriteIcon />} label="즐겨찾기" onClick={() => go(() => setFilter({ kind: 'favorites' }))} />
+        <Item className="menu-fav" icon={<FavoriteIcon />} label="즐겨찾기" onClick={() => go(() => setFilter({ kind: 'favorites' }))} />
         {/* 기록: everything viewed — local and online — in the library layout. */}
         <Item
           icon={<HistoryIcon />}

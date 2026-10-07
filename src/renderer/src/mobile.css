@@ -2667,3 +2667,100 @@ body.focus-hide-tabs .mtabbar {
   opacity: 0;
   pointer-events: none;
 }
+/* …but the labels keep their old size (13px / 13.33px before the 1.25× zoom);
+   only icons and button boxes grow. Labels sit higher to line up with
+   their icons (1px; not 즐겨찾기 / 모드 전환, already level). */
+.menu-drawer .menu-item .menu-item-label {
+  font-size: calc(13px / 1.25);
+  translate: 0 -0.8px; /* × 1.25 zoom = 1px */
+}
+.menu-drawer .menu-item.menu-fav .menu-item-label {
+  translate: none;
+}
+.menu-drawer .menu-mode .menu-mode-label {
+  font-size: calc(13.3333px / 1.25);
+}
+
+/* Settings radio choices (화수 인식 방식 …): one per line — title, description
+   under it, then the next — split by divider lines, no boxes. */
+.rcards {
+  flex-direction: column;
+  gap: 0;
+}
+.rcard {
+  border: none;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  padding: 10px 4px;
+}
+.rcard:last-child {
+  border-bottom: none;
+}
+.rcard.on {
+  background: transparent;
+  border-color: var(--line); /* selection = the radio dot, not a purple line */
+}
+.rcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* 설정 header: the installed app version at the right end. */
+.settings h1 {
+  display: flex;
+  align-items: baseline;
+}
+.settings-version {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+/* Keyboard-arrow carets (Caret.tsx) everywhere: drawers, dropdowns, sort
+   direction, fold rows, the sidebar toggle. They turn with a short rotate
+   (same feel as the 일반 만화 "… 더보기" chevrons). */
+.caret {
+  display: inline-block;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  transform: none;
+  transition: rotate 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.caret.sm {
+  width: 17px;
+  height: 17px;
+}
+.caret.turned {
+  rotate: 180deg;
+}
+.caret.side {
+  rotate: -90deg;
+}
+.caret.side.turned {
+  rotate: 0deg;
+}
+.caret.side.back {
+  rotate: 90deg;
+}
+.chip > .caret.sm {
+  margin-left: 4px;
+  margin-right: -3px;
+}
+.mini > .caret.sm {
+  margin-left: 2px;
+}
+.reader-split .divider .list-toggle .caret {
+  width: 20px;
+  height: 20px;
+}
+.activity-bar-caret .caret,
+.ctx-arrow .caret,
+.coll-caret .caret {
+  display: block;
+}

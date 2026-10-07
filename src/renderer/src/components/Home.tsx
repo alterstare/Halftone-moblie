@@ -627,7 +627,7 @@ export default function Home(): JSX.Element {
                 <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favCount}
               </span>
               <span className="fav-caret" onClick={() => togglePanel('fav')} title="즐겨찾기 목록">
-                <span className={`dt ${openPanel === 'fav' ? 'up' : ''}`} />
+                <Caret up={openPanel === 'fav'} sm />
               </span>
             </span>
             {openPanel === 'fav' && (

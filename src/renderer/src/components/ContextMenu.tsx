@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { isTouch } from '../mobile'
+import Caret from './Caret'
 
 export interface MenuItem {
   label: string
@@ -21,7 +22,9 @@ function Row({ item, onClose, inline }: { item: MenuItem; onClose: () => void; i
         <>
           <button className={`ctx-item has-sub ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)}>
             <span className="ctx-label">{item.label}</span>
-            <span className="ctx-arrow">{open ? '⌃' : '⌄'}</span>
+            <span className="ctx-arrow">
+              <Caret up={open} sm />
+            </span>
           </button>
           {open && (
             <div className="ctx-inline-sub">
@@ -40,7 +43,9 @@ function Row({ item, onClose, inline }: { item: MenuItem; onClose: () => void; i
         onMouseLeave={() => setOpen(false)}
       >
         <span className="ctx-label">{item.label}</span>
-        <span className="ctx-arrow">›</span>
+        <span className="ctx-arrow">
+          <Caret side sm />
+        </span>
         {open && (
           <div className="ctx-submenu">
             {item.children.map((c, i) => (

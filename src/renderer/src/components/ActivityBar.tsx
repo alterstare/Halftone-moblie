@@ -4,6 +4,7 @@ import { useStore, downloadMode } from '../store'
 import type { Job } from '../store'
 import { useLock } from '../lock'
 import type { DoujinProgress } from '../../../shared/ipc'
+import Caret from './Caret'
 import {
   PauseIcon,
   PlayIcon,
@@ -292,7 +293,9 @@ export default function ActivityBar(): JSX.Element | null {
             </button>
           )}
         </span>
-        <span className="activity-bar-caret">{open ? '▾' : '▴'}</span>
+        <span className="activity-bar-caret">
+          <Caret up={!open} sm />
+        </span>
       </div>
     </div>
   )

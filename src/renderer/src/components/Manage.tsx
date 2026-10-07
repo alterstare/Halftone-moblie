@@ -10,6 +10,7 @@ import { hashAndSize } from '../exclude'
 import Thumb from './Thumb'
 import ConfirmModal from './ConfirmModal'
 import Stepper from './Stepper'
+import Caret from './Caret'
 
 export default function Manage(): JSX.Element {
   const mode = useStore((s) => s.manageMode)
@@ -568,7 +569,9 @@ function Collections(): JSX.Element {
               onClick={() => toggleOpen(g.dir)}
               role="button"
             >
-              <span className="coll-caret">{isOpen ? '▾' : '▸'}</span>
+              <span className="coll-caret">
+                <Caret side open={isOpen} sm />
+              </span>
               {g.name} · {g.works.length}개 폴더
               {isOpen && (
                 <span className="coll-actions flat-group" onClick={(e) => e.stopPropagation()}>

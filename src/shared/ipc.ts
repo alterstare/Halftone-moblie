@@ -287,6 +287,7 @@ export interface Api {
   nasSave: (conn: NasConn, password: string | null) => Promise<string>
   nasRemove: (id: string) => Promise<void>
   listDirs: (path: string) => Promise<string[]>
+  appVersion: () => Promise<string> // installed versionName (설정 header)
   imageCacheInfo: () => Promise<{ bytes: number; files: number }>
   clearImageCache: () => Promise<void>
   clipboardReadText: () => Promise<string> // for the text-field 붙여넣기 menu

@@ -30,7 +30,6 @@ import {
   ScrollModeIcon,
   PageModeIcon,
   SpreadModeIcon,
-  ArrowBackIcon,
   FavoriteIcon,
   CheckMarkIcon,
   LanguageIcon,
@@ -1222,7 +1221,7 @@ export default function Reader({
       <div className="reader-head" ref={headRef}>
         {side === 'left' && (
           <button className="mini icon reader-back" onClick={goBack} title="목록">
-            <ArrowBackIcon />
+            <ChevronLeftIcon />
           </button>
         )}
         <h2 onContextMenu={onTitleContext}>{title}</h2>

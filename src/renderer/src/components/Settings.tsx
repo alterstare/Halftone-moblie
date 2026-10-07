@@ -87,6 +87,10 @@ export default function Settings(): JSX.Element {
   const [browse, setBrowse] = useState<{ conn: NasConn; apply: Apply } | null>(null)
   const [newConn, setNewConn] = useState<{ apply: Apply } | null>(null)
   const nasConns = useNas((s) => s.conns)
+  const [appVersion, setAppVersion] = useState('')
+  useEffect(() => {
+    window.api.appVersion().then(setAppVersion, () => undefined)
+  }, [])
   useEffect(() => {
     void useNas.getState().refresh()
   }, [])
@@ -251,7 +255,10 @@ export default function Settings(): JSX.Element {
       )}
       <div className="settings">
         <div className={`settings-inner ${q.trim() ? 'searching' : ''}`} data-show={q.trim() ? 'search' : cat} ref={innerRef}>
-          <h1>설정 · {modeName}</h1>
+          <h1>
+            설정 · {modeName}
+            {appVersion && <span className="settings-version">v{appVersion}</span>}
+          </h1>
           <p className="hint">
             이 화면은 현재 <b>{modeName}</b> 모드 설정입니다. 모드는 ☰ 메뉴에서 전환할 수 있습니다.
           </p>

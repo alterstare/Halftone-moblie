@@ -58,11 +58,11 @@ export default function Dropdown<T extends string>({
         </button>
       ) : mini ? (
         <button type="button" className="mini dd-mini" onClick={() => setOpen((o) => !o)}>
-          {label} <span className={`dt ${open ? 'up' : ''}`} />
+          {label} <Caret up={open} sm />
         </button>
       ) : chip ? (
         <button type="button" className="chip" onClick={() => setOpen((o) => !o)}>
-          {label} <span className={`dt ${open ? 'up' : ''}`} />
+          {label} <Caret up={open} sm />
         </button>
       ) : (
         <button type="button" className="dropdown-btn" onClick={() => setOpen((o) => !o)}>
