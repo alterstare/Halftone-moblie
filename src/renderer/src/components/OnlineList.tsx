@@ -12,7 +12,6 @@ import Dropdown from './Dropdown'
 import { CheckIcon, PauseIcon, PlayIcon, FavoriteIcon, DownloadIcon, SyncIcon, SortIcon } from './icons'
 import TileBar from './TileBar'
 import OnlineThumb from './OnlineThumb'
-import { getOnlineImages } from '../images'
 import { favMeta, tagToken } from '../util'
 import { useFavSummaries } from '../favSummaries'
 import type { OnlineGallery, DownloadItem } from '../store'
@@ -189,7 +188,7 @@ export default function OnlineList(): JSX.Element {
             }}
           >
             <div className="lib-tile-body">
-              <OnlineThumb getImgs={() => getOnlineImages(g.code)} thumbUrl={g.thumbUrl} className="lib-thumb" localWorkId={codeWorkId.get(g.code)} />
+              <OnlineThumb thumbUrl={g.thumbUrl} className="lib-thumb" localWorkId={codeWorkId.get(g.code)} />
               <div className="lib-item-info">
                 <div className="lib-item-title selectable">{g.title}</div>
                 <div className="lib-item-meta">

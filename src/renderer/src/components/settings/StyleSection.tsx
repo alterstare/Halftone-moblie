@@ -55,9 +55,6 @@ export default function StyleSection(): JSX.Element {
             }}
           />
         </SettingRow>
-        <SettingRow title="마우스 오버 미리보기" desc="썸네일에 마우스를 올리면 크게 미리보고 휠로 페이지를 넘깁니다.">
-          <Toggle checked={draft.thumbHoverPreview !== false} onChange={(v) => patch({ thumbHoverPreview: v })} />
-        </SettingRow>
         <SettingRow title="여백 너비" desc="목록이 표시되는 최대 폭. 좌우 여백을 조절합니다.">
           <Stepper value={draft.marginWidth} onChange={(v) => patch({ marginWidth: v })} min={400} step={20} />
           <span>px</span>

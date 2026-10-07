@@ -14,7 +14,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from '../store'
 import { useLock } from '../lock'
-import { isTouch } from '../mobile'
 import type { Settings as SettingsT } from '../../../shared/types'
 import { SPLIT_SETTING_KEYS } from '../../../shared/types'
 import { setExcluded } from '../exclude'
@@ -24,7 +23,6 @@ import { SearchIcon } from './icons'
 import { SettingsContext, type SettingsCtl } from './settings/context'
 import FolderSection from './settings/FolderSection'
 import TagSection from './settings/TagSection'
-import ShortcutSection from './settings/ShortcutSection'
 import StyleSection from './settings/StyleSection'
 import NetworkSection from './settings/NetworkSection'
 import ManageSection from './settings/ManageSection'
@@ -36,7 +34,6 @@ const CATS: { id: Cat; label: string }[] = [
   { id: 'fav', label: '태그·검색' },
   { id: 'style', label: '스타일·정렬' },
   { id: 'network', label: '네트워크·다운로드' },
-  { id: 'keys', label: '단축키' },
   { id: 'manage', label: '관리' }
 ]
 
@@ -53,10 +50,8 @@ export default function Settings(): JSX.Element {
   const decoy = useLock((s) => s.decoy)
   // Decoy library: folders, tags/search history, favorites, site addresses,
   // management and the lock itself would give the real library away.
-  const DECOY_CATS: Cat[] = ['style', 'keys']
-  // Phone (touch only): no keyboard → no 단축키 tab.
-  const avail = isTouch() ? CATS.filter((c) => c.id !== 'keys') : CATS
-  const cats = decoy ? avail.filter((c) => DECOY_CATS.includes(c.id)) : avail
+  const DECOY_CATS: Cat[] = ['style']
+  const cats = decoy ? CATS.filter((c) => DECOY_CATS.includes(c.id)) : CATS
   const [cat, setCat] = useState<Cat>(decoy ? 'style' : 'folder')
   const [rescanning, setRescanning] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -294,7 +289,6 @@ export default function Settings(): JSX.Element {
           {!decoy && <TagSection />}
           <StyleSection />
           {!decoy && <NetworkSection />}
-          <ShortcutSection />
           {!decoy && <LockSection />}
           {!decoy && <ManageSection />}
 

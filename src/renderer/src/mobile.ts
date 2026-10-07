@@ -4,6 +4,7 @@
 // Touch-only device (no mouse hover): hover previews / tooltips stay off.
 export const isTouch = (): boolean => window.matchMedia('(hover: none)').matches
 
-// Narrow viewport (phone portrait): side panes become overlays. Keep in sync
-// with the max-width of the media query in mobile.css.
-export const isNarrow = (): boolean => window.matchMedia('(max-width: 760px)').matches
+// Phone-width viewport (< 600px): the reader list is an overlay drawer. Wider
+// (tablets) it's docked beside the pages. Keep in sync with the drawer media
+// query at the top of mobile.css.
+export const isNarrow = (): boolean => window.matchMedia('(max-width: 599px)').matches

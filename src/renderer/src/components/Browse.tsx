@@ -496,7 +496,7 @@ export default function Browse(): JSX.Element {
           const dlPct = d?.total ? Math.round((d.done / d.total) * 100) : 0
           const have = libCodes.has(g.code) || phase === 'done'
           const thumb = (
-            <OnlineThumb getImgs={() => getOnlineImages(g.code)} thumbUrl={g.thumbUrl} localWorkId={codeWorkId.get(g.code)} />
+            <OnlineThumb thumbUrl={g.thumbUrl} localWorkId={codeWorkId.get(g.code)} />
           )
           // Download progress: a thin bar along the card's top edge.
           const dlBar = (dlActive || dlPaused || have) && (

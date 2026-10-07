@@ -15,8 +15,8 @@
   }
 }
 
-@media (max-width: 760px) {
-  /* Reader: the list pane floats over the reader as a drawer instead of taking
+@media (max-width: 599px) {
+  /* Reader (phone): the list pane floats over the reader as a drawer instead of taking
      a column; the divider keeps only its toggle button. */
   .reader-split {
     position: relative;
@@ -63,7 +63,9 @@
     width: 22px;
     height: 64px;
   }
+}
 
+@media (max-width: 760px) {
   /* Settings category tabs: one scrollable row instead of wrapped words. */
   .settings-tabs {
     flex-wrap: nowrap;
@@ -2873,4 +2875,72 @@ body.focus-hide-tabs .mtabbar {
    min-width pushed the 1-column online list 12px off-screen at 320px). */
 :is(.browse-grid, .work-grid) > * {
   min-width: 0;
+}
+
+/* ---------- Tablet (≥ 600px wide) ----------
+   Same touch UI, laid out for the room: list tiles take the full width (one
+   column), grid cards keep the phone card width and more fit per row (left-
+   over width = side margins), the tab bar shows several tabs at once, the
+   reader list sits docked beside the pages, and the site tools sit in the
+   chips row instead of folding behind a chevron. */
+.tools-inline {
+  display: none;
+}
+@media (min-width: 600px) {
+  .work-grid:not(.compact-grid),
+  .browse-grid:not(.compact-grid) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .work-grid.compact-grid,
+  .browse-grid.compact-grid {
+    grid-template-columns: repeat(auto-fill, 189px);
+    justify-content: center;
+  }
+  .mtabbar .mtab-strip {
+    scroll-snap-type: none;
+    gap: 4px;
+  }
+  .mtabbar .mtab {
+    flex: 0 0 auto;
+    width: clamp(150px, 24vw, 260px);
+    scroll-snap-align: none;
+    scroll-snap-stop: normal;
+  }
+  .browse-head > .chips > .tools-toggle,
+  .comic-tools {
+    display: none !important;
+  }
+  .tools-inline {
+    display: inline-flex;
+  }
+  .browse-head > .chips > .tools-first {
+    margin-left: auto;
+  }
+}
+
+/* Focus mode in the reader: the tab bar floats over the top instead of taking
+   layout room, so hiding / showing it never resizes the pages (fit-height
+   pages used to zoom and jump). The reader title bar sits under it while
+   shown. */
+.app.focus-reader > .mtabbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  transition:
+    translate 0.2s cubic-bezier(0.2, 0, 0, 1),
+    opacity 0.2s ease;
+}
+body.focus-hide-tabs .app.focus-reader > .mtabbar {
+  margin-top: 0;
+  translate: 0 -100%;
+}
+.app.focus-reader .overlay-bars > .reader-head {
+  top: var(--mtabbar-h, 42px);
+}
+/* …and in scroll mode the first page starts below the floating tab bar (a
+   constant offset, so hiding the bars still doesn't move anything). */
+.app.focus-reader .reader-content.scroll {
+  padding-top: var(--mtabbar-h, 42px);
 }

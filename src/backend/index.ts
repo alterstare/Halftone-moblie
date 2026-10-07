@@ -19,9 +19,6 @@ import { comicApi } from './api/comic'
 import { checkForUpdate, installUpdate } from './update'
 import { applyGalleryHide } from './gallery'
 
-// Events with no mobile source (desktop-only: OS close button, mouse forward
-// button, auto-updater) — the UI subscribes, nothing ever fires.
-const never = (): (() => void) => () => {}
 
 // One-time migration to the in-app general-manga favorites (see desktop main).
 async function migrateNormalFavorites(): Promise<void> {
@@ -57,8 +54,6 @@ const events: Partial<Api> = {
   onComicChallenge: (cb) => on<boolean>(IPC.comicChallenge, cb),
   onComicStatus: (cb) => on<string | null>(IPC.comicStatus, cb),
   onNavBack: (cb) => on(IPC.navBack, cb),
-  onRequestClose: (cb) => on(IPC.requestClose, cb),
-  onNavForward: never,
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => on<UpdateStatus>(IPC.updateStatus, cb),
   installUpdate: () => installUpdate(),
   doujinCancelEnrich: doujinApi.doujinCancelEnrich

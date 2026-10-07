@@ -136,10 +136,8 @@ export const IPC = {
   doujinPing: 'doujin:ping',
   doujinPopularRanks: 'doujin:popularRanks',
   openFolder: 'util:openFolder',
-  requestClose: 'app:requestClose', // main -> renderer: show exit modal
   closeWindow: 'app:closeWindow', // renderer -> main: exit decision
   navBack: 'app:navBack', // main -> renderer: mouse/back-command → go back
-  navForward: 'app:navForward', // main -> renderer: mouse/forward-command → go forward
   updateStatus: 'update:status', // main -> renderer: auto-update progress/state
   installUpdate: 'update:install', // renderer -> main: quit and install the downloaded update
   resetApp: 'app:reset' // renderer -> main: wipe settings/library data (+ optionally work folders), relaunch
@@ -369,7 +367,6 @@ export interface Api {
   doujinPopularRanks: (codes: string[]) => Promise<Record<string, number>>
   openFolder: (path: string) => Promise<void>
   // Main asks the renderer to show the styled exit modal.
-  onRequestClose: (cb: () => void) => () => void
   // Auto-update state pushed from main (available → downloading → downloaded).
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => () => void
   // User clicked "지금 재시작" on the downloaded-update row → quit + install.
@@ -383,7 +380,6 @@ export interface Api {
   // Mouse "back" side button / browser-backward app command → go back.
   onNavBack: (cb: () => void) => () => void
   // Mouse "forward" side button / browser-forward app command → go forward.
-  onNavForward: (cb: () => void) => () => void
   // Renderer reports the exit decision. For 'keep', pass the live tab session.
   closeWindow: (decision: CloseDecision, session?: SessionState) => Promise<void>
 }

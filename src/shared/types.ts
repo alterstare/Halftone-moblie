@@ -212,8 +212,6 @@ export interface Settings {
   // ('bottom'), or scrolling only ('off').
   scrollTapFlip: 'bottom' | 'off'
   homeLayout: 'list' | 'grid'
-  // Hover a thumbnail to pop a large preview (wheel pages it). Toggleable.
-  thumbHoverPreview: boolean
   // UI color theme. 'light' = Kraken light (default), 'dark' = dark variant.
   theme: 'light' | 'dark'
   // Favorite lists imported from files: { name, gallery codes }. The online
@@ -287,7 +285,6 @@ export const DEFAULT_DOUJIN_PATTERNS = [
 export const SPLIT_SETTING_KEYS = [
   'marginWidth',
   'pageSize',
-  'thumbHoverPreview',
   'readerPageGap',
   'pagedWheelFlip',
   'spreadNextSide',
@@ -390,7 +387,6 @@ export const DEFAULT_SETTINGS: Settings = {
   pagedFlipSide: 'right',
   scrollTapFlip: 'off',
   homeLayout: 'grid',
-  thumbHoverPreview: true,
   theme: 'light',
   onlineFavLists: [],
   onlineExcludeTags: [],

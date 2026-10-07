@@ -7,7 +7,6 @@ import { groupSeries, analyzeSeries } from '../util'
 import { getFavSummary, useFavSummaries } from '../favSummaries'
 import Thumb from './Thumb'
 import OnlineThumb from './OnlineThumb'
-import { getOnlineImages } from '../images'
 import { HomeIcon, LanguageIcon, MenuIcon, CloseIcon } from './icons'
 
 // Phone tab bar (replaces the desktop TabBar): ☰ · 라이브러리 · 온라인, then the
@@ -202,7 +201,7 @@ function TabSwitcher({ closing, onClose }: { closing: boolean; onClose: () => vo
       o.kind === 'comic'
         ? (o.thumb ?? onlineHistory[o.seriesUrl ?? o.code]?.thumbUrl ?? null)
         : (getFavSummary(o.code)?.thumbUrl ?? onlineHistory[o.code]?.thumbUrl ?? null)
-    return <OnlineThumb className="mtcard-thumb" thumbUrl={url} getImgs={() => getOnlineImages(o.code)} />
+    return <OnlineThumb className="mtcard-thumb" thumbUrl={url} />
   }
 
   return (

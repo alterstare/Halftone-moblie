@@ -23,7 +23,7 @@ import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, fitStyle, fitHeight } 
 import { prefetchOrdered } from './reader/prefetch'
 import PageSlot from './reader/PageSlot'
 import { useComicStatus } from './useComicStatus'
-import { isNarrow } from '../mobile'
+import { isTouch } from '../mobile'
 import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
 import {
   DownloadIcon,
@@ -179,7 +179,7 @@ export default function Reader({
   const [moreOpen, setMoreOpen] = useState(false)
   // Phone: list drawer via a ☰ in the bottom bar ('bar') or the floating edge
   // toggle ('float'); focus mode = the tab bar hides together with the bars.
-  const sidebarOn = useStore((s) => s.settings.readerSidebar !== false) && isNarrow()
+  const sidebarOn = useStore((s) => s.settings.readerSidebar !== false) && isTouch()
   const sidebarToggle = useStore((s) => s.settings.sidebarToggle ?? 'bar')
   const focusMode = useStore((s) => !!s.settings.focusMode)
   const patchSettings = useStore((s) => s.patchSettings)

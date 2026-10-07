@@ -116,7 +116,7 @@ export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout:
       <div className={`gtile online-fav ctile${isComic ? ' series' : ''}${sel.cls}`} onClick={open} {...sel.attr}>
         {sel.box}
         <div className="ctile-thumb">
-          <OnlineThumb getImgs={() => getOnlineImages(fav.code)} thumbUrl={fav.thumbUrl} className="gtile-thumb-inner" />
+          <OnlineThumb thumbUrl={fav.thumbUrl} className="gtile-thumb-inner" />
           <span className="online-fav-badge">온라인</span>
         </div>
         <div className="ctile-title">{fav.title}</div>
@@ -135,7 +135,7 @@ export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout:
       {sel.box}
       <div className="tile-body">
         <div className="gtile-thumb">
-          <OnlineThumb getImgs={() => getOnlineImages(fav.code)} thumbUrl={fav.thumbUrl} className="gtile-thumb-inner" />
+          <OnlineThumb thumbUrl={fav.thumbUrl} className="gtile-thumb-inner" />
           <span className="online-fav-badge">온라인</span>
         </div>
         <div className="tile-info">

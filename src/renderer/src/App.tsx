@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from './store'
-import { isNarrow } from './mobile'
+import { isNarrow, isTouch } from './mobile'
 import MobileTabBar from './components/MobileTabBar'
 import { popBack, swipeSlide, useSwipeClose } from './components/libraryTools'
 import Home from './components/Home'
@@ -22,15 +22,20 @@ import ConfirmModal from './components/ConfirmModal'
 import Tooltip from './components/Tooltip'
 import EditContextMenu from './components/EditContextMenu'
 import { startExitAnimations } from './exitAnimations'
-import { comboFromEvent, shortcutCombos, type ShortcutId } from '../../shared/shortcuts'
 import { setExcluded } from './exclude'
 import { startLockGuard, markLockReady, useLock, decoyHiddenTabs } from './lock'
 import LockPrompt from './components/LockPrompt'
-import { softReload, restoreSoftReload } from './softReload'
+import { restoreSoftReload } from './softReload'
 import Caret from './components/Caret'
 
 export default function App(): JSX.Element {
   const view = useStore((s) => s.view)
+  const focusMode = useStore((s) => !!s.settings.focusMode)
+  // Tab bar height for the focus-mode overlay layout (reader title bar offset).
+  useEffect(() => {
+    const tb = document.querySelector<HTMLElement>('.mtabbar')
+    if (tb) document.documentElement.style.setProperty('--mtabbar-h', `${tb.offsetHeight}px`)
+  }, [])
   const libraryMode = useStore((s) => s.libraryMode)
   const needDownloadDir = useStore((s) => s.needDownloadDir)
   const setNeedDownloadDir = useStore((s) => s.setNeedDownloadDir)
@@ -192,7 +197,6 @@ export default function App(): JSX.Element {
   }, [view])
   // Exit = always save the session (open tabs) and close — no exit popup.
   const exitSaving = (): void => void window.api.closeWindow('keep', snapshot())
-  useEffect(() => window.api.onRequestClose(() => exitSaving()), [])
 
   // Cloudflare auth: main pops its browser window and tells us to show a banner.
   const [cfChallenge, setCfChallenge] = useState(false)
@@ -207,12 +211,10 @@ export default function App(): JSX.Element {
     useStore.getState().recordNav()
   }, [view, activeTabId, libraryMode, manageMode, browseSource, browsePage])
 
-  // Browser-style back/forward: mouse side buttons (via main's app-command on
-  // Windows), plus DOM fallbacks (mouse buttons 3/4, Alt+Left/Right).
+  // Android back button (see the rules below). Debounced so a double-fired
+  // event counts once.
   useEffect(() => {
-    // A single mouse side-button press fires BOTH the DOM mouseup (button 3/4) and
-    // the main-process app-command — dedupe so one press = one step.
-    const lastAt = { back: 0, forward: 0 }
+    const lastAt = { back: 0 }
     const back = (): void => {
       const now = Date.now()
       if (now - lastAt.back < 250) return
@@ -272,76 +274,8 @@ export default function App(): JSX.Element {
       // 설정 · 기록 · 작업 목록 · 관리 · anything else → the library list.
       toLibrary()
     }
-    const forward = (): void => {
-      const now = Date.now()
-      if (now - lastAt.forward < 250) return
-      lastAt.forward = now
-      useStore.getState().navForward()
-    }
     const offB = window.api.onNavBack(back)
-    const offF = window.api.onNavForward(forward)
-    const onMouse = (e: MouseEvent): void => {
-      if (e.button === 3) {
-        e.preventDefault()
-        back()
-      } else if (e.button === 4) {
-        e.preventDefault()
-        forward()
-      }
-    }
-    const onKey = (e: KeyboardEvent): void => {
-      const st = useStore.getState()
-      const combo = comboFromEvent(e)
-      if (!combo) return
-      const is = (id: ShortcutId): boolean => shortcutCombos(st.settings.shortcuts, id).includes(combo)
-      // Combos are user-editable (설정 › 단축키); defaults in shared/shortcuts.ts.
-      const goTab = (n: number): void => {
-        const list = st.tabs.filter((t) => !t.glance)
-        const t = n < 0 ? list[list.length - 1] : list[n]
-        if (t) st.activateTab(t.id)
-      }
-      const actions: [ShortcutId, () => void][] = [
-        ['focusSearch', () => focusSearch()],
-        ['switchMode', () => st.setLibraryMode(st.libraryMode === 'normal' ? 'doujin' : 'normal')],
-        ['navBack', back],
-        ['navForward', forward],
-        ['reopenTab', () => st.reopenClosedTab()],
-        ['closeTab', () => st.activeTabId && st.requestCloseTab(st.activeTabId)],
-        ['nextTab', () => cycleTab(1)],
-        ['prevTab', () => cycleTab(-1)],
-        ['goLibrary', () => st.goHome()],
-        ['goOnline', () => st.goBrowse()],
-        // Ctrl+1/2 are the 라이브러리/온라인 buttons, so content tabs start at 3.
-        ['tab3', () => goTab(0)],
-        ['tab4', () => goTab(1)],
-        ['tab5', () => goTab(2)],
-        ['tab6', () => goTab(3)],
-        ['tab7', () => goTab(4)],
-        ['tab8', () => goTab(5)],
-        ['tabLast', () => goTab(-1)],
-        ['reload', () => softReload()]
-      ]
-      function cycleTab(dir: 1 | -1): void {
-        const list = st.tabs.filter((t) => !t.glance)
-        if (list.length < 2) return
-        const i = list.findIndex((t) => t.id === st.activeTabId)
-        st.activateTab(list[(i + dir + list.length) % list.length].id)
-      }
-      for (const [id, run] of actions) {
-        if (!is(id)) continue
-        e.preventDefault()
-        run()
-        return
-      }
-    }
-    window.addEventListener('mouseup', onMouse)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      offB()
-      offF()
-      window.removeEventListener('mouseup', onMouse)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => offB()
   }, [])
 
   // Feed every download-progress event into the store so the download manager
@@ -352,7 +286,7 @@ export default function App(): JSX.Element {
   )
 
   return (
-    <div className="app">
+    <div className={`app ${focusMode && view === 'reader' ? 'focus-reader' : ''}`}>
       <MobileTabBar />
       <MenuDrawer />
       <div className="body" ref={bodyRef}>
@@ -437,16 +371,15 @@ function ReaderSplit(): JSX.Element {
   const activeOnline = !!activeTab?.online
   const activeComic = activeTab?.online?.kind === 'comic'
   const activeNormal = activeTab?.mode === 'normal'
-  const dragging = useRef(false)
   const paneRef = useRef<HTMLDivElement>(null)
   // Phone: swipe left on the open list drawer closes it.
   useSwipeClose(paneRef, () => !useStore.getState().listCollapsed && useStore.getState().toggleListCollapsed(), isNarrow(), {
     follow: () => [splitRef.current?.querySelector<HTMLElement>(':scope > .divider') ?? null],
     fade: () => splitRef.current?.querySelector<HTMLElement>(':scope > .list-scrim') ?? null
   })
-  const dragW = useRef(0)
-  // General-manga list keeps its own (narrower) width; both stay resizable.
-  const paneWidth = activeNormal ? normalListWidth : listWidth
+  // General-manga list keeps its own (narrower) width.
+  // Tablet (docked list beside the pages): ~78% of the drawer width.
+  const paneWidth = Math.round((activeNormal ? normalListWidth : listWidth) * (isTouch() && !isNarrow() ? 0.78 : 1))
   // Phone: the drawer can be turned off entirely (설정 · 뷰어 스타일).
   const sidebarOn = useStore((s) => s.settings.readerSidebar !== false)
   const sidebarToggleMode = useStore((s) => s.settings.sidebarToggle ?? 'bar')
@@ -505,42 +438,9 @@ function ReaderSplit(): JSX.Element {
     if (isNarrow() && !useStore.getState().listCollapsed) useStore.getState().toggleListCollapsed()
   }, [openedKey])
 
-  useEffect(() => {
-    const activeIsNormal = (): boolean => {
-      const st = useStore.getState()
-      return st.tabs.find((x) => x.id === st.activeTabId)?.mode === 'normal'
-    }
-    // While dragging, resize the pane by writing its width DIRECTLY to the DOM —
-    // no store update per frame. Committing to the store each mousemove re-renders
-    // the whole left list (the doujin library list can be thousands of rows),
-    // which made resizing very laggy. We commit once on mouseup instead.
-    const onMove = (e: MouseEvent): void => {
-      if (!dragging.current || !paneRef.current) return
-      // Min keeps the rating stars + 즐겨찾기/그룹 seg fully visible (thumb + foot).
-      const w = Math.max(300, Math.min(720, e.clientX))
-      dragW.current = w
-      paneRef.current.style.width = `${w}px`
-    }
-    const onUp = (): void => {
-      if (!dragging.current) return
-      dragging.current = false
-      document.body.classList.remove('resizing')
-      if (dragW.current > 0) {
-        const st = useStore.getState()
-        if (activeIsNormal()) st.setNormalListWidth(dragW.current, true)
-        else st.setListWidth(dragW.current, true)
-      }
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-  }, [])
 
   return (
-    <div className={`reader-split ${sidebarOn ? '' : 'no-sidebar'} ${sidebarToggleMode === 'bar' && isNarrow() ? 'toggle-bar' : ''}`} ref={splitRef}>
+    <div className={`reader-split ${sidebarOn ? '' : 'no-sidebar'} ${sidebarToggleMode === 'bar' && isTouch() ? 'toggle-bar' : ''}`} ref={splitRef}>
       {/* Kept mounted so the collapse/expand width animation can play (mirrors the
           tab open/close animation); collapsed drives width → 0 via CSS. */}
       <div
@@ -564,15 +464,9 @@ function ReaderSplit(): JSX.Element {
           ['--pane-w' as string]: `${listCollapsed ? 0 : paneWidth}px`,
           ['--toggle-top' as string]: `${dragTop ?? toggleTop}px`
         }}
-        onMouseDown={() => {
-          if (listCollapsed) return
-          dragging.current = true
-          document.body.classList.add('resizing')
-        }}
       >
         <button
           className={`list-toggle ${dragTop !== null ? 'dragging' : ''}`}
-          onMouseDown={(e) => e.stopPropagation()}
           onPointerDown={onTogglePointerDown}
           onPointerMove={onTogglePointerMove}
           onPointerUp={onTogglePointerUp}
@@ -597,19 +491,4 @@ function ReaderSplit(): JSX.Element {
       </div>
     </div>
   )
-}
-
-// Focus the search box of the current view: a visible input.search, preferring
-// one in the same pane as the current focus (split view), else the first.
-function focusSearch(): boolean {
-  const boxes = Array.from(document.querySelectorAll<HTMLInputElement>('input.search')).filter(
-    (el) => el.offsetParent !== null
-  )
-  if (!boxes.length) return false
-  const act = document.activeElement
-  const pane = act?.closest('.split-pane, .pane, .reader')
-  const el = (pane && boxes.find((b) => pane.contains(b))) || boxes[0]
-  el.focus()
-  el.select()
-  return true
 }

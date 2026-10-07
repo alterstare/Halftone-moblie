@@ -12,7 +12,6 @@ import ComicDownloadModal from './ComicDownloadModal'
 import type { ComicSeriesRef } from './ComicDownloadModal'
 import ComicBackupModal from './ComicBackupModal'
 import OnlineThumb from './OnlineThumb'
-import { getOnlineImages } from '../images'
 import { FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon, ArrowDownIcon } from './icons'
 import { BypassToggle, OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
 import Pager from './Pager'
@@ -470,6 +469,23 @@ export default function ComicBrowse(): JSX.Element {
           </button>
           {favMode && <OnlineOnlyToggle />}
           {favMode && <FavSortSelect value={favSort} onChange={setFavSort} />}
+          {/* Tablet: the site tools sit right in the row (CSS shows .tools-inline
+              ≥ 600px and hides the chevron); phone: they fold out from it. */}
+          <button className="chip tools-inline tools-first" onClick={() => window.api.comicOpenSite()}>
+            인증창
+          </button>
+          <button
+            className={`chip tools-inline ${addrOpen ? 'active' : ''}`}
+            onClick={() => {
+              setAddr(comicBaseUrl)
+              setAddrOpen((v) => !v)
+            }}
+          >
+            주소
+          </button>
+          <button className="chip tools-inline" onClick={() => setBackupOpen(true)}>
+            비상용
+          </button>
           {/* Site tools (인증창 / 주소 / 비상용) fold out from the chevron. */}
           <button
             className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
@@ -707,11 +723,6 @@ export default function ComicBrowse(): JSX.Element {
                   <OnlineThumb
                     thumbUrl={g.thumb}
                     localWorkId={localSeries.get(titleKey(g.title))?.repId || undefined}
-                    getImgs={async () => {
-                      // manga-site: series URL → first chapter → its images.
-                      const ch = await window.api.comicChapters(g.url)
-                      return ch[0] ? getOnlineImages(ch[0].url) : []
-                    }}
                   >
                     {opening === g.url && <div className="gcard-loading">여는 중…</div>}
                   </OnlineThumb>

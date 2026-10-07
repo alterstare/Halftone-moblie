@@ -32,8 +32,12 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
 
 - `src/renderer/` — the desktop React UI, nearly unchanged. Talks only to
   `window.api` (type `Api` in `src/shared/ipc.ts`). Phone tweaks:
-  `mobile.ts` (isTouch/isNarrow), `mobile.css` (≤760px overrides), reader list
-  pane = overlay drawer, hover preview/tooltips off on touch. Android back
+  `mobile.ts` (isTouch/isNarrow — narrow = < 600px), `mobile.css`, reader list
+  pane = overlay drawer, tooltips off on touch. Desktop leftovers are removed
+  (hover preview, mouse side buttons / Alt+←→ / forward nav, global keyboard
+  shortcuts + 설정 › 단축키, window-close signal, divider mouse resize, the
+  desktop TabBar / WorkCard / ExitModal); `shared/shortcuts.ts` keeps only the
+  reader's page keys (Bluetooth keyboards / page turners). Android back
   (App.tsx `back`): ☰ menu → topmost popup (`closeTopPopup`: long-press menu,
   dialogs, + menu, glance, open dropdown lists) → `useBackHandler` stack
   (selection; online 즐겨찾기 panel / view, search, genre/day/platform filters)
@@ -54,8 +58,8 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `CompactBar` 즐겨찾기 | 다운로드 only). 격자형 (grid) = 2-column compact `.ctile` (cover 3:4, title 2 lines,
   [code] · artist, `CompactBar` 즐겨찾기 | 다운로드(그룹), no rating) in
   `.compact-grid`. Same components, `compact` prop: WorkGridCard,
-  SeriesGridCard, OnlineFavCard (layout), Browse inline. (WorkCard/SeriesCard
-  list rows are unused on the phone.) Folder / 메타 채우기 / 삭제 live in the
+  SeriesGridCard, OnlineFavCard (layout), Browse inline. (SeriesCard only
+  provides `ChapterRow`.) Folder / 메타 채우기 / 삭제 live in the
   long-press menu (useWorkCard / useSeriesCard). ComicBrowse has no layout
   toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out from a
   chevron at the chips row's end; filters fold into centered short buttons
@@ -76,8 +80,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `flat-group` text buttons, groups split by lines, cards 2 per row. 작업 목록
   (Download.tsx) = the list only (manual 동인지 다운로드 pane removed), head
   icon buttons 전체 정지 · 전체 시작 · 완료 지우기, rows split by lines.
-  Tab bar = `MobileTabBar.tsx` (desktop `TabBar.tsx` is unused, kept for
-  porting reference): ☰ · 라이브러리 · 온라인, a one-tab-at-a-time swipe strip
+  Tab bar = `MobileTabBar.tsx`: ☰ · 라이브러리 · 온라인, a one-tab-at-a-time swipe strip
   (scroll-snap, swiping never switches tabs), Chrome-style tab-count button →
   2-column tab grid (`tabSwitcherOpen`). Mode switch / 작업 목록 / 설정 are in
   the ☰ menu only. 기록 (menu, view `history`) = Home in history mode: local
@@ -127,6 +130,15 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   wrap: fixed controls keep size + place (site-tools ⌄ pinned right), only the
   즐겨찾기 chip ellipsizes, and below 400px the rows step down in zoom (to 0.9×
   at ≤340px). Online list grid columns are `minmax(min(320px, 100%), 1fr)`.
+  Tablet (≥ 600px, end of mobile.css): list tiles = one full-width column,
+  grid cards keep 189px and auto-fill (leftover = side margins), several tabs
+  side by side (`.mtab` 150–260px), reader list docked beside the pages at
+  78% of the drawer width (no scrim / swipe-close; ☰ in the bottom bar still
+  toggles it), site tools (인증창 · 주소 · 비상용) inline in the chips row
+  (`.tools-inline`) instead of behind the ⌄. Phone (< 600px) unchanged.
+  Focus mode in the reader (`.app.focus-reader`): the tab bar is position:
+  fixed over the top (slides up when hidden) so the reader never resizes;
+  the title bar sits at `--mtabbar-h`, scroll mode pads the top by it.
   Library side padding 12px; phone hides scrollbars (the desktop 12px custom
   scrollbar took layout room → uneven margins); reader pages 4px each side.
   Online download progress = thin bar on the card's top edge (`.gcard > .gcard-dlbar`).
