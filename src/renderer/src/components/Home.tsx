@@ -548,6 +548,15 @@ export default function Home(): JSX.Element {
         scrollRef={scrollRef}
         onRefresh={() => void refresh()}
         onSelect={sel.start}
+        pager={{
+          page,
+          lastPage,
+          onPage: (p) => {
+            setPage(p)
+            useStore.getState().setHomeScroll(0)
+            if (scrollRef.current) scrollRef.current.scrollTop = 0
+          }
+        }}
       />
       {delSel && (
         <ConfirmModal

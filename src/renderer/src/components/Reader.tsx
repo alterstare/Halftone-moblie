@@ -247,7 +247,7 @@ export default function Reader({
         seriesUrl: online.seriesUrl,
         chapterLabel: n.title,
         thumb: online.thumb
-      })
+      }, true)
       return true
     }
     return false
@@ -273,7 +273,7 @@ export default function Reader({
             go: (d: 1 | -1) => {
               const n = chapters[chIdx + d]
               if (!n) return false
-              replaceTabWork(tabId, side, n.id)
+              replaceTabWork(tabId, side, n.id, true)
               return true
             }
           }

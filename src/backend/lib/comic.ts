@@ -278,6 +278,7 @@ function listUrl(base: string, src: ComicListSource, page: number): string {
     }
     if (SORT_PARAM[src.sort]) u.searchParams.set('sort', SORT_PARAM[src.sort])
     if (src.type === 'webtoon') {
+      if (src.cat) u.searchParams.set('cat', src.cat)
       if (src.day) u.searchParams.set('day', src.day)
       if (src.plat) u.searchParams.set('plat', src.plat)
     }

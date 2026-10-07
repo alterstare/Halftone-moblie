@@ -96,7 +96,7 @@
    Applies to local tiles (.gtile) and online cards (.gcard). */
 .work-grid,
 .browse-grid:not(.list) {
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   align-items: start;
 }
 .gtile,
@@ -2763,4 +2763,114 @@ body.focus-hide-tabs .mtabbar {
 .ctx-arrow .caret,
 .coll-caret .caret {
   display: block;
+}
+
+/* + 메뉴 › 페이지 이동: number box + total, flat 취소 / 이동 below. */
+.page-jump-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.page-jump-row .field-input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  font-size: 18px;
+  text-align: center;
+  /* pill like the search boxes, no square outline */
+  border: none;
+  border-radius: 22px;
+  background: var(--bg-2);
+  outline: none;
+  box-shadow: none;
+}
+.page-jump-row .field-input:focus {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.page-jump-info {
+  margin-left: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+/* Toolbar rows keep the reference (412px-wide phone) layout on any width:
+   one line, no wrapping — fixed controls (toggles, ⌄, +) keep their size and
+   place (the site-tools ⌄ pinned to the right end), text chips (전체 · 만화 ·
+   즐겨찾기 N …) shrink with an ellipsis first; on narrower screens the whole
+   row scales down a little (down to 0.9×). */
+.home-head > .chips,
+.browse-head > .chips,
+.filter-mores,
+.reader-more .reader-btns {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+:is(.home-head, .browse-head) > .chips > * {
+  flex-shrink: 0;
+}
+/* Only the 즐겨찾기 chip gives way (its label ellipsizes); 전체 / 만화 / 웹툰
+   keep their full text. */
+:is(.home-head, .browse-head) > .chips > .chip {
+  white-space: nowrap;
+}
+:is(.home-head, .browse-head) > .chips > .fav-chip,
+:is(.home-head, .browse-head) > .chips > .chip:has(> .fav-ico) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+:is(.home-head, .browse-head) > .chips > button.chip:has(> .fav-ico) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.fav-chip .fav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browse-head > .chips > .tools-toggle {
+  margin-left: auto;
+}
+@media (max-width: 400px) {
+  .home-head > .chips,
+  .browse-head > .chips {
+    zoom: 1.05;
+  }
+}
+@media (max-width: 380px) {
+  .home-head > .chips,
+  .browse-head > .chips {
+    zoom: 1;
+  }
+}
+@media (max-width: 360px) {
+  .home-head > .chips,
+  .browse-head > .chips {
+    zoom: 0.95;
+  }
+  /* tighter chips before anything has to shrink */
+  :is(.home-head, .browse-head) > .chips > .chip:not(.layout-toggle) {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .filter-mores,
+  .reader-more .reader-btns {
+    zoom: 0.95;
+  }
+}
+@media (max-width: 340px) {
+  .home-head > .chips,
+  .browse-head > .chips,
+  .filter-mores,
+  .reader-more .reader-btns {
+    zoom: 0.9;
+  }
+}
+/* Grid tracks never grow past the screen on narrow phones (a card's content
+   min-width pushed the 1-column online list 12px off-screen at 320px). */
+:is(.browse-grid, .work-grid) > * {
+  min-width: 0;
 }

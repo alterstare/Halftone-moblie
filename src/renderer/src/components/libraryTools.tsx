@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { AddIcon, RefreshIcon, ChecklistIcon, SelectAllIcon, DeselectIcon, CloseIcon, CheckMarkIcon } from './icons'
+import { AddIcon, RefreshIcon, ChecklistIcon, NumbersIcon, SelectAllIcon, DeselectIcon, CloseIcon, CheckMarkIcon } from './icons'
 
 // ---------- selection ----------
 
@@ -86,6 +86,21 @@ export function popBack(): boolean {
   if (!f) return false
   f()
   return true
+}
+// While `active`, Android back runs `fn` (once) instead of navigating — e.g.
+// leave the online 즐겨찾기 view back to the full list.
+export function useBackHandler(active: boolean, fn: () => void): void {
+  const ref = useRef(fn)
+  ref.current = fn
+  useEffect(() => {
+    if (!active) return
+    const h = (): void => ref.current()
+    backStack.push(h)
+    return () => {
+      const i = backStack.indexOf(h)
+      if (i >= 0) backStack.splice(i, 1)
+    }
+  }, [active])
 }
 
 // The checkbox drawn at a card's top-left while selecting.
@@ -401,15 +416,19 @@ export function LibraryFab({
   active,
   scrollRef,
   onRefresh,
-  onSelect
+  onSelect,
+  pager
 }: {
   active: boolean
   scrollRef: RefObject<HTMLElement | null>
   onRefresh: () => void
   onSelect: () => void
+  // 페이지 이동: the screen's list paging (0-based; lastPage -1 = unknown).
+  pager?: { page: number; lastPage: number; onPage: (p: number) => void }
 }): JSX.Element | null {
   const [hidden, setHidden] = useState(false)
   const [open, setOpen] = useState(false)
+  const [jump, setJump] = useState<string | null>(null) // 페이지 이동 dialog input
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !active) return
@@ -445,11 +464,63 @@ export function LibraryFab({
             <ChecklistIcon />
             <span>작품 선택</span>
           </button>
+          {pager && (
+            <button className="fab-item" onClick={pick(() => setJump(String(pager.page + 1)))}>
+              <NumbersIcon />
+              <span>페이지 이동</span>
+            </button>
+          )}
         </div>
         <button className={`fab ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)} title="메뉴">
           <AddIcon />
         </button>
       </div>
+      {jump !== null && pager && (
+        <div className="exit-backdrop" onClick={() => setJump(null)}>
+          <div className="exit-modal compact page-jump" onClick={(e) => e.stopPropagation()}>
+            <h3 className="exit-title">
+              페이지 이동
+              <span className="page-jump-info">
+                {pager.lastPage >= 0 ? `총 ${pager.lastPage + 1}페이지, ` : ''}현재 {pager.page + 1}페이지
+              </span>
+            </h3>
+            <form
+              className="page-jump-row"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const n = parseInt(jump, 10)
+                if (isNaN(n)) return
+                const max = pager.lastPage >= 0 ? pager.lastPage + 1 : n
+                pager.onPage(Math.max(1, Math.min(max, n)) - 1)
+                setJump(null)
+              }}
+            >
+              <input
+                className="field-input"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={pager.lastPage >= 0 ? pager.lastPage + 1 : undefined}
+                autoFocus
+                value={jump}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setJump(e.target.value)}
+              />
+            </form>
+            <div className="exit-actions">
+              <button className="exit-btn ghost" onClick={() => setJump(null)}>
+                취소
+              </button>
+              <button
+                className="exit-btn primary"
+                onClick={() => (document.querySelector('.page-jump-row') as HTMLFormElement | null)?.requestSubmit()}
+              >
+                이동
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>,
     document.body
   )

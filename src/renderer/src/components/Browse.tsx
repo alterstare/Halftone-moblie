@@ -23,7 +23,7 @@ import MoreClamp from './MoreClamp'
 import { ArtistLinks } from './ArtistLinks'
 import TileBar, { CompactBar } from './TileBar'
 import CardMore from './CardMore'
-import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav } from './libraryTools'
+import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav, useBackHandler } from './libraryTools'
 
 const LANGS = [
   ['all', '전체'],
@@ -296,6 +296,16 @@ export default function Browse(): JSX.Element {
   // Phone tools: pull-to-refresh / + 새로고침 (page 1, fresh fetch) and
   // 작품 선택 (download the picked galleries, one after another).
   const browseView = useStore((s) => s.view === 'browse')
+  // Android back: the 즐겨찾기 list panel, then the 즐겨찾기 view, then a
+  // search → the full online list first (only then does back exit).
+  const thisMode = useStore((s) => (s.libraryMode === 'normal') === false)
+  const searching = activeSource.kind === 'search'
+  useBackHandler(browseView && thisMode && (favPanel || favMode || searching), () => {
+    if (favPanel) return setFavPanel(false)
+    if (favMode) return setFavMode(false)
+    setQuery('')
+    runIndex()
+  })
   const sel = useSelection()
   const refresh = (): Promise<void> =>
     new Promise((res) => {
@@ -332,7 +342,17 @@ export default function Browse(): JSX.Element {
           }
         />
       )}
-      <LibraryFab active={browseView && !sel.selecting} scrollRef={rootRef} onRefresh={() => void refresh()} onSelect={sel.start} />
+      <LibraryFab
+        active={browseView && !sel.selecting}
+        scrollRef={rootRef}
+        onRefresh={() => void refresh()}
+        onSelect={sel.start}
+        pager={
+          favMode
+            ? { page: favPage, lastPage: favLastPage, onPage: setFavPage }
+            : { page, lastPage, onPage: setBrowsePage }
+        }
+      />
       <div className="browse-head">
         {/* Phone: full-width search box (Enter searches) — 언어 filter icon at its
             left end, sort icon at its right end. */}

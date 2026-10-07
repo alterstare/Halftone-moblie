@@ -33,8 +33,17 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
 - `src/renderer/` — the desktop React UI, nearly unchanged. Talks only to
   `window.api` (type `Api` in `src/shared/ipc.ts`). Phone tweaks:
   `mobile.ts` (isTouch/isNarrow), `mobile.css` (≤760px overrides), reader list
-  pane = overlay drawer, hover preview/tooltips off on touch, Android back →
-  `navBack`, at root toggles the exit modal (App.tsx).
+  pane = overlay drawer, hover preview/tooltips off on touch. Android back
+  (App.tsx `back`): ☰ menu → topmost popup (`closeTopPopup`: long-press menu,
+  dialogs, + menu, glance, open dropdown lists) → `useBackHandler` stack
+  (selection; online 즐겨찾기 panel / view, search, genre/day/platform filters)
+  → tab grid, 설정 · 기록 · 작업 목록 · 관리 → the full library list last shown
+  (`lastLibView`: local home or online browse, current mode); reader: open list
+  drawer closes first, a work / gallery picked from the sidebar rewinds to the
+  one it replaced (`tab.back` / `tab.onlineBack`; chapter prev/next and
+  continuous reading pass `noBack`), else the tab closes → library list; home
+  with a filter / search → cleared; full home / browse → save session + exit,
+  no exit popup (`exitSaving`).
   Library cards are phone-specific (diverge from desktop — re-apply when
   porting a newer desktop renderer). 목록형 (list) = the wide tile: cover left
   (112×160, vertically centered) / text right (full title, artist 1 line +
@@ -49,8 +58,9 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   list rows are unused on the phone.) Folder / 메타 채우기 / 삭제 live in the
   long-press menu (useWorkCard / useSeriesCard). ComicBrowse has no layout
   toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out from a
-  chevron at the chips row's end; filters fold into centered "… 더보기" buttons
-  (만화: 장르; 웹툰: 요일 · 장르 · 플랫폼 — `day` / `plat` URL params, platform
+  chevron at the chips row's end; filters fold into centered short buttons
+  (만화: 장르; 웹툰: 분류 · 요일 · 장르 · 플랫폼 — `cat` (all / bl / adult, none =
+  the site default 일반) / `day` / `plat` URL params, platform
   list scraped from the page's 플랫폼 row, genre chips from the 장르 row).
   Genres are multi-select (comma-joined `source.genre`; 만화 `g=a,b`, webtoon
   `tag=<id>,<id>` with ids learned from in-page clicks → `webtoonTags`); day /
@@ -102,7 +112,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `components/libraryTools.tsx`: `usePullRefresh` (children slide by --ptr,
   spinner above the search box; Home = page 1 + `scanLibraryJob`, online = page
   1 + reloadKey fetch), `LibraryFab` (portaled round +, hides on scroll down,
-  drop-up 새로고침 / 작품 선택), `useSelection` + `SelectBar` (fixed to the bottom edge, portaled; 전체
+  drop-up 새로고침 / 작품 선택 / 페이지 이동 — `pager` prop, a number dialog that jumps the screen's list page; 일반 만화 online has no total, so any number, overshoot lands on the last), `useSelection` + `SelectBar` (fixed to the bottom edge, portaled; 전체
   선택 · 해제 | 삭제(local) / 다운로드(online, sequential) | ×) — cards carry
   `data-sel` + checkbox via `useSel`/`SelBox`; Android back ends selection
   (`popBack`).
@@ -113,6 +123,10 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   closes it, otherwise it springs back.
   격자형 cards: cover in a 6px `--bg-1` frame (card background), fixed text rows
   (title 2 lines, artist 1, meta 1 — rendered even when empty) → equal heights.
+  Toolbar rows (home / online `.chips`, filter buttons, reader ⋮ row) never
+  wrap: fixed controls keep size + place (site-tools ⌄ pinned right), only the
+  즐겨찾기 chip ellipsizes, and below 400px the rows step down in zoom (to 0.9×
+  at ≤340px). Online list grid columns are `minmax(min(320px, 100%), 1fr)`.
   Library side padding 12px; phone hides scrollbars (the desktop 12px custom
   scrollbar took layout room → uneven margins); reader pages 4px each side.
   Online download progress = thin bar on the card's top edge (`.gcard > .gcard-dlbar`).

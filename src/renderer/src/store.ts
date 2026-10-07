@@ -113,6 +113,9 @@ export interface Tab {
   // Back (mouse side button) rewinds through these; when empty, back closes the
   // tab. Only in-tab work swaps (replaceTabWork) push here.
   back?: string[]
+  // Same for online galleries / chapters picked from the online sidebar
+  // (replaceTabOnline); chapter prev/next passes noBack.
+  onlineBack?: OnlineGallery[]
   // Per-tab (per-pane) view state: zoom + reading mode. Kept on the tab so each
   // tab remembers its own; a newly opened tab inherits the last-viewed tab's.
   // Undefined → fall back to settings.readerMode / 100%.
@@ -313,7 +316,9 @@ interface AppState {
   toggleListCollapsed: () => void
   bumpThumbNonce: () => void
   // Replace the work shown in one pane of a tab in place (chapter prev/next).
-  replaceTabWork: (tabId: string, side: 'left' | 'right', workId: string) => void
+  // noBack: chapter prev/next & continuous reading — not a sidebar pick, so
+  // Android back doesn't rewind through it.
+  replaceTabWork: (tabId: string, side: 'left' | 'right', workId: string, noBack?: boolean) => void
   // Continuous reading: the ordered work ids of the current left list. The reader
   // uses it to flow from the last page of one work into the next (and back).
   readingQueue: string[]
@@ -325,7 +330,10 @@ interface AppState {
   // Advance the left pane to the neighbour work in readingQueue. dir +1 = next,
   // -1 = previous. Returns true if it moved (a neighbour existed).
   continueReading: (tabId: string, side: 'left' | 'right', dir: 1 | -1) => boolean
-  replaceTabOnline: (tabId: string, g: OnlineGallery) => void
+  replaceTabOnline: (tabId: string, g: OnlineGallery, noBack?: boolean) => void
+  // Android back: step an online tab back to the gallery it showed before a
+  // sidebar pick. False when there's nothing to rewind.
+  popOnlineBack: (tabId: string) => boolean
   openTab: (workId: string) => void
   openOnline: (g: OnlineGallery) => void
   // Open a manga-site (general-manga online) chapter, keeping general-manga mode.
@@ -840,7 +848,7 @@ export const useStore = create<AppState>((set, get) => ({
   bumpThumbNonce: () => set((st) => ({ thumbNonce: st.thumbNonce + 1 })),
 
   // ---------- tabs: replace / continuous reading / open ----------
-  replaceTabWork: (tabId, side, workId) =>
+  replaceTabWork: (tabId, side, workId, noBack) =>
     set((st) => {
       const mode = (st.works.find((w) => w.id === workId)?.library ?? 'doujin') as 'doujin' | 'normal'
       return {
@@ -850,7 +858,7 @@ export const useStore = create<AppState>((set, get) => ({
           // Push the outgoing work so back can rewind to it (skip no-op re-opens).
           const prev = t.workId
           const back =
-            prev && prev !== workId ? [...(t.back ?? []), prev].slice(-100) : t.back
+            !noBack && prev && prev !== workId ? [...(t.back ?? []), prev].slice(-100) : t.back
           return { ...t, workId, online: undefined, scrollTop: 0, mode, back }
         }),
         navRedo: [] // a new forward move invalidates the redo stack
@@ -881,19 +889,33 @@ export const useStore = create<AppState>((set, get) => ({
     if (i < 0) return false
     const nextId = st.readingQueue[i + dir]
     if (!nextId) return false
-    st.replaceTabWork(tabId, 'left', nextId)
+    st.replaceTabWork(tabId, 'left', nextId, true)
     if (dir < 0) set((s) => ({ startAtBottom: { ...s.startAtBottom, [tabId]: true } }))
     return true
   },
 
   // Load another online chapter/gallery IN the same tab (left pane) instead of
   // spawning a new one — used by the reader's chapter list + prev/next buttons.
-  replaceTabOnline: (tabId, g) =>
+  replaceTabOnline: (tabId, g, noBack) =>
     set((st) => ({
-      tabs: st.tabs.map((t) =>
-        t.id !== tabId ? t : { ...t, workId: '', online: g, scrollTop: 0 }
-      )
+      tabs: st.tabs.map((t) => {
+        if (t.id !== tabId) return t
+        const prev = t.online
+        const onlineBack =
+          !noBack && prev && prev.code !== g.code ? [...(t.onlineBack ?? []), prev].slice(-100) : t.onlineBack
+        return { ...t, workId: '', online: g, scrollTop: 0, onlineBack }
+      })
     })),
+  popOnlineBack: (tabId) => {
+    const t = get().tabs.find((x) => x.id === tabId)
+    if (!t?.onlineBack?.length) return false
+    const stack = [...t.onlineBack]
+    const prev = stack.pop()!
+    set((st) => ({
+      tabs: st.tabs.map((x) => (x.id === tabId ? { ...x, workId: '', online: prev, scrollTop: 0, onlineBack: stack } : x))
+    }))
+    return true
+  },
 
   openTab: (workId) => {
     const modeOf = (id: string): 'doujin' | 'normal' =>

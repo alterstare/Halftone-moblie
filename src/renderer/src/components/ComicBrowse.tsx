@@ -7,7 +7,7 @@ import Stars from './Stars'
 import MoreClamp from './MoreClamp'
 import { ArtistLinks } from './ArtistLinks'
 import TileBar from './TileBar'
-import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav } from './libraryTools'
+import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav, useBackHandler } from './libraryTools'
 import ComicDownloadModal from './ComicDownloadModal'
 import type { ComicSeriesRef } from './ComicDownloadModal'
 import ComicBackupModal from './ComicBackupModal'
@@ -45,6 +45,13 @@ function favMeta(g: ComicSummary, artist: string | null): Partial<OnlineFav> {
 // Favorites/ratings reuse the online-fav store, keyed by the series url (http),
 // which keeps them separate from the doujin numeric-code favorites.
 const NO_GENRES: string[] = []
+// Webtoon 분류 (`cat=`); '' = the site default (일반웹툰).
+const CATS: readonly (readonly [string, string])[] = [
+  ['all', '전체'],
+  ['', '일반'],
+  ['bl', 'BL/GL'],
+  ['adult', '성인']
+]
 
 export default function ComicBrowse(): JSX.Element {
   const comicStatus = useComicStatus()
@@ -68,7 +75,9 @@ export default function ComicBrowse(): JSX.Element {
   // Phone: 인증창 / 주소 / 비상용 and the genre list stay folded until asked for.
   const [toolsOpen, setToolsOpen] = useState(false)
   // Which filter dropdown is open (만화: 장르; 웹툰: 요일 / 장르 / 플랫폼).
-  const [filterOpen, setFilterOpen] = useState<'day' | 'genre' | 'plat' | null>(null)
+  const [filterOpen, setFilterOpen] = useState<'cat' | 'day' | 'genre' | 'plat' | null>(null)
+  // Webtoon 분류: '' = 일반 (site default), 'all' / 'bl' / 'adult'.
+  const [cat, setCat] = useState<string>('')
   const [day, setDay] = useState<string>('')
   const [plat, setPlat] = useState<string>('')
   const [platforms, setPlatforms] = useState<{ id: string; name: string }[]>([])
@@ -164,6 +173,7 @@ export default function ComicBrowse(): JSX.Element {
       type,
       query: query.trim() || undefined,
       field,
+      cat: cat || undefined,
       day: day || undefined,
       plat: plat || undefined,
       ...patch
@@ -333,6 +343,20 @@ export default function ComicBrowse(): JSX.Element {
   // Phone tools: pull-to-refresh / + 새로고침 (page 1, fresh fetch) and
   // 작품 선택 (download the picked series, one after another).
   const browseView = useStore((s) => s.view === 'browse')
+  // Android back: an open filter dropdown, then the 즐겨찾기 view, then the
+  // search / genre / day / platform filters → the full online list first.
+  const thisMode = useStore((s) => (s.libraryMode === 'normal') === true)
+  const filtered = !!source.query || (source.genre ?? '전체') !== '전체' || !!source.cat || !!source.day || !!source.plat
+  useBackHandler(browseView && thisMode && (!!filterOpen || favMode || filtered), () => {
+    if (filterOpen) return setFilterOpen(null)
+    if (favMode) return setFavMode(false)
+    setQuery('')
+    setGenre('전체')
+    setCat('')
+    setDay('')
+    setPlat('')
+    applySource({ genre: '전체', cat: undefined, day: undefined, plat: undefined, query: undefined })
+  })
   const sel = useSelection()
   const refresh = (): Promise<void> =>
     new Promise((res) => {
@@ -370,7 +394,13 @@ export default function ComicBrowse(): JSX.Element {
           }
         />
       )}
-      <LibraryFab active={browseView && !sel.selecting} scrollRef={rootRef} onRefresh={() => void refresh()} onSelect={sel.start} />
+      <LibraryFab
+        active={browseView && !sel.selecting}
+        scrollRef={rootRef}
+        onRefresh={() => void refresh()}
+        onSelect={sel.start}
+        pager={favMode ? undefined : { page, lastPage: -1, onPage: (p) => setPage(Math.max(0, p)) }}
+      />
       <div className="browse-head">
         {/* Phone: full-width search box (Enter searches) — 제목/작가 filter icon
             at its left end, sort icon at its right end. */}
@@ -421,10 +451,11 @@ export default function ComicBrowse(): JSX.Element {
               onClick={() => {
                 setType(v)
                 setGenre('전체')
+                setCat('')
                 setDay('')
                 setPlat('')
                 setFilterOpen(null)
-                applySource({ type: v, genre: '전체', day: undefined, plat: undefined })
+                applySource({ type: v, genre: '전체', cat: undefined, day: undefined, plat: undefined })
               }}
             >
               {l}
@@ -490,12 +521,14 @@ export default function ComicBrowse(): JSX.Element {
           </div>
         )}
 
-        {/* Filters fold into "… 더보기" buttons; one dropdown open at a time.
-            만화: 장르. 웹툰: 요일 · 장르 · 플랫폼. The chosen value shows on the button. */}
+        {/* Filters fold into short buttons; one dropdown open at a time.
+            만화: 장르. 웹툰: 분류 · 요일 · 장르 · 플랫폼. A set filter tints its button;
+            the chosen values show as chips below. */}
         {!favMode && (
           <div className="flat-group filter-mores">
             {(type === 'webtoon'
               ? ([
+                  ['cat', '분류', cat ? (CATS.find(([v]) => v === cat)?.[1] ?? '') : ''],
                   ['day', '요일', day ? `${day}요일` : ''],
                   ['genre', '장르', genreLabel],
                   ['plat', '플랫폼', plat ? (platforms.find((x) => x.id === plat)?.name ?? '') : '']
@@ -507,9 +540,25 @@ export default function ComicBrowse(): JSX.Element {
                 className={`genre-more ${filterOpen === k ? 'open' : ''} ${val ? 'set' : ''}`}
                 onClick={() => setFilterOpen((o) => (o === k ? null : k))}
               >
-                <span>{val ? `${label} · ${val}` : `${label} 더보기`}</span>
+                <span>{label}</span>
                 <ArrowDownIcon />
               </button>
+            ))}
+          </div>
+        )}
+        {!favMode && filterOpen === 'cat' && (
+          <div className="genre-chips">
+            {CATS.map(([v, l]) => (
+              <span
+                key={v || 'normal'}
+                className={`tag ${cat === v ? 'fav-tag' : ''}`}
+                onClick={() => {
+                  setCat(v)
+                  applySource({ cat: v || undefined })
+                }}
+              >
+                {l}
+              </span>
             ))}
           </div>
         )}
@@ -581,8 +630,13 @@ export default function ComicBrowse(): JSX.Element {
           </div>
         )}
         {/* Chosen filters as removable chips (like the doujin search tokens). */}
-        {!favMode && (selGenres.length > 0 || (type === 'webtoon' && (day || plat))) && (
+        {!favMode && (selGenres.length > 0 || (type === 'webtoon' && (cat || day || plat))) && (
           <div className="search-chips">
+            {type === 'webtoon' && cat && (
+              <button className="chip active search-tok" title="필터에서 제거" onClick={() => (setCat(''), applySource({ cat: undefined }))}>
+                {CATS.find(([v]) => v === cat)?.[1]} ✕
+              </button>
+            )}
             {type === 'webtoon' && day && (
               <button className="chip active search-tok" title="필터에서 제거" onClick={() => (setDay(''), applySource({ day: undefined }))}>
                 {day}요일 ✕

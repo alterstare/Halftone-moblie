@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from './store'
 import { isNarrow } from './mobile'
-import ExitModal from './components/ExitModal'
 import MobileTabBar from './components/MobileTabBar'
 import { popBack, swipeSlide, useSwipeClose } from './components/libraryTools'
 import Home from './components/Home'
@@ -45,7 +44,6 @@ export default function App(): JSX.Element {
   const setSettings = useStore((s) => s.setSettings)
   const restoreSession = useStore((s) => s.restoreSession)
   const theme = useStore((s) => s.settings.theme)
-  const [showExit, setShowExit] = useState(false)
   // First-run: prompt to enter the doujin online address (online access is gated
   // on it). Shown once per session when the address hasn't been configured.
   const [askAddr, setAskAddr] = useState(false)
@@ -160,8 +158,41 @@ export default function App(): JSX.Element {
     return { tabs: local, activeTabId }
   }
 
-  // Main intercepts the window X and asks us to show the styled exit modal.
-  useEffect(() => window.api.onRequestClose(() => setShowExit(true)), [])
+  // Android back closes the topmost popup first: long-press menus, dialogs,
+  // the + menu, the glance window, open dropdown lists / panels. Each is closed
+  // the way an outside tap would close it.
+  const closeTopPopup = (): boolean => {
+    const overlays = [
+      ...document.querySelectorAll<HTMLElement>('.ctx-overlay:not(.closing), .exit-backdrop, .modal-overlay, .glance-backdrop, .fab-scrim')
+    ]
+    const top = overlays[overlays.length - 1]
+    if (top) {
+      if (top.classList.contains('ctx-overlay')) {
+        top.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+        top.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+      } else if (top.classList.contains('glance-backdrop')) {
+        top.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      } else if (top.classList.contains('fab-scrim')) {
+        top.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      } else {
+        top.click()
+      }
+      return true
+    }
+    if (document.querySelector('.dropdown-panel, .cat-panel, .grp-pop')) {
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      return true
+    }
+    return false
+  }
+  // The library list (local home / online browse) last shown — where back leads.
+  const lastLibView = useRef<'home' | 'browse'>('home')
+  useEffect(() => {
+    if (view === 'home' || view === 'browse') lastLibView.current = view
+  }, [view])
+  // Exit = always save the session (open tabs) and close — no exit popup.
+  const exitSaving = (): void => void window.api.closeWindow('keep', snapshot())
+  useEffect(() => window.api.onRequestClose(() => exitSaving()), [])
 
   // Cloudflare auth: main pops its browser window and tells us to show a banner.
   const [cfChallenge, setCfChallenge] = useState(false)
@@ -196,13 +227,50 @@ export default function App(): JSX.Element {
         st.setTabSwitcherOpen(false)
         return
       }
-      if (popBack()) return // e.g. end 작품 선택
-      const sig = (s: typeof st): string =>
-        [s.view, s.navPos, s.activeTabId, s.tabs.length, s.libraryMode, s.pendingNav ? 1 : 0].join('|')
-      const before = sig(st)
-      st.navBack()
-      // Nothing left to go back to → toggle the exit modal (back again closes it).
-      if (sig(useStore.getState()) === before) setShowExit((v) => !v)
+      if (closeTopPopup()) return // a popup / menu / dropdown open → just close it
+      if (popBack()) return // e.g. end 작품 선택, leave online 즐겨찾기
+      // Back always leads to the full library list of the current mode (the
+      // local or online one last shown), and from there exits the app.
+      const toLibrary = (): void => (lastLibView.current === 'browse' ? st.goBrowse() : st.goHome())
+      if (st.tabSwitcherOpen) {
+        st.setTabSwitcherOpen(false)
+        toLibrary()
+        return
+      }
+      if (st.view === 'reader') {
+        // Open list drawer → close it first.
+        if (isNarrow() && !st.listCollapsed && st.settings.readerSidebar !== false) {
+          st.toggleListCollapsed()
+          return
+        }
+        // A work / gallery opened from the sidebar → the one it replaced in this tab.
+        const tab = st.tabs.find((t) => t.id === st.activeTabId)
+        if (tab && tab.back && tab.back.length) {
+          st.navBack()
+          return
+        }
+        if (tab && st.popOnlineBack(tab.id)) return
+        // Otherwise close the tab and go to the library list.
+        toLibrary()
+        if (tab) useStore.setState((s) => ({ tabs: s.tabs.filter((t) => t.id !== tab.id), activeTabId: null }))
+        return
+      }
+      if (st.view === 'home') {
+        // 즐겨찾기 / 목록 / artist / tag filter or a search → the full list first.
+        if (st.filter.kind !== 'all' || st.search) {
+          st.setSearch('')
+          st.setFilter({ kind: 'all' })
+          return
+        }
+        exitSaving()
+        return
+      }
+      if (st.view === 'browse') {
+        exitSaving()
+        return
+      }
+      // 설정 · 기록 · 작업 목록 · 관리 · anything else → the library list.
+      toLibrary()
     }
     const forward = (): void => {
       const now = Date.now()
@@ -283,11 +351,6 @@ export default function App(): JSX.Element {
     []
   )
 
-  const onExit = (decision: 'keep' | 'clear' | 'cancel'): void => {
-    setShowExit(false)
-    window.api.closeWindow(decision, decision === 'keep' ? snapshot() : undefined)
-  }
-
   return (
     <div className="app">
       <MobileTabBar />
@@ -324,7 +387,6 @@ export default function App(): JSX.Element {
           🔒 사이트 인증이 필요합니다. 방금 뜬 창에서 “사람인지 확인”을 완료해 주세요. 완료되면 자동으로 진행됩니다.
         </div>
       )}
-      {showExit && <ExitModal onChoose={onExit} />}
       {askAddr && (
         <ConfirmModal
           icon="🌐"

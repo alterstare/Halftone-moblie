@@ -23,6 +23,8 @@ export interface ComicListSource {
   // Webtoon list only: weekday ('월'…'일', none = all) and platform id (site's
   // numeric id, none = all).
   day?: string
+  // Webtoon 분류: 'all' | 'bl' | 'adult' (none = the site default, 일반웹툰).
+  cat?: string
   plat?: string
 }
 // One series card on a manga-site list page.
