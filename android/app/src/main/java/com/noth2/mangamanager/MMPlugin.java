@@ -705,6 +705,17 @@ public class MMPlugin extends Plugin {
 
     // Rescan folders (and every file under them) so MediaStore / the gallery picks
     // up a new or removed .nomedia: hidden folders drop out, unhidden ones come back.
+    // Theme for the next start: MainActivity paints the WebView background with
+    // it before the page loads (no white / light flash in dark mode).
+    @PluginMethod
+    public void setTheme(PluginCall call) {
+        boolean dark = Boolean.TRUE.equals(call.getBoolean("dark", false));
+        getContext().getSharedPreferences("halftone", android.content.Context.MODE_PRIVATE)
+            .edit().putBoolean("dark", dark).apply();
+        getActivity().runOnUiThread(() -> getBridge().getWebView().setBackgroundColor(dark ? 0xFF0B0D13 : 0xFFF4F5F8));
+        call.resolve();
+    }
+
     @PluginMethod
     public void mediaScan(PluginCall call) {
         JSArray a = call.getArray("paths", new JSArray());

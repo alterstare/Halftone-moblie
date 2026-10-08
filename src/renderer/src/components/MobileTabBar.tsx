@@ -8,6 +8,7 @@ import { getFavSummary, useFavSummaries } from '../favSummaries'
 import Thumb from './Thumb'
 import OnlineThumb from './OnlineThumb'
 import { HomeIcon, LanguageIcon, MenuIcon, CloseIcon } from './icons'
+import { isNarrow } from '../mobile'
 
 // Phone tab bar (replaces the desktop TabBar): ☰ · 라이브러리 · 온라인, then the
 // open tabs as a strip that shows ONE tab at a time — swipe left/right to look
@@ -112,6 +113,29 @@ export default function MobileTabBar(): JSX.Element {
     }, 170)
     return () => clearTimeout(timer)
   }, [switcherOpen])
+
+  // Tablet: Chrome-style tab widths — full width while they fit, shrinking as
+  // tabs are added down to 2/3 of it, then the strip scrolls. Written as
+  // --tab-w on the strip (CSS animates the width).
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const fit = (): void => {
+      if (isNarrow()) {
+        strip.style.removeProperty('--tab-w')
+        return
+      }
+      const base = Math.min(260, Math.max(150, window.innerWidth * 0.24))
+      const n = strip.querySelectorAll('.mtab').length || 1
+      const gap = 4
+      const per = (strip.clientWidth - gap * (n - 1)) / n
+      strip.style.setProperty('--tab-w', `${Math.round(Math.max((base * 2) / 3, Math.min(base, per)))}px`)
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(strip)
+    return () => ro.disconnect()
+  }, [tabs.length])
 
   // Keep the active tab in view (after opening / switching, or when the bar
   // first shows it). Swiping only scrolls, so this never fights the user.

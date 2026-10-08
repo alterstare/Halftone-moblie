@@ -452,9 +452,20 @@ export default function Browse(): JSX.Element {
               </div>
             )}
           </div>
-          {favMode && <OnlineOnlyToggle />}
-          {favMode && <FavSortSelect value={favSort} onChange={setFavSort} />}
+          {/* 즐겨찾기 view controls: own row on a phone, inline on a tablet. */}
+          {favMode && (
+            <span className="chips-extra">
+              <OnlineOnlyToggle />
+              <FavSortSelect value={favSort} onChange={setFavSort} />
+            </span>
+          )}
         </div>
+        {favMode && (
+          <div className="chips chips-extra-row">
+            <OnlineOnlyToggle />
+            <FavSortSelect value={favSort} onChange={setFavSort} />
+          </div>
+        )}
       </div>
 
       {searchTokens.length > 0 && (

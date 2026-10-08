@@ -241,6 +241,7 @@ export const libraryApi: Partial<Api> = {
     await MM.nasRemove({ id })
   },
   appVersion: async () => (await MM.appInfo()).version,
+  setNativeTheme: (dark: boolean) => MM.setTheme({ dark }),
   imageCacheInfo: () => MM.imageCacheInfo(),
   clearImageCache: () => MM.clearImageCache(),
   // Sub-folders of a folder (NAS browser).

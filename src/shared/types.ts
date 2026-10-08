@@ -172,9 +172,12 @@ export interface Settings {
   // Phone reader: the left list drawer (and its edge toggle) on/off, and the
   // toggle's vertical position in px from the reader's top (user-dragged).
   readerSidebar: boolean
-  // Phone reader: how the list drawer opens — 'bar' = a ☰ button at the left of
-  // the bottom bar (default), 'float' = the draggable edge toggle.
-  sidebarToggle: 'bar' | 'float'
+  // Reader: how the list opens — 'bar' = a ☰ button at the left of the bottom
+  // bar, 'float' = the draggable edge toggle. Unset = by screen: phone 'bar',
+  // tablet 'float' (see sidebarBtnMode). `sidebarToggle` is the pre-0.5.92 key
+  // (its saved 'bar' was just the old default; only an explicit 'float' counts).
+  sidebarBtn?: 'bar' | 'float'
+  sidebarToggle?: 'bar' | 'float'
   // Phone reader focus mode: hiding the reader bars also hides the tab bar.
   focusMode: boolean
   // Phone: keep downloaded pages out of the gallery (.nomedia in the download folders).
@@ -370,7 +373,6 @@ export const DEFAULT_SETTINGS: Settings = {
   bypassTunnel: false,
   resumeReading: true,
   readerSidebar: true,
-  sidebarToggle: 'bar',
   focusMode: false,
   hideFromGallery: true,
   autoUpdate: true,

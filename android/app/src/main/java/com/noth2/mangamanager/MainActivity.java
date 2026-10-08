@@ -16,6 +16,11 @@ public class MainActivity extends BridgeActivity {
         // No page zoom: the only pinch zoom is the reader's own (on the pages).
         bridge.getWebView().getSettings().setSupportZoom(false);
         bridge.getWebView().getSettings().setBuiltInZoomControls(false);
+        // Last theme (MMPlugin.setTheme) as the page background before it loads.
+        boolean dark = getSharedPreferences("halftone", MODE_PRIVATE).getBoolean("dark", false);
+        int bg = dark ? 0xFF0B0D13 : 0xFFF4F5F8;
+        bridge.getWebView().setBackgroundColor(bg);
+        getWindow().getDecorView().setBackgroundColor(bg);
         // Back: comic overlay first, then the app's own navigation (JS decides
         // whether to step back or exit).
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {

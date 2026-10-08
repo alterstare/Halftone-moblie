@@ -2247,31 +2247,6 @@ body:has(.activity) .fab-wrap {
   font-size: 11px;
   color: var(--text-dim);
 }
-/* Edge pull (scroll mode): "keep pulling" → "let go" for the next / previous chapter. */
-.edge-pull-hint {
-  position: absolute;
-  left: 50%;
-  translate: -50% 0;
-  z-index: 7;
-  padding: 8px 16px;
-  border-radius: 18px;
-  background: var(--bg-1);
-  color: var(--text-dim);
-  font-size: 14px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
-  transition: color 0.15s, background-color 0.15s;
-}
-.edge-pull-hint.bottom {
-  bottom: 24px;
-}
-.edge-pull-hint.top {
-  top: 24px;
-}
-.edge-pull-hint.ready {
-  background: var(--accent);
-  color: #fff;
-}
 
 /* 일반 만화 온라인 filters: "… 더보기" buttons in one centered row (dividers);
    the open one drops its chips below. */
@@ -2570,6 +2545,9 @@ body:has(.activity) .fab-wrap {
 .lib-list .chapter-row {
   min-width: 0;
   overflow: hidden;
+  /* overflow ≠ visible drops the flex min-height: without this the rows of a
+     long list squeezed to fit the column (half height, clipped text). */
+  flex-shrink: 0;
 }
 .lib-list .chapter-line > * {
   flex-shrink: 0;
@@ -2902,9 +2880,11 @@ body.focus-hide-tabs .mtabbar {
   }
   .mtabbar .mtab {
     flex: 0 0 auto;
-    width: clamp(150px, 24vw, 260px);
+    /* --tab-w from MobileTabBar: shrinks with more tabs (down to 2/3) */
+    width: var(--tab-w, clamp(150px, 24vw, 260px));
     scroll-snap-align: none;
     scroll-snap-stop: normal;
+    transition: width 0.2s cubic-bezier(0.2, 0, 0, 1);
   }
   .browse-head > .chips > .tools-toggle,
   .comic-tools {
@@ -2943,4 +2923,100 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
    constant offset, so hiding the bars still doesn't move anything). */
 .app.focus-reader .reader-content.scroll {
   padding-top: var(--mtabbar-h, 42px);
+}
+
+/* 즐겨찾기 view controls / filter chips ("extras"): on a phone they get their
+   own row under the toolbar (which never wraps); on a tablet they sit inline
+   and the toolbar may wrap only when they don't fit. */
+.chips-extra {
+  display: none;
+}
+.chips-extra-row {
+  flex-wrap: wrap;
+  margin-top: -2px;
+}
+.chips-extra > * + * {
+  position: relative;
+  margin-left: 17px;
+}
+.chips-extra > * + *::before {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: 50%;
+  width: 1px;
+  height: 16px;
+  margin-top: -8px;
+  background: var(--line);
+  pointer-events: none;
+}
+@media (min-width: 600px) {
+  .chips-extra {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .chips-extra-row {
+    display: none;
+  }
+  :is(.home-head, .browse-head) > .chips {
+    flex-wrap: wrap;
+  }
+}
+
+/* Pull to the next / previous chapter (scroll mode): round button that slides
+   in from the edge with the pull, its ring filling purple; full = the whole
+   button turns purple (release to go). */
+.edge-pull {
+  position: absolute;
+  left: 50%;
+  z-index: 7;
+  width: 44px;
+  height: 44px;
+  margin-left: -22px;
+  border-radius: 50%;
+  background: var(--bg-1);
+  color: var(--accent);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.edge-pull.bottom {
+  bottom: calc(16px + var(--p) * 48px);
+}
+.edge-pull.top {
+  top: calc(16px + var(--p) * 48px);
+}
+.edge-pull-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  rotate: -90deg;
+}
+.edge-pull-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+.edge-pull-ring .track {
+  stroke: var(--line);
+}
+.edge-pull-ring .fill {
+  stroke: var(--accent);
+  stroke-linecap: round;
+}
+.edge-pull .edge-pull-arrow {
+  width: 24px;
+  height: 24px;
+}
+.edge-pull.ready {
+  background: var(--accent);
+  color: #fff;
+}
+.edge-pull.ready .edge-pull-ring {
+  opacity: 0;
 }

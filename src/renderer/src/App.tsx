@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore } from './store'
-import { isNarrow, isTouch } from './mobile'
+import { isNarrow, isTouch, sidebarBtnMode } from './mobile'
 import MobileTabBar from './components/MobileTabBar'
 import { popBack, swipeSlide, useSwipeClose } from './components/libraryTools'
 import Home from './components/Home'
@@ -55,7 +55,16 @@ export default function App(): JSX.Element {
 
   // Apply the color theme to <html> so the CSS variable overrides take effect.
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme ?? 'light')
+    const t = theme ?? 'light'
+    document.documentElement.setAttribute('data-theme', t)
+    // Remembered for the next start (index.html applies it before render; the
+    // native side paints the WebView background with it).
+    try {
+      localStorage.setItem('mm-theme', t)
+    } catch {
+      /* private storage unavailable — falls back to light at start */
+    }
+    void window.api.setNativeTheme?.(t === 'dark')
   }, [theme])
   // Once the online browse view has been opened, keep it mounted (hidden) so
   // returning to it is instant and preserves its list/scroll — only an explicit
@@ -372,8 +381,8 @@ function ReaderSplit(): JSX.Element {
   const activeComic = activeTab?.online?.kind === 'comic'
   const activeNormal = activeTab?.mode === 'normal'
   const paneRef = useRef<HTMLDivElement>(null)
-  // Phone: swipe left on the open list drawer closes it.
-  useSwipeClose(paneRef, () => !useStore.getState().listCollapsed && useStore.getState().toggleListCollapsed(), isNarrow(), {
+  // Drag left on the open list (phone drawer / tablet docked pane) closes it.
+  useSwipeClose(paneRef, () => !useStore.getState().listCollapsed && useStore.getState().toggleListCollapsed(), isTouch(), {
     follow: () => [splitRef.current?.querySelector<HTMLElement>(':scope > .divider') ?? null],
     fade: () => splitRef.current?.querySelector<HTMLElement>(':scope > .list-scrim') ?? null
   })
@@ -382,7 +391,7 @@ function ReaderSplit(): JSX.Element {
   const paneWidth = Math.round((activeNormal ? normalListWidth : listWidth) * (isTouch() && !isNarrow() ? 0.78 : 1))
   // Phone: the drawer can be turned off entirely (설정 · 뷰어 스타일).
   const sidebarOn = useStore((s) => s.settings.readerSidebar !== false)
-  const sidebarToggleMode = useStore((s) => s.settings.sidebarToggle ?? 'bar')
+  const sidebarToggleMode = useStore((s) => sidebarBtnMode(s.settings))
   // The edge toggle: long-press, then drag it up / down; the spot is saved.
   const toggleTop = useStore((s) => s.settings.listToggleTop ?? 60)
   const [dragTop, setDragTop] = useState<number | null>(null)

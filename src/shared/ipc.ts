@@ -288,6 +288,8 @@ export interface Api {
   nasRemove: (id: string) => Promise<void>
   listDirs: (path: string) => Promise<string[]>
   appVersion: () => Promise<string> // installed versionName (설정 header)
+  // Remember the theme natively → the WebView background at the next start.
+  setNativeTheme?: (dark: boolean) => Promise<void>
   imageCacheInfo: () => Promise<{ bytes: number; files: number }>
   clearImageCache: () => Promise<void>
   clipboardReadText: () => Promise<string> // for the text-field 붙여넣기 menu

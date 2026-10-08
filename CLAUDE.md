@@ -126,15 +126,28 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   closes it, otherwise it springs back.
   격자형 cards: cover in a 6px `--bg-1` frame (card background), fixed text rows
   (title 2 lines, artist 1, meta 1 — rendered even when empty) → equal heights.
+  Toolbar extras (즐겨찾기 view toggle + sort, home artist/tag filter chips) are
+  rendered twice: `.chips-extra` inline (tablet; the row may wrap) and a
+  `.chips-extra-row` under the toolbar (phone). Theme: `localStorage['mm-theme']`
+  is applied by index.html before render and `MM.setTheme` stores it natively
+  (MainActivity paints the WebView background) — no light flash at start.
+  Reader scroll mode keeps the whole work mounted (≤ 400 pages, else a ±30
+  window in steps of 10; `scrollWin` / memoized `scrollPages`, PageSlot holds
+  the estimated height until its image loads) and local works prefetch every
+  page once — slider drags never wait for reloads. Pull past the ends shows a
+  round arrow button whose ring fills purple (`.edge-pull`, --p 0..1).
   Toolbar rows (home / online `.chips`, filter buttons, reader ⋮ row) never
   wrap: fixed controls keep size + place (site-tools ⌄ pinned right), only the
   즐겨찾기 chip ellipsizes, and below 400px the rows step down in zoom (to 0.9×
   at ≤340px). Online list grid columns are `minmax(min(320px, 100%), 1fr)`.
   Tablet (≥ 600px, end of mobile.css): list tiles = one full-width column,
   grid cards keep 189px and auto-fill (leftover = side margins), several tabs
-  side by side (`.mtab` 150–260px), reader list docked beside the pages at
-  78% of the drawer width (no scrim / swipe-close; ☰ in the bottom bar still
-  toggles it), site tools (인증창 · 주소 · 비상용) inline in the chips row
+  side by side (`--tab-w` from MobileTabBar: 150–260px, shrinking Chrome-style
+  with more tabs down to 2/3, animated, then the strip scrolls), reader list
+  docked beside the pages at 78% of the drawer width (no scrim / outside-tap
+  close; drag-left still closes it; list button defaults to the floating
+  toggle — `sidebarBtnMode`: `settings.sidebarBtn` else phone 'bar' / tablet
+  'float'), site tools (인증창 · 주소 · 비상용) inline in the chips row
   (`.tools-inline`) instead of behind the ⌄. Phone (< 600px) unchanged.
   Focus mode in the reader (`.app.focus-reader`): the tab bar is position:
   fixed over the top (slides up when hidden) so the reader never resizes;
@@ -146,20 +159,22 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   waits for a double tap); no ‹ › page hints. Sidebar toggle: long-press +
   drag moves it, saved as `settings.listToggleTop` (px from the reader top,
   default 60); `settings.readerSidebar` off hides drawer + toggle.
-  `settings.sidebarToggle`: 'bar' (default) = ☰ at the left of the reader bottom
-  bar opens the drawer, floating edge toggle hidden (`.reader-split.toggle-bar`);
-  'float' = the draggable edge toggle. `settings.focusMode`: hiding the reader
+  `settings.sidebarBtn` (`sidebarBtnMode`; unset = phone 'bar' / tablet
+  'float'): 'bar' = ☰ at the left of the reader bottom bar opens the list,
+  floating edge toggle hidden (`.reader-split.toggle-bar`); 'float' = the
+  draggable edge toggle. `settings.focusMode`: hiding the reader
   bars also folds the tab bar away (`body.focus-hide-tabs`, margin-top =
   -measured height). Both switch from the ⋮ row (left end: 버튼/플로팅, right
   end: 포커스) and 설정 › 뷰어 스타일. Sidebar chapter rows: title (ellipsis) +
   heart/group on line 1, rating bottom-right (online `.chapter-sub`, local end
-  of the tags row). Scroll-mode
+  of the tags row); rows are `flex-shrink: 0` (overflow:hidden otherwise let
+  the column squeeze them). Scroll-mode
   slider follows scroll fractionally (`syncSliderRef`, DOM writes, re-applied
   in a layout effect after each render).
   Reader chapter navigation (`chNav`: online comic siblings or local series):
   bottom bar = slider · page · ⋮, then a centered row ‹ 현재 화 (n / total) ›;
   ⋮ opens mode / fit / 넘김. Scroll mode, touch: pulling 130px past the
-  bottom / top (`trackEdgePull`, hint bubble) → next / previous chapter
+  bottom / top (`trackEdgePull`, round `.edge-pull` button) → next / previous chapter
   (`continueRef`; going back sets `startAtBottom` → lands on the last page);
   paged past the ends does the same.
   Online comic sidebar head = the local one: full-width 시리즈 · N화 label with

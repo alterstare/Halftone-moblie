@@ -513,6 +513,35 @@ export default function Home(): JSX.Element {
     sel.stop()
   }
 
+  // Extra toolbar controls (즐겨찾기 view toggles, filter chips): phone = their
+  // own row under the chips (the chips row never wraps); tablet = inline, the
+  // row wraps only if they don't fit.
+  const hasExtras = favActive || (sort === 'popular' && loadingPopular) || filter.kind === 'artist' || filter.kind === 'tag'
+  const extras = (
+    <>
+      {favActive && (
+        <FavDlToggle
+          checked={favDownloadedOnly}
+          onChange={setFavDownloadedOnly}
+          onTitle="다운로드한 즐겨찾기만 보는 중"
+          offTitle="모든 즐겨찾기 보는 중"
+        />
+      )}
+      {favActive && <FavSortSelect value={favSort} onChange={setFavSort} />}
+      {sort === 'popular' && loadingPopular && <span className="chip-stat">인기순 불러오는 중…</span>}
+      {filter.kind === 'artist' && (
+        <Chip active onClick={() => setFilter({ kind: 'all' })}>
+          작가: {filter.value} ✕
+        </Chip>
+      )}
+      {filter.kind === 'tag' && (
+        <Chip active onClick={() => setFilter({ kind: 'all' })}>
+          태그: {filter.value} ✕
+        </Chip>
+      )}
+    </>
+  )
+
   return (
     <div
       className="home"
@@ -661,27 +690,7 @@ export default function Home(): JSX.Element {
               </div>
             )}
           </div>
-          {favActive && (
-            <FavDlToggle
-              checked={favDownloadedOnly}
-              onChange={setFavDownloadedOnly}
-              onTitle="다운로드한 즐겨찾기만 보는 중"
-              offTitle="모든 즐겨찾기 보는 중"
-            />
-          )}
-          {favActive && <FavSortSelect value={favSort} onChange={setFavSort} />}
-
-          {sort === 'popular' && loadingPopular && <span className="chip-stat">인기순 불러오는 중…</span>}
-          {filter.kind === 'artist' && (
-            <Chip active onClick={() => setFilter({ kind: 'all' })}>
-              작가: {filter.value} ✕
-            </Chip>
-          )}
-          {filter.kind === 'tag' && (
-            <Chip active onClick={() => setFilter({ kind: 'all' })}>
-              태그: {filter.value} ✕
-            </Chip>
-          )}
+          {hasExtras && <span className="chips-extra">{extras}</span>}
           {/* 분류 (작품 / 언어 / 그룹) in one popup; tinted while any filter is narrowed. */}
           <button
             className={`chip layout-toggle class-btn ${(!normal && (!(showCoded && showUncoded) || !allLang)) || !allGroups ? 'active' : ''}`}
@@ -691,6 +700,7 @@ export default function Home(): JSX.Element {
             <AddIcon />
           </button>
         </div>
+        {hasExtras && <div className="chips chips-extra-row">{extras}</div>}
 
         {searchTokens.length > 0 && (
           <div className="search-chips">

@@ -9,6 +9,7 @@ import SettingRow from '../SettingRow'
 import Stepper from '../Stepper'
 import Toggle from '../Toggle'
 import { useSettings } from './context'
+import { sidebarBtnMode } from '../../mobile'
 
 export default function StyleSection(): JSX.Element {
   const { draft, patch } = useSettings()
@@ -70,7 +71,7 @@ export default function StyleSection(): JSX.Element {
           <Toggle checked={draft.readerSidebar !== false} onChange={(v) => patch({ readerSidebar: v })} />
         </SettingRow>
         <SettingRow title="사이드바 버튼을 하단바에" desc="켜면 하단바 왼쪽 ☰ 버튼으로 사이드바를 엽니다. 끄면 화면 가장자리의 플로팅 버튼(길게 눌러 위치 이동)을 씁니다.">
-          <Toggle checked={(draft.sidebarToggle ?? 'bar') === 'bar'} onChange={(v) => patch({ sidebarToggle: v ? 'bar' : 'float' })} />
+          <Toggle checked={sidebarBtnMode(draft) === 'bar'} onChange={(v) => patch({ sidebarBtn: v ? 'bar' : 'float' })} />
         </SettingRow>
         <SettingRow title="포커스 모드" desc="감상 중 상단바·하단바를 숨기면 위쪽 탭바도 같이 숨기고, 바가 돌아오면 같이 돌아옵니다.">
           <Toggle checked={!!draft.focusMode} onChange={(v) => patch({ focusMode: v })} />

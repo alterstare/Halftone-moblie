@@ -467,8 +467,13 @@ export default function ComicBrowse(): JSX.Element {
           >
             <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favGalleries.length}
           </button>
-          {favMode && <OnlineOnlyToggle />}
-          {favMode && <FavSortSelect value={favSort} onChange={setFavSort} />}
+          {/* 즐겨찾기 view controls: own row on a phone, inline on a tablet. */}
+          {favMode && (
+            <span className="chips-extra">
+              <OnlineOnlyToggle />
+              <FavSortSelect value={favSort} onChange={setFavSort} />
+            </span>
+          )}
           {/* Tablet: the site tools sit right in the row (CSS shows .tools-inline
               ≥ 600px and hides the chevron); phone: they fold out from it. */}
           <button className="chip tools-inline tools-first" onClick={() => window.api.comicOpenSite()}>
@@ -495,6 +500,12 @@ export default function ComicBrowse(): JSX.Element {
             <ArrowDownIcon />
           </button>
         </div>
+        {favMode && (
+          <div className="chips chips-extra-row">
+            <OnlineOnlyToggle />
+            <FavSortSelect value={favSort} onChange={setFavSort} />
+          </div>
+        )}
         {toolsOpen && (
           <div className="chips comic-tools">
             <button className="chip" onClick={() => window.api.comicOpenSite()}>

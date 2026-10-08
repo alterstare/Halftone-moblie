@@ -60,6 +60,7 @@ export interface MMPlugin {
   clipboardWrite(o: { text: string }): Promise<void>
   clearImageCache(): Promise<void>
   mediaScan(o: { paths: string[] }): Promise<void>
+  setTheme(o: { dark: boolean }): Promise<void>
   setImageCache(o: { mb: number }): Promise<void>
   imageCacheInfo(): Promise<{ bytes: number; files: number }>
 

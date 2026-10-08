@@ -8,3 +8,8 @@ export const isTouch = (): boolean => window.matchMedia('(hover: none)').matches
 // (tablets) it's docked beside the pages. Keep in sync with the drawer media
 // query at the top of mobile.css.
 export const isNarrow = (): boolean => window.matchMedia('(max-width: 599px)').matches
+
+// Reader list button: the user's choice, else by screen — phone = ☰ in the
+// bottom bar, tablet = the floating edge toggle.
+export const sidebarBtnMode = (s: { sidebarBtn?: 'bar' | 'float'; sidebarToggle?: 'bar' | 'float' }): 'bar' | 'float' =>
+  s.sidebarBtn ?? (s.sidebarToggle === 'float' ? 'float' : isNarrow() ? 'bar' : 'float')

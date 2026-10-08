@@ -17,13 +17,14 @@ import type { ComicChapter } from '../../../shared/ipc'
 import type { FitMode } from '../../../shared/types'
 import { filterExcluded, getExcluded, hasExclusions } from '../exclude'
 import PageImage from './PageImage'
+import Caret from './Caret'
 import ContextMenu from './ContextMenu'
 import type { MenuItem } from './ContextMenu'
 import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, fitStyle, fitHeight } from './reader/fit'
 import { prefetchOrdered } from './reader/prefetch'
 import PageSlot from './reader/PageSlot'
 import { useComicStatus } from './useComicStatus'
-import { isTouch } from '../mobile'
+import { isTouch, sidebarBtnMode } from '../mobile'
 import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
 import {
   DownloadIcon,
@@ -152,7 +153,7 @@ export default function Reader({
   const wheelAccum = useRef(0) // paged mode: accumulated wheel delta → page steps
   const wheelRaf = useRef(0)
   const saveTimer = useRef(0)
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
   const [images, setImages] = useState<string[]>([])
   const [loadingImgs, setLoadingImgs] = useState(true)
   const [downloading, setDownloading] = useState(false)
@@ -180,7 +181,7 @@ export default function Reader({
   // Phone: list drawer via a ☰ in the bottom bar ('bar') or the floating edge
   // toggle ('float'); focus mode = the tab bar hides together with the bars.
   const sidebarOn = useStore((s) => s.settings.readerSidebar !== false) && isTouch()
-  const sidebarToggle = useStore((s) => s.settings.sidebarToggle ?? 'bar')
+  const sidebarToggle = useStore((s) => sidebarBtnMode(s.settings))
   const focusMode = useStore((s) => !!s.settings.focusMode)
   const patchSettings = useStore((s) => s.patchSettings)
   const toggleListCollapsed = useStore((s) => s.toggleListCollapsed)
@@ -380,6 +381,33 @@ export default function Reader({
     return () => window.clearTimeout(h)
   }, [zoom, tabId, side, setTabReader, setLastZoom, libMode])
 
+  // Scroll mode: which pages are mounted. Works up to MOUNT_ALL pages mount
+  // every page (kept loaded); longer ones a window of ±WIN around the current
+  // page, moved in steps of 10 so it doesn't re-render on every page.
+  const MOUNT_ALL = 400
+  const scrollWin = useMemo(() => {
+    if (images.length <= MOUNT_ALL) return { start: 0, end: images.length }
+    const WIN = 30
+    const start = Math.max(0, Math.floor((pageIdx - WIN) / 10) * 10)
+    const end = Math.min(images.length, Math.ceil((pageIdx + WIN + 1) / 10) * 10)
+    return { start, end }
+  }, [images.length, pageIdx])
+  // The mounted page elements, rebuilt only when the pages / fit / sizes or the
+  // height model change — not on a page-index step (smooth slider drags).
+  const scrollPages = useMemo(() => {
+    if (mode !== 'scroll') return null
+    const pageStyle = fitStyle(fit, sw, sh)
+    const out: JSX.Element[] = []
+    for (let i = scrollWin.start; i < scrollWin.end; i++)
+      out.push(
+        <PageSlot key={i} index={i} onMeasure={measure} estH={heightOf(i)}>
+          <PageImage src={images[i]} style={pageStyle} />
+        </PageSlot>
+      )
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, images, scrollWin, fit, sw, sh, measure, tick])
+
   // Online galleries stream over the network. Prefetch the WHOLE gallery once,
   // but in reading order from the opened page and at low concurrency, so the
   // first pages paint fast and the rest fill in the background (instead of
@@ -396,23 +424,19 @@ export default function Reader({
     return prefetchOrdered(images, order, 4, sinkRef.current, onDims)
   }, [online?.code, images, onDims])
 
-  // Local works load from disk fast, but a fresh <img> still decodes on mount →
-  // a black flash as new pages scroll in / paging remounts. Prefetch a bounded
-  // window AHEAD of the current page (forward-first, concurrency-limited) so
-  // upcoming pages are already decoded before they're viewed — no per-page
-  // stutter — while memory stays flat on huge works.
+  // Local works: decode the WHOLE work once (from the opened page forward, then
+  // backward), kept for the life of the reader — paging / slider jumps never
+  // wait on a decode, and nothing is re-fetched while moving around.
   const warmRef = useRef<HTMLImageElement[]>([])
   useEffect(() => {
     warmRef.current = []
     if (online || images.length === 0) return
-    const AHEAD = 40
-    const BEHIND = 4
-    const hi = Math.min(images.length, pageIdx + AHEAD + 1)
+    const s = pageIdxRef.current
     const order: number[] = []
-    for (let i = pageIdx; i < hi; i++) order.push(i)
-    for (let i = pageIdx - 1; i >= Math.max(0, pageIdx - BEHIND); i--) order.push(i)
+    for (let i = s; i < images.length; i++) order.push(i)
+    for (let i = s - 1; i >= 0; i--) order.push(i)
     return prefetchOrdered(images, order, 6, warmRef.current, onDims)
-  }, [online, images, pageIdx, onDims])
+  }, [online, images, onDims])
 
   // Continuous reading: warm the neighbouring works in the reading queue so that
   // crossing a work boundary is instant (the folder listing is cached and the
@@ -1059,7 +1083,8 @@ export default function Reader({
   // the edge was reached; a hint shows how far to go.
   const EDGE_PULL = 130
   const edgePull = useRef<{ dir: 1 | -1; y0: number } | null>(null)
-  const [pullHint, setPullHint] = useState<{ dir: 1 | -1; ready: boolean } | null>(null)
+  // Pull indicator: direction + progress 0..1 (1 = release to go).
+  const [pullHint, setPullHint] = useState<{ dir: 1 | -1; p: number } | null>(null)
   const trackEdgePull = (t: { clientY: number }): void => {
     const el = contentRef.current
     if (!el || mode !== 'scroll' || vz.current.s > 1.01) return
@@ -1077,7 +1102,7 @@ export default function Reader({
       setPullHint(null)
       return
     }
-    if (pull > 24) setPullHint({ dir: p.dir, ready: pull >= EDGE_PULL })
+    if (pull > 8) setPullHint({ dir: p.dir, p: Math.min(1, pull / EDGE_PULL) })
   }
   const endEdgePull = (t: { clientY: number } | undefined): void => {
     const p = edgePull.current
@@ -1274,22 +1299,15 @@ export default function Reader({
 
       {mode === 'scroll' ? (
         (() => {
-          // Virtualize both local and online: only render pages near the current
-          // one; everything else is a spacer sized from the page-height model
-          // (measured height → decoded-aspect estimate → pane-fit fallback). This
-          // keeps the number of mounted <img> (and thus concurrent fetches) small,
-          // so a large online gallery no longer loads every page up front. The
-          // prefetcher decodes upcoming pages ahead of the scroll and fills their
-          // height estimates, so spacers stay ~right and scrolling doesn't jump.
-          // Online uses a wider window since its pages arrive over the network.
-          const WIN = online ? 6 : 2
-          const start = Math.max(0, pageIdx - WIN)
-          const end = Math.min(images.length, pageIdx + WIN + 1)
+          // The whole work stays mounted (pages are loaded once and kept, so a
+          // slider drag never waits for pages to reload); only very long works
+          // keep a window around the current page (scrollWin). Pages outside
+          // it are spacers sized from the height model.
+          const { start, end } = scrollWin
           let topPad = 0
           for (let i = 0; i < start; i++) topPad += heightOf(i)
           let botPad = 0
           for (let i = end; i < images.length; i++) botPad += heightOf(i)
-          const pageStyle = fitStyle(fit, sw, sh)
           return (
             <div
               className={`reader-content scroll ${pageGap ? 'page-gap' : ''}`}
@@ -1303,17 +1321,7 @@ export default function Reader({
             >
               <div className="reader-pages-col zoom-layer" style={{ paddingTop: barH.top, paddingBottom: barH.bottom }}>
                 {topPad > 0 && <div style={{ height: topPad }} aria-hidden />}
-                {images.slice(start, end).map((src, k) => {
-                  const i = start + k
-                  return (
-                    <PageSlot key={i} index={i} onMeasure={measure}>
-                      <PageImage
-                        src={src}
-                        style={pageStyle}
-                      />
-                    </PageSlot>
-                  )
-                })}
+                {scrollPages}
                 {botPad > 0 && <div style={{ height: botPad }} aria-hidden />}
               </div>
             </div>
@@ -1380,11 +1388,27 @@ export default function Reader({
         </div>
       )}
 
+      {/* Pull past the end → next / previous chapter: a round arrow button
+          (like pull-to-refresh) slides in and fills purple as you pull; full =
+          release to go. */}
       {pullHint && (
-        <div className={`edge-pull-hint ${pullHint.dir === 1 ? 'bottom' : 'top'} ${pullHint.ready ? 'ready' : ''}`}>
-          {pullHint.ready
-            ? `놓으면 ${pullHint.dir === 1 ? '다음화' : '이전화'}`
-            : `계속 당기면 ${pullHint.dir === 1 ? '다음화' : '이전화'}`}
+        <div
+          className={`edge-pull ${pullHint.dir === 1 ? 'bottom' : 'top'} ${pullHint.p >= 1 ? 'ready' : ''}`}
+          style={{ ['--p' as string]: String(pullHint.p) }}
+          aria-label={pullHint.dir === 1 ? '다음화' : '이전화'}
+        >
+          <svg className="edge-pull-ring" viewBox="0 0 40 40" aria-hidden>
+            <circle cx="20" cy="20" r="17" className="track" />
+            <circle
+              cx="20"
+              cy="20"
+              r="17"
+              className="fill"
+              strokeDasharray="106.8"
+              strokeDashoffset={106.8 * (1 - pullHint.p)}
+            />
+          </svg>
+          <Caret up={pullHint.dir === -1} className="edge-pull-arrow" />
         </div>
       )}
       {images.length > 0 && (
@@ -1466,7 +1490,7 @@ export default function Reader({
                 {sidebarOn && (
                   <button
                     className="mini sidebar-mode-btn"
-                    onClick={() => patchSettings({ sidebarToggle: sidebarToggle === 'bar' ? 'float' : 'bar' })}
+                    onClick={() => patchSettings({ sidebarBtn: sidebarToggle === 'bar' ? 'float' : 'bar' })}
                   >
                     <MenuIcon />
                     <span className="btn-label">{sidebarToggle === 'bar' ? '버튼' : '플로팅'}</span>
