@@ -2811,9 +2811,7 @@ body.focus-hide-tabs .mtabbar {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.browse-head > .chips > .tools-toggle {
-  margin-left: auto;
-}
+/* (the site-tools ⌄ now sits at the right end of the filter row) */
 @media (max-width: 400px) {
   .home-head > .chips,
   .browse-head > .chips {
@@ -2886,7 +2884,7 @@ body.focus-hide-tabs .mtabbar {
     scroll-snap-stop: normal;
     transition: width 0.2s cubic-bezier(0.2, 0, 0, 1);
   }
-  .browse-head > .chips > .tools-toggle,
+  .filter-bar > .tools-toggle,
   .comic-tools {
     display: none !important;
   }
@@ -3019,4 +3017,26 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
 }
 .edge-pull.ready .edge-pull-ring {
   opacity: 0;
+}
+
+/* 일반 만화 온라인 filter row: the filter buttons centered, the site-tools ⌄
+   pinned to the right end of the same row (alone there in the 즐겨찾기 view). */
+.filter-bar {
+  position: relative;
+  min-height: 36px;
+}
+.filter-bar > .tools-toggle {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  margin: 0;
+}
+.filter-bar > .filter-mores {
+  padding: 0 44px; /* stay clear of the ⌄ while centered */
+}
+.filter-bar > .tools-toggle {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-dim);
 }

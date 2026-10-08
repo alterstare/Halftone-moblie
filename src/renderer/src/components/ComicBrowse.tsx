@@ -491,14 +491,6 @@ export default function ComicBrowse(): JSX.Element {
           <button className="chip tools-inline" onClick={() => setBackupOpen(true)}>
             비상용
           </button>
-          {/* Site tools (인증창 / 주소 / 비상용) fold out from the chevron. */}
-          <button
-            className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
-            title={toolsOpen ? '접기' : '사이트 도구'}
-            onClick={() => setToolsOpen((v) => !v)}
-          >
-            <ArrowDownIcon />
-          </button>
         </div>
         {favMode && (
           <div className="chips chips-extra-row">
@@ -506,6 +498,39 @@ export default function ComicBrowse(): JSX.Element {
             <FavSortSelect value={favSort} onChange={setFavSort} />
           </div>
         )}
+        <div className="filter-bar">
+          {!favMode && (
+            <div className="flat-group filter-mores">
+              {(type === 'webtoon'
+                ? ([
+                    ['cat', '분류', cat ? (CATS.find(([v]) => v === cat)?.[1] ?? '') : ''],
+                    ['day', '요일', day ? `${day}요일` : ''],
+                    ['genre', '장르', genreLabel],
+                    ['plat', '플랫폼', plat ? (platforms.find((x) => x.id === plat)?.name ?? '') : '']
+                  ] as const)
+                : ([['genre', '장르', genreLabel]] as const)
+              ).map(([k, label, val]) => (
+                <button
+                  key={k}
+                  className={`genre-more ${filterOpen === k ? 'open' : ''} ${val ? 'set' : ''}`}
+                  onClick={() => setFilterOpen((o) => (o === k ? null : k))}
+                >
+                  <span>{label}</span>
+                  <ArrowDownIcon />
+                </button>
+              ))}
+            </div>
+          )}
+            {/* Site tools (인증창 / 주소 / 비상용) fold out from this chevron, at the
+              right end of the filter row (phone; tablet shows them inline). */}
+            <button
+              className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
+              title={toolsOpen ? '접기' : '사이트 도구'}
+              onClick={() => setToolsOpen((v) => !v)}
+            >
+              <ArrowDownIcon />
+            </button>
+        </div>
         {toolsOpen && (
           <div className="chips comic-tools">
             <button className="chip" onClick={() => window.api.comicOpenSite()}>
@@ -551,28 +576,6 @@ export default function ComicBrowse(): JSX.Element {
         {/* Filters fold into short buttons; one dropdown open at a time.
             만화: 장르. 웹툰: 분류 · 요일 · 장르 · 플랫폼. A set filter tints its button;
             the chosen values show as chips below. */}
-        {!favMode && (
-          <div className="flat-group filter-mores">
-            {(type === 'webtoon'
-              ? ([
-                  ['cat', '분류', cat ? (CATS.find(([v]) => v === cat)?.[1] ?? '') : ''],
-                  ['day', '요일', day ? `${day}요일` : ''],
-                  ['genre', '장르', genreLabel],
-                  ['plat', '플랫폼', plat ? (platforms.find((x) => x.id === plat)?.name ?? '') : '']
-                ] as const)
-              : ([['genre', '장르', genreLabel]] as const)
-            ).map(([k, label, val]) => (
-              <button
-                key={k}
-                className={`genre-more ${filterOpen === k ? 'open' : ''} ${val ? 'set' : ''}`}
-                onClick={() => setFilterOpen((o) => (o === k ? null : k))}
-              >
-                <span>{label}</span>
-                <ArrowDownIcon />
-              </button>
-            ))}
-          </div>
-        )}
         {!favMode && filterOpen === 'cat' && (
           <div className="genre-chips">
             {CATS.map(([v, l]) => (

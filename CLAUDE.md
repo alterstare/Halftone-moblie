@@ -62,7 +62,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   provides `ChapterRow`.) Folder / 메타 채우기 / 삭제 live in the
   long-press menu (useWorkCard / useSeriesCard). ComicBrowse has no layout
   toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out from a
-  chevron at the chips row's end; filters fold into centered short buttons
+  chevron at the right end of the filter row (`.filter-bar`); filters fold into centered short buttons
   (만화: 장르; 웹툰: 분류 · 요일 · 장르 · 플랫폼 — `cat` (all / bl / adult, none =
   the site default 일반) / `day` / `plat` URL params, platform
   list scraped from the page's 플랫폼 row, genre chips from the 장르 row).
