@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots } from '../store'
-import { getImages, getOnlineImages, reloadOnlineImages } from '../images'
+import { getImages, getOnlineImages, reloadOnlineImages, onOnlinePages, pagesCollecting } from '../images'
 import { getComicChapters } from '../comic'
 import { analyzeSeries, seriesOf } from '../util'
 import type { ComicChapter } from '../../../shared/ipc'
@@ -284,6 +284,7 @@ export default function Reader({
   // Is there a previous / next chapter or queued work to flow into? (The pull
   // indicator only shows when there is.)
   const canContinue = (d: 1 | -1): boolean => {
+    if (d > 0 && morePages) return false
     if (chNav && chNav.idx + d >= 0 && chNav.idx + d < chNav.count) return true
     if (side !== 'left' || !work) return false
     const i = readingQueue.indexOf(work.id)
@@ -292,6 +293,7 @@ export default function Reader({
   // Past the first / last page: previous / next chapter, else the reading queue.
   const continueRef = useRef<(d: 1 | -1) => void>(() => {})
   continueRef.current = (d) => {
+    if (d > 0 && morePages) return showToast('페이지를 더 불러오는 중입니다')
     // Going back by scrolling up lands on the previous chapter's last page.
     if (d < 0 && chNav && chNav.idx > 0 && side === 'left')
       useStore.setState((st) => ({ startAtBottom: { ...st.startAtBottom, [tabId]: true } }))
@@ -510,12 +512,46 @@ export default function Reader({
     setPageIdx(idx) // React skips the re-render when idx is unchanged
   }, [images.length, heightOf])
 
+  // Manga-site chapter: the page list grows while the rest is collected — append
+  // without resetting the view (growRef tells the restore effect it's growth).
+  const growRef = useRef(false)
+  // A saved scroll spot beyond the pages loaded so far: re-applied as the list
+  // grows, until reached or the user touches the pages.
+  const restoreRef = useRef<number | null>(null)
+  // Still collecting → no flowing into the next chapter yet (the end isn't the end).
+  const [morePages, setMorePages] = useState(false)
+  useEffect(() => {
+    if (!online || online.kind !== 'comic') return setMorePages(false)
+    setMorePages(pagesCollecting(online.code))
+    return onOnlinePages(online.code, (urls, more) => {
+      setMorePages(more)
+      setImages((prev) => {
+        if (!prev.length || urls.length <= prev.length) return prev
+        growRef.current = true
+        return urls
+      })
+    })
+  }, [online?.code, online?.kind, reloadNonce])
+
   // --- scroll mode: restore saved scroll, then sync the current page. ---
   useLayoutEffect(() => {
+    const grew = growRef.current
+    growRef.current = false
     if (mode !== 'scroll') return
     const el = contentRef.current
     if (!el || !tab) return
-    el.scrollTop = online ? onlineProgress[online.code]?.scrollTop ?? 0 : savedScroll
+    if (grew) {
+      const t = restoreRef.current
+      if (t != null && el.scrollTop < t - 2) {
+        el.scrollTop = t
+        if (el.scrollTop >= t - 2) restoreRef.current = null
+        computeCurrentFromScroll()
+      }
+      return
+    }
+    const target = online ? onlineProgress[online.code]?.scrollTop ?? 0 : savedScroll
+    el.scrollTop = target
+    restoreRef.current = el.scrollTop < target - 2 ? target : null
     computeCurrentFromScroll() // center the render window on the restored page
     // Depend on `images` (not images.length): switching to another chapter with the
     // SAME page count must still reset the scroll to that chapter's top/saved spot.
@@ -1149,6 +1185,7 @@ export default function Reader({
   const edgeSwipe = useRef<{ edge: 'top' | 'bottom'; x: number; y: number } | null>(null)
   const onPagesTouchStart = (e: React.TouchEvent): void => {
     edgePull.current = null
+    restoreRef.current = null // the user took over the scroll position
     {
       const t0 = e.touches[0]
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect()

@@ -53,6 +53,7 @@ const events: Partial<Api> = {
   onDoujinProgress: (cb) => on<DoujinProgress>(IPC.doujinProgress, cb),
   onComicChallenge: (cb) => on<boolean>(IPC.comicChallenge, cb),
   onComicStatus: (cb) => on<string | null>(IPC.comicStatus, cb),
+  onComicPages: (cb) => on<{ code: string; urls: string[]; state: 'more' | 'done' | 'cut' }>(IPC.comicPages, cb),
   onNavBack: (cb) => on(IPC.navBack, cb),
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => on<UpdateStatus>(IPC.updateStatus, cb),
   installUpdate: () => installUpdate(),

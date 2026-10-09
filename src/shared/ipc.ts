@@ -130,6 +130,7 @@ export const IPC = {
   comicOpenSite: 'comic:openSite',
   comicChallenge: 'comic:challenge', // main -> renderer: Cloudflare auth window shown/cleared
   comicStatus: 'comic:status', // main -> renderer: what the manga-site scraper is doing (null = idle)
+  comicPages: 'comic:pages', // main -> renderer: a chapter's page list grew (progressive comicReadUrls)
   saveThumb: 'thumb:save',
   getThumb: 'thumb:get',
   pickImage: 'dialog:pickImage',
@@ -379,6 +380,9 @@ export interface Api {
   // Cloudflare auth window shown (true) / cleared (false) — show a banner.
   onComicChallenge: (cb: (active: boolean) => void) => () => void
   onComicStatus: (cb: (msg: string | null) => void) => () => void
+  // A chapter's page list while being collected: 'more' = still growing,
+  // 'done' = complete, 'cut' = stopped early (partial).
+  onComicPages: (cb: (p: { code: string; urls: string[]; state: 'more' | 'done' | 'cut' }) => void) => () => void
   // Mouse "back" side button / browser-backward app command → go back.
   onNavBack: (cb: () => void) => () => void
   // Mouse "forward" side button / browser-forward app command → go forward.

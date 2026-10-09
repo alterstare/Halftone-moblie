@@ -4,7 +4,8 @@
 // scraping itself lives in lib/comic.ts.
 import type { Work } from '../../shared/types'
 import type { Api, ComicListSource, ComicChapter } from '../../shared/ipc'
-import { store } from '../context'
+import { IPC } from '../../shared/ipc'
+import { store, sendToRenderer } from '../context'
 import { scanRoot, normalRoots } from '../lib/scanner'
 import {
   comicList,
@@ -75,7 +76,13 @@ export const comicApi: Partial<Api> = {
     return { ...r, items: r.items.map((it) => ({ ...it, thumb: it.thumb ? encodeComic(it.thumb) : null })) }
   },
   comicChapters: (seriesUrl: string) => comicChapters(seriesUrl),
-  comicReadUrls: async (chapterUrl: string, fresh?: boolean) => (await comicReadUrls(chapterUrl, fresh)).map(encodeComic),
+  // Resolves with the first pages; the rest arrive as comicPages events.
+  comicReadUrls: async (chapterUrl: string, fresh?: boolean) =>
+    (
+      await comicReadUrls(chapterUrl, fresh, (urls, state) =>
+        sendToRenderer(IPC.comicPages, { code: chapterUrl, urls: urls.map(encodeComic), state })
+      )
+    ).map(encodeComic),
   comicSeriesAuthor: (seriesUrl: string) => comicSeriesAuthor(seriesUrl),
   comicSeriesTitle: (seriesUrl: string) => comicSeriesTitle(seriesUrl),
 

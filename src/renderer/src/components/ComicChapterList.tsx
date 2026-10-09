@@ -155,7 +155,7 @@ export default function ComicChapterList(): JSX.Element {
                   seriesUrl,
                   chapterLabel: c.title,
                   thumb: online?.thumb
-                })
+                }, true) // a chapter pick isn't a "back" step: back leaves to the library
               }
               title={c.title}
             >

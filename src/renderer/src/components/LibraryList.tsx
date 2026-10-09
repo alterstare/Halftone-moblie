@@ -269,7 +269,7 @@ export default function LibraryList(): JSX.Element {
                 // online reader), instead of spawning a new tab per chapter.
                 onOpen={() =>
                   activeTabId
-                    ? replaceTabWork(activeTabId, 'left', ci.work.id)
+                    ? replaceTabWork(activeTabId, 'left', ci.work.id, true) // no back step (back → library)
                     : openTab(ci.work.id)
                 }
                 onContextMenu={(e) => {

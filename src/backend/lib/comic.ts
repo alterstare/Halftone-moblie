@@ -76,8 +76,17 @@ function sameUrl(a: string, b: string): boolean {
   return !!a && !!b && norm(a) === norm(b)
 }
 
+// Tasks waiting for the scraper. A reader's progressive collect stops when one
+// shows up (the user moved on to another chapter / list) — see comicReadUrls.
+let waiting = 0
+
 function queue<T>(fn: () => Promise<T>): Promise<T> {
-  const run = chain.then(fn, fn).finally(() => status(null))
+  waiting++
+  const go = (): Promise<T> => {
+    waiting--
+    return fn()
+  }
+  const run = chain.then(go, go).finally(() => status(null))
   chain = run.catch(() => {})
   return run
 }
@@ -710,10 +719,12 @@ async function waitPageImages(ms: number): Promise<void> {
 // the DOM (the rest is an empty spacer), so READ_SCRIPT alone saw ~5 of a
 // chapter's pages (2026-10, a 9-page chapter → 5). Scroll the hidden page from
 // top to bottom collecting every <img alt="page N">, until the bottom is
-// reached and nothing new turns up; then back to the top.
-const COLLECT_SCRIPT = `(async () => {
+// reached and nothing new turns up; then back to the top. Runs in ~1.2s slices
+// (state kept on window) so the pages found so far can be shown meanwhile.
+const COLLECT_RESET = `(() => { window.__mmPages = new Map(); window.__mmStall = 0; (document.scrollingElement || document.documentElement).scrollTop = 0; return true })()`
+const COLLECT_STEP = `(async () => {
   const se = document.scrollingElement || document.documentElement
-  const got = new Map()
+  const got = window.__mmPages || (window.__mmPages = new Map())
   const grab = () => {
     for (const img of document.querySelectorAll('.vw-imgs img, img.viewer-ratio-img, img.viewer-lazy-img')) {
       const n = parseInt((img.getAttribute('alt') || '').replace(/[^0-9]/g, ''))
@@ -722,8 +733,9 @@ const COLLECT_SCRIPT = `(async () => {
     }
   }
   const step = Math.max(200, Math.round(innerHeight * 0.8))
-  let stall = 0
-  for (let i = 0; i < 2000 && stall < 6; i++) {
+  let stall = window.__mmStall || 0
+  const end = Date.now() + 1200
+  while (Date.now() < end && stall < 6) {
     grab()
     const before = got.size
     se.scrollTop = se.scrollTop + step
@@ -733,23 +745,64 @@ const COLLECT_SCRIPT = `(async () => {
     if (got.size === before && atEnd) stall++
     else stall = 0
   }
-  se.scrollTop = 0
-  return [...got.keys()].sort((a, b) => a - b).map((k) => got.get(k))
+  window.__mmStall = stall
+  const done = stall >= 6
+  if (done) se.scrollTop = 0
+  return { urls: [...got.keys()].sort((a, b) => a - b).map((k) => got.get(k)), done }
 })()`
 
 // `fresh`: reload the chapter page even if it's already open (the user's
 // 다시 불러오기 — a partial load, an expired image token…).
-export async function comicReadUrls(chapterUrl: string, fresh = false): Promise<string[]> {
-  return queue(async () => {
+// `onMore` (the reader): resolve as soon as the first pages are known, then
+// report the growing list through onMore(urls, state) while the rest is
+// collected: 'more' (still going), 'done' (complete) or 'cut' (stopped early —
+// another scraper task came in — so the list is partial). Without it
+// (downloads) wait for the whole list.
+export function comicReadUrls(
+  chapterUrl: string,
+  fresh = false,
+  onMore?: (urls: string[], state: 'more' | 'done' | 'cut') => void
+): Promise<string[]> {
+  let early: (urls: string[]) => void = () => {}
+  const first = new Promise<string[]>((r) => (early = r))
+  let sent = false
+  const send = (urls: string[], state: 'more' | 'done' | 'cut'): void => {
+    if (!onMore) return
+    if (!sent) {
+      sent = true
+      early(urls)
+      if (state === 'more') return
+    }
+    onMore(urls, state)
+  }
+  const full = queue(async () => {
     await ensure(chapterUrl, true, fresh)
     status('만화 이미지를 기다리는 중…')
     await waitPageImages(20000)
     const listed = await evalPage<string[]>(READ_SCRIPT, [])
+    if (listed.length) send(listed, 'more')
     status('만화 이미지 목록을 모으는 중…')
-    // (own cap: a long webtoon takes longer than evalPage's 30s to scroll)
-    const all = await withTimeout(evalRaw<string[]>(COLLECT_SCRIPT), 120000, [] as string[])
-    return all.length >= listed.length ? all : listed
+    await evalPage<boolean>(COLLECT_RESET, false)
+    let urls = listed
+    let done = false
+    // (cap: a very long webtoon; the slices keep each eval short)
+    const deadline = Date.now() + 180000
+    while (!done && Date.now() < deadline) {
+      if (onMore && waiting > 0) break // someone else needs the scraper
+      const r = await evalPage<{ urls: string[]; done: boolean }>(COLLECT_STEP, { urls: [], done: true })
+      done = r.done
+      const best = r.urls.length >= listed.length ? r.urls : listed
+      if (best.length > urls.length) {
+        urls = best
+        if (!done) send(urls, 'more')
+      }
+    }
+    send(urls, done ? 'done' : 'cut')
+    return urls
   })
+  if (!onMore) return full
+  full.catch(() => {}) // after the early answer, a late failure is only a partial list
+  return Promise.race([first, full])
 }
 
 // Manually open a site in the visible overlay (default the configured base) so

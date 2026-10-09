@@ -44,8 +44,8 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   → tab grid, 설정 · 기록 · 작업 목록 · 관리 → the full library list last shown
   (`lastLibView`: local home or online browse, current mode); reader: open list
   drawer closes first, a work / gallery picked from the sidebar rewinds to the
-  one it replaced (`tab.back` / `tab.onlineBack`; chapter prev/next and
-  continuous reading pass `noBack`), else the tab closes → library list; home
+  one it replaced (`tab.back` / `tab.onlineBack`; chapter prev/next, sidebar
+  chapter picks and continuous reading pass `noBack`), else the tab closes → library list; home
   with a filter / search → cleared; full home / browse → save session + exit,
   no exit popup (`exitSaving`).
   Library cards are phone-specific (diverge from desktop — re-apply when
@@ -319,7 +319,12 @@ Two library modes:
   (2026-10: the viewer is a VIRTUAL list of `img.viewer-ratio-img alt="page N"`
   fed by POST /api/manhwa-images — only pages near the scroll position are in
   the DOM, so `comicReadUrls` scrolls the hidden page top→bottom collecting
-  them (`COLLECT_SCRIPT`). Reader title bar ⟳ / title long-press 다시 불러오기
+  them (`COLLECT_STEP`, ~1.2s slices). Progressive: the API call resolves with
+  the first pages, the rest come as `comicPages` events ('more' / 'done' /
+  'cut' — cut = another scraper task queued, list partial, cache dropped);
+  Reader appends (`onOnlinePages`, growRef keeps the scroll) and blocks the
+  next-chapter flow while `pagesCollecting`. Downloads still await the whole
+  list. Reader title bar ⟳ / title long-press 다시 불러오기
   = `reloadOnlineImages` → comicReadUrls(url, fresh) reloads the page.)
   Some ISPs reset TLS by SNI for the site domain; its DNS CNAME (a BunnyCDN
   host) serves the same site unblocked. (Desktop 0.4.1
