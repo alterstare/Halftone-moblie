@@ -18,6 +18,7 @@ import Pager from './Pager'
 import SearchClear from './SearchClear'
 import GroupFilterMenu from './GroupFilterMenu'
 import { useTabState } from './useTabState'
+import { isNarrow } from '../mobile'
 
 const PAGE_SIZE = 40 // doujin list is paginated (like the online list) to keep the
 // DOM small — an unvirtualized full library made the pane-resize reflow stutter.
@@ -168,7 +169,8 @@ export default function LibraryList(): JSX.Element {
     const items: MenuItem[] = [
       { label: '새 탭에서 열기', onClick: () => openTab(id) },
       { label: '백그라운드에서 열기', onClick: () => openTabBackground(id) },
-      { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(id) },
+      // Split view = tablet only (no room on a phone).
+      ...(isNarrow() ? [] : [{ label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(id) }]),
       ...(w ? [{ label: '제목 복사', onClick: () => void window.api.clipboardWriteText(w.title) }] : [])
     ]
     if (w) {

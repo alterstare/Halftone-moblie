@@ -18,6 +18,7 @@
 import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { MM } from '../native'
+import { fitName } from './nameFit'
 import type {
   ComicListSource,
   ComicSort,
@@ -857,17 +858,10 @@ export async function comicImageToFile(url: string, path: string): Promise<void>
 
 // --- download a whole series into the local general-manga library ---
 function safeName(s: string): string {
-  // Also strip a trailing '.'/space — Windows forbids them on a path segment and
-  // silently drops them, breaking the recorded path.
-  return (
-    s
-      .replace(/[\\/:*?"<>|]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 120)
-      .replace(/[.\s]+$/, '')
-      .trim() || 'untitled'
-  )
+  // Illegal chars out, then the length cap (fitName also strips a trailing
+  // '.'/space — Windows forbids them and silently drops them, breaking the
+  // recorded path).
+  return fitName(s.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim()) || 'untitled'
 }
 function extOf(url: string): string {
   const m = url.split('?')[0].match(/\.(png|jpe?g|gif|webp|avif)$/i)

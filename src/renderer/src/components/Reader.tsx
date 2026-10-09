@@ -26,6 +26,7 @@ import PageSlot from './reader/PageSlot'
 import { useComicStatus } from './useComicStatus'
 import { isTouch, sidebarBtnMode } from '../mobile'
 import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
+import { showToast } from '../toast'
 import {
   DownloadIcon,
   ScrollModeIcon,
@@ -279,6 +280,14 @@ export default function Reader({
             }
           }
         : null
+  // Is there a previous / next chapter or queued work to flow into? (The pull
+  // indicator only shows when there is.)
+  const canContinue = (d: 1 | -1): boolean => {
+    if (chNav && chNav.idx + d >= 0 && chNav.idx + d < chNav.count) return true
+    if (side !== 'left' || !work) return false
+    const i = readingQueue.indexOf(work.id)
+    return i >= 0 && !!readingQueue[i + d]
+  }
   // Past the first / last page: previous / next chapter, else the reading queue.
   const continueRef = useRef<(d: 1 | -1) => void>(() => {})
   continueRef.current = (d) => {
@@ -1084,7 +1093,21 @@ export default function Reader({
   const EDGE_PULL = 130
   const edgePull = useRef<{ dir: 1 | -1; y0: number } | null>(null)
   // Pull indicator: direction + progress 0..1 (1 = release to go).
-  const [pullHint, setPullHint] = useState<{ dir: 1 | -1; p: number } | null>(null)
+  const [pullHint, setPullHint] = useState<{ dir: 1 | -1; p: number; d: number } | null>(null)
+  // The pages follow the pull (damped, like pull-to-refresh): a `translate` on
+  // the page layer (its `transform` belongs to the pinch zoom). 0 = springs back.
+  const pullShift = (d: number): void => {
+    const layer = layerOf()
+    if (!layer) return
+    if (d) {
+      layer.style.transition = 'none'
+      layer.style.translate = `0 ${d}px`
+    } else if (layer.style.translate) {
+      layer.style.transition = 'translate 0.26s cubic-bezier(0.2, 0, 0, 1)'
+      layer.style.translate = ''
+      window.setTimeout(() => (layer.style.transition = ''), 280)
+    }
+  }
   const trackEdgePull = (t: { clientY: number }): void => {
     const el = contentRef.current
     if (!el || mode !== 'scroll' || vz.current.s > 1.01) return
@@ -1092,22 +1115,28 @@ export default function Reader({
     const atTop = el.scrollTop <= 0
     const p = edgePull.current
     if (!p) {
-      if (atBottom) edgePull.current = { dir: 1, y0: t.clientY }
-      else if (atTop) edgePull.current = { dir: -1, y0: t.clientY }
+      if (atBottom && canContinue(1)) edgePull.current = { dir: 1, y0: t.clientY }
+      else if (atTop && canContinue(-1)) edgePull.current = { dir: -1, y0: t.clientY }
       return
     }
     const pull = p.dir === 1 ? p.y0 - t.clientY : t.clientY - p.y0
     if ((p.dir === 1 && !atBottom) || (p.dir === -1 && !atTop) || pull < 0) {
       edgePull.current = null
       setPullHint(null)
+      pullShift(0)
       return
     }
-    if (pull > 8) setPullHint({ dir: p.dir, p: Math.min(1, pull / EDGE_PULL) })
+    if (pull > 8) {
+      const d = Math.min(pull, EDGE_PULL * 1.4) * 0.5
+      setPullHint({ dir: p.dir, p: Math.min(1, pull / EDGE_PULL), d })
+      pullShift(p.dir === 1 ? -d : d)
+    }
   }
   const endEdgePull = (t: { clientY: number } | undefined): void => {
     const p = edgePull.current
     edgePull.current = null
     setPullHint(null)
+    pullShift(0)
     if (!p || !t) return
     const pull = p.dir === 1 ? p.y0 - t.clientY : t.clientY - p.y0
     if (pull >= EDGE_PULL) continueRef.current(p.dir)
@@ -1217,14 +1246,16 @@ export default function Reader({
   const workCode = online ? (online.kind === 'comic' ? null : online.code) : (work?.code ?? null)
   const onTitleContext = (e: React.MouseEvent): void => {
     e.preventDefault()
-    // (Android 13+ shows its own "copied" confirmation.)
+    // ("… 복사 완료" toast; Android 13+ may add its own clipboard preview.)
     const copy = (text: string): void => void window.api.clipboardWriteText(text)
     setMenu({
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: '제목 복사', onClick: () => copy(title) },
-        ...(workCode ? [{ label: `작품 번호 복사 (${workCode})`, onClick: () => copy(workCode) }] : [])
+        { label: '제목 복사', onClick: () => (copy(title), showToast('제목 복사 완료')) },
+        ...(workCode
+          ? [{ label: `작품 번호 복사 (${workCode})`, onClick: () => (copy(workCode), showToast('코드 복사 완료')) }]
+          : [])
       ]
     })
   }
@@ -1388,13 +1419,17 @@ export default function Reader({
         </div>
       )}
 
-      {/* Pull past the end → next / previous chapter: a round arrow button
-          (like pull-to-refresh) slides in and fills purple as you pull; full =
-          release to go. */}
+      {/* Pull past the end → next / previous chapter: the pages follow the
+          finger and a round arrow button (like pull-to-refresh) comes out of
+          the gap, its ring filling purple; full = release to go. */}
       {pullHint && (
         <div
           className={`edge-pull ${pullHint.dir === 1 ? 'bottom' : 'top'} ${pullHint.p >= 1 ? 'ready' : ''}`}
-          style={{ ['--p' as string]: String(pullHint.p) }}
+          style={{
+            ['--p' as string]: String(pullHint.p),
+            // centered in the gap the pages leave, clear of the bar on that side
+            ['--edge' as string]: `${(pullHint.dir === 1 ? barH.bottom : barH.top) + pullHint.d / 2 - 22}px`
+          }}
           aria-label={pullHint.dir === 1 ? '다음화' : '이전화'}
         >
           <svg className="edge-pull-ring" viewBox="0 0 40 40" aria-hidden>

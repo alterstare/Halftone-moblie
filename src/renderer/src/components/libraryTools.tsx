@@ -4,7 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { AddIcon, RefreshIcon, ChecklistIcon, NumbersIcon, SelectAllIcon, DeselectIcon, CloseIcon, CheckMarkIcon } from './icons'
+import { AddIcon, RefreshIcon, ArrowUpIcon, ArrowDownIcon, ChecklistIcon, NumbersIcon, SelectAllIcon, DeselectIcon, CloseIcon, CheckMarkIcon } from './icons'
 
 // ---------- selection ----------
 
@@ -316,17 +316,30 @@ export function useSwipeClose(
 
 // ---------- pull to refresh ----------
 
+// List paging the pulls can step through (same shape as LibraryFab's pager).
+export interface PullPager {
+  page: number // 0-based
+  lastPage: number // -1 = unknown
+  onPage: (p: number) => void
+}
+
 // Pull the list down from the top and let go: the content follows the finger
-// (damped), a spinner appears above the search box, and past the threshold the
-// refresh runs while the content waits at a small offset, then everything
-// springs back. Returns the spinner element (render it inside the container).
+// (damped), a round icon appears above it, and past the threshold the action
+// runs while the content waits at a small offset, then everything springs back.
+// With a `pager`: on page 1 that is 새로고침; on a later page the same pull
+// goes to the previous page (↑), and pulling up past the bottom goes to the
+// next page (↓, the icon comes up from under the list). Returns the icons
+// (render them inside the container).
 export function usePullRefresh(
   ref: RefObject<HTMLElement | null>,
   onRefresh: () => Promise<unknown> | void,
-  enabled = true
+  enabled = true,
+  pager?: PullPager
 ): JSX.Element {
   const cb = useRef(onRefresh)
   cb.current = onRefresh
+  const pg = useRef(pager)
+  pg.current = pager
   useEffect(() => {
     const el = ref.current
     if (!el || !enabled) return
@@ -335,46 +348,69 @@ export function usePullRefresh(
     const TRIGGER = 70
     const HOLD = 56
     let y0: number | null = null
-    let pulling = false
+    let dir: 1 | -1 | 0 = 0 // 1 = pulling down at the top, -1 = up at the bottom
+    let canDown = false
+    let canUp = false
     let busy = false
     let d = 0
     let animT = 0
+    const atBottom = (): boolean => el.scrollTop + el.clientHeight >= el.scrollHeight - 2
     const apply = (px: number, anim: boolean): void => {
       d = px
       window.clearTimeout(animT)
       el.classList.toggle('ptr-anim', anim)
       el.style.setProperty('--ptr', `${px}px`)
-      el.style.setProperty('--ptr-p', String(Math.min(1, px / TRIGGER)))
-      if (px > 0) el.classList.add('ptr-on')
-      else if (anim) animT = window.setTimeout(() => el.classList.remove('ptr-on', 'ptr-anim'), 280)
-      else el.classList.remove('ptr-on')
+      el.style.setProperty('--ptr-p', String(Math.min(1, Math.abs(px) / TRIGGER)))
+      el.classList.toggle('ptr-ready', Math.abs(px) >= TRIGGER)
+      if (px !== 0) el.classList.add('ptr-on')
+      else if (anim)
+        animT = window.setTimeout(() => el.classList.remove('ptr-on', 'ptr-anim', 'ptr-page', 'ptr-up'), 280)
+      else el.classList.remove('ptr-on', 'ptr-page', 'ptr-up')
     }
     const onStart = (e: TouchEvent): void => {
       if (busy || e.touches.length !== 1) return
-      y0 = el.scrollTop <= 0 ? e.touches[0].clientY : null
-      pulling = false
+      const p = pg.current
+      canDown = el.scrollTop <= 0
+      canUp = !!p && (p.lastPage < 0 || p.page < p.lastPage) && atBottom()
+      y0 = canDown || canUp ? e.touches[0].clientY : null
+      dir = 0
     }
     const onMove = (e: TouchEvent): void => {
       if (y0 == null || e.touches.length !== 1) return
       const dy = e.touches[0].clientY - y0
-      if (!pulling) {
-        if (dy > 6 && el.scrollTop <= 0) pulling = true
-        else if (dy < 0) {
-          y0 = null
+      if (!dir) {
+        if (dy > 6 && canDown && el.scrollTop <= 0) dir = 1
+        else if (dy < -6 && canUp && atBottom()) dir = -1
+        else {
+          if (Math.abs(dy) > 6) y0 = null
           return
-        } else return
+        }
+        const p = pg.current
+        el.classList.toggle('ptr-page', dir === -1 || (!!p && p.page > 0))
+        el.classList.toggle('ptr-up', dir === -1)
+        // the up-pull icon is fixed to the list's bottom edge
+        if (dir === -1) el.style.setProperty('--ptr-bottom', `${el.getBoundingClientRect().bottom}px`)
       }
       if (e.cancelable) e.preventDefault()
-      apply(Math.max(0, Math.min(MAX, dy * 0.5)), false)
+      apply(dir * Math.max(0, Math.min(MAX, dir * dy * 0.5)), false)
     }
     const onEnd = (): void => {
-      if (!pulling) {
-        y0 = null
+      const dir0 = dir
+      dir = 0
+      y0 = null
+      if (!dir0) return
+      if (Math.abs(d) < TRIGGER) return apply(0, true)
+      const p = pg.current
+      // Page step: the list changes under the held offset, then springs back.
+      if (dir0 === -1 || (p && p.page > 0)) {
+        apply(dir0 * HOLD, true)
+        window.setTimeout(() => {
+          if (p) p.onPage(p.page + (dir0 === -1 ? 1 : -1))
+          el.scrollTop = 0
+          apply(0, true)
+        }, 160)
         return
       }
-      pulling = false
-      y0 = null
-      if (d < TRIGGER) return apply(0, true)
       busy = true
       apply(HOLD, true)
       el.classList.add('ptr-busy')
@@ -398,12 +434,14 @@ export function usePullRefresh(
       el.removeEventListener('touchmove', onMove)
       el.removeEventListener('touchend', onEnd)
       el.removeEventListener('touchcancel', onEnd)
-      el.classList.remove('ptr-host', 'ptr-on', 'ptr-anim', 'ptr-busy')
+      el.classList.remove('ptr-host', 'ptr-on', 'ptr-anim', 'ptr-busy', 'ptr-page', 'ptr-up', 'ptr-ready')
     }
   }, [ref, enabled])
   return (
     <div className="ptr-spin" aria-hidden>
       <RefreshIcon />
+      <ArrowUpIcon />
+      <ArrowDownIcon />
     </div>
   )
 }
@@ -446,6 +484,37 @@ export function LibraryFab({
   useEffect(() => {
     if (!active) setOpen(false)
   }, [active])
+  // Open drop-up: any touch / drag elsewhere closes it. A drag still scrolls the
+  // list (no blocking scrim); a plain tap only closes (its click is swallowed).
+  useEffect(() => {
+    if (!open) return
+    const inside = (t: EventTarget | null): boolean => t instanceof Element && !!t.closest('.fab-wrap')
+    const swallow = (e: MouseEvent): void => {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+    const down = (e: PointerEvent): void => {
+      if (inside(e.target)) return
+      const x = e.clientX
+      const y = e.clientY
+      setOpen(false)
+      // (registered outside the effect: closing unmounts the effect first)
+      const up = (u: PointerEvent): void => {
+        done()
+        if (u.type !== 'pointerup' || Math.abs(u.clientX - x) >= 10 || Math.abs(u.clientY - y) >= 10) return
+        window.addEventListener('click', swallow, { capture: true, once: true })
+        window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 400)
+      }
+      const done = (): void => {
+        window.removeEventListener('pointerup', up, true)
+        window.removeEventListener('pointercancel', up, true)
+      }
+      window.addEventListener('pointerup', up, true)
+      window.addEventListener('pointercancel', up, true)
+    }
+    window.addEventListener('pointerdown', down, true)
+    return () => window.removeEventListener('pointerdown', down, true)
+  }, [open])
   if (!active) return null
   const pick = (fn: () => void) => (): void => {
     setOpen(false)
@@ -453,7 +522,6 @@ export function LibraryFab({
   }
   return createPortal(
     <>
-      {open && <div className="fab-scrim" onPointerDown={() => setOpen(false)} />}
       <div className={`fab-wrap ${hidden && !open ? 'fab-hidden' : ''}`}>
         <div className={`fab-menu ${open ? 'open' : ''}`}>
           <button className="fab-item" onClick={pick(onRefresh)}>

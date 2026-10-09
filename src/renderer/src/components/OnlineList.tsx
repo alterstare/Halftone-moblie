@@ -17,6 +17,7 @@ import { useFavSummaries } from '../favSummaries'
 import type { OnlineGallery, DownloadItem } from '../store'
 import SearchClear from './SearchClear'
 import { useTabState } from './useTabState'
+import { isNarrow } from '../mobile'
 
 // Sidebar keeps it short: 인기 = the yearly ranking.
 const SORTS: [OnlineSort, string][] = [
@@ -305,10 +306,15 @@ export default function OnlineList(): JSX.Element {
           items={[
             { label: '새 탭에서 열기', onClick: () => openOnline(menu.g) },
             { label: '백그라운드에서 열기', onClick: () => openOnlineBackground(menu.g) },
-            {
-              label: tabs.find((t) => t.id === activeTabId)?.split ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기',
-              onClick: () => openSplitOnline(menu.g)
-            },
+            // Split view = tablet only (no room on a phone).
+            ...(isNarrow()
+              ? []
+              : [
+                  {
+                    label: tabs.find((t) => t.id === activeTabId)?.split ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기',
+                    onClick: () => openSplitOnline(menu.g)
+                  }
+                ]),
             { label: '다운로드', onClick: () => download({ code: menu.g.code, title: menu.g.title } as GallerySummary) },
             { label: '현재 탭에서 열기', onClick: () => (activeTabId ? replaceTabOnline(activeTabId, menu.g) : openOnline(menu.g)) },
             { label: '제목 복사', onClick: () => void window.api.clipboardWriteText(menu.g.title) }

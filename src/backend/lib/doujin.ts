@@ -6,6 +6,7 @@ import { MM } from '../native'
 import { fp, DOUJIN_SITE_FP, DOUJIN_NAME_FP } from './fp'
 import type { DoujinMeta } from '../../shared/types'
 import { fillNamePattern, langCode } from '../../shared/pattern'
+import { fitName, fitBuilt } from './nameFit'
 import { titleSim, titleNorm } from '../../shared/title'
 
 // Doujin-site client. Algorithm follows the site's own reader scripts:
@@ -296,36 +297,27 @@ export async function writeSidecar(dir: string, meta: DoujinMeta): Promise<void>
 
 const BAD = /[<>:"/\\|?*\x00-\x1f]/g
 export function sanitize(name: string): string {
-  // Windows forbids a trailing '.' or space on a path segment — the OS silently
-  // strips them at create time, so the folder on disk no longer matches the path
-  // we recorded ("이 위치를 사용할 수 없음"). Strip them ourselves, after the length
-  // cut (which can newly expose a trailing dot).
-  return (
-    name
-      .replace(BAD, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 150)
-      .replace(/[.\s]+$/, '')
-      .trim() || 'untitled'
-  )
+  // Illegal chars out, then the length cap (fitName also strips a trailing
+  // '.' / space — Windows drops them silently, so the folder on disk would no
+  // longer match the path we recorded: "이 위치를 사용할 수 없음").
+  return fitName(name.replace(BAD, '').replace(/\s+/g, ' ').trim()) || 'untitled'
 }
 
 function folderName(meta: DoujinMeta, pattern?: string): string {
   if (pattern && pattern.trim()) {
     const groups = meta.tags.filter((t) => t.startsWith('group:')).map((t) => t.slice(6))
-    return sanitize(
-      fillNamePattern(pattern, {
-        id: meta.code,
-        title: meta.title,
-        artist: meta.artists.join(', '),
-        group: groups.join(', '),
-        language: langCode(meta.language)
-      })
+    // Too long → shorten the title, then the artist / group, never the code.
+    const clean = (x: string): string => x.replace(BAD, '').replace(/\s+/g, ' ').trim()
+    const build = ([title, artist, group]: string[]): string =>
+      clean(fillNamePattern(pattern, { id: meta.code, title, artist, group, language: langCode(meta.language) }))
+    return (
+      fitBuilt(build, [clean(meta.title), clean(meta.artists.join(', ')), clean(groups.join(', '))], [0, 1, 2]) ||
+      'untitled'
     )
   }
-  const artist = meta.artists.length ? meta.artists.join(', ') + ' ' : ''
-  return sanitize(`${artist}[${meta.code}] ${meta.title}`)
+  const clean = (x: string): string => x.replace(BAD, '').replace(/\s+/g, ' ').trim()
+  const build = ([title, artist]: string[]): string => `${artist ? artist + ' ' : ''}[${meta.code}] ${title}`.trim()
+  return fitBuilt(build, [clean(meta.title), clean(meta.artists.join(', '))], [0, 1]) || 'untitled'
 }
 
 export interface DownloadResult {

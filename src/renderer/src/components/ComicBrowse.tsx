@@ -365,7 +365,8 @@ export default function ComicBrowse(): JSX.Element {
       setReloadKey((k) => k + 1)
       setTimeout(res, 30000) // never spin forever
     })
-  const ptrSpinner = usePullRefresh(rootRef, refresh, browseView)
+  const pager = favMode ? undefined : { page, lastPage: -1, onPage: (p: number) => setPage(Math.max(0, p)) }
+  const ptrSpinner = usePullRefresh(rootRef, refresh, browseView, pager)
   // Swipe right → back to 라이브러리.
   useSwipeNav(rootRef, null, () => useStore.getState().goHome(), browseView && !sel.selecting)
   const startDownload = useStore((s) => s.startDownload)
@@ -398,7 +399,7 @@ export default function ComicBrowse(): JSX.Element {
         scrollRef={rootRef}
         onRefresh={() => void refresh()}
         onSelect={sel.start}
-        pager={favMode ? undefined : { page, lastPage: -1, onPage: (p) => setPage(Math.max(0, p)) }}
+        pager={pager}
       />
       <div className="browse-head">
         {/* Phone: full-width search box (Enter searches) — 제목/작가 filter icon
@@ -474,23 +475,6 @@ export default function ComicBrowse(): JSX.Element {
               <FavSortSelect value={favSort} onChange={setFavSort} />
             </span>
           )}
-          {/* Tablet: the site tools sit right in the row (CSS shows .tools-inline
-              ≥ 600px and hides the chevron); phone: they fold out from it. */}
-          <button className="chip tools-inline tools-first" onClick={() => window.api.comicOpenSite()}>
-            인증창
-          </button>
-          <button
-            className={`chip tools-inline ${addrOpen ? 'active' : ''}`}
-            onClick={() => {
-              setAddr(comicBaseUrl)
-              setAddrOpen((v) => !v)
-            }}
-          >
-            주소
-          </button>
-          <button className="chip tools-inline" onClick={() => setBackupOpen(true)}>
-            비상용
-          </button>
         </div>
         {favMode && (
           <div className="chips chips-extra-row">
@@ -521,15 +505,15 @@ export default function ComicBrowse(): JSX.Element {
               ))}
             </div>
           )}
-            {/* Site tools (인증창 / 주소 / 비상용) fold out from this chevron, at the
-              right end of the filter row (phone; tablet shows them inline). */}
-            <button
-              className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
-              title={toolsOpen ? '접기' : '사이트 도구'}
-              onClick={() => setToolsOpen((v) => !v)}
-            >
-              <ArrowDownIcon />
-            </button>
+          {/* Site tools (인증창 / 주소 / 비상용) fold out from this chevron, at the
+              right end of the filter row (every width). */}
+          <button
+            className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
+            title={toolsOpen ? '접기' : '사이트 도구'}
+            onClick={() => setToolsOpen((v) => !v)}
+          >
+            <ArrowDownIcon />
+          </button>
         </div>
         {toolsOpen && (
           <div className="chips comic-tools">

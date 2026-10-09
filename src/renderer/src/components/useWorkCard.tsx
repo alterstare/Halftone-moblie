@@ -6,6 +6,8 @@ import { invalidate } from '../images'
 import ContextMenu from './ContextMenu'
 import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { useTagMenu } from './useTagMenu'
+import { isNarrow } from '../mobile'
+import { mergedIndex, unmergeWork } from '../merge'
 
 // Everything a local work card (list WorkCard / grid WorkGridCard) does besides
 // its layout:
@@ -124,7 +126,8 @@ export function useWorkCard(work: Work): {
       items={[
         { label: '새 탭에서 열기', onClick: () => openTab(work.id) },
         { label: '백그라운드에서 열기', onClick: () => openTabBackground(work.id) },
-        { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(work.id) },
+        // Split view = tablet only (no room on a phone).
+        ...(isNarrow() ? [] : [{ label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(work.id) }]),
         ...(work.code && (work.library ?? 'doujin') === 'doujin'
           ? [{ label: '다시 다운로드', onClick: () => startDownload({ kind: 'doujin' as const, input: work.code! }) }]
           : []),
@@ -144,6 +147,7 @@ export function useWorkCard(work: Work): {
               }
             ]
           : []),
+        ...(mergedIndex(work) >= 0 ? [{ label: '통합 해제', onClick: () => void unmergeWork(work) }] : []),
         { label: '삭제', danger: true, onClick: () => setConfirmDel(true) }
       ]}
       onClose={() => setMenu(null)}

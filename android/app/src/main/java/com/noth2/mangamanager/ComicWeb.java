@@ -22,12 +22,9 @@ import android.widget.TextView;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.webkit.WebViewCompat;
-import androidx.webkit.WebViewFeature;
 
 import com.getcapacitor.JSObject;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,13 +40,9 @@ final class ComicWeb {
         void onVisible(boolean visible);
     }
 
-    // Main-world script run before the site's own: hide automation tells and stub
-    // WebRTC (STUN probes), same as the desktop preload/comic.ts.
-    private static final String DOC_START =
-        "try{Object.defineProperty(navigator,'webdriver',{get:()=>false})}catch(e){}" +
-        "try{class F{createDataChannel(){return null}createOffer(){return Promise.reject(new Error('disabled'))}" +
-        "setLocalDescription(){return Promise.resolve()}addEventListener(){}close(){}}" +
-        "window.RTCPeerConnection=F;window.webkitRTCPeerConnection=F}catch(e){}";
+    // (No document-start overrides: patching navigator.webdriver / stubbing
+    // RTCPeerConnection is exactly what Cloudflare's checks look for — a plain
+    // WebView passes them; an altered one gets blocked.)
 
     private final Activity act;
     private final ViewGroup root;
@@ -120,16 +113,16 @@ final class ComicWeb {
         s.setUseWideViewPort(true);
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
-        // Plain mobile Chrome UA (drop the WebView "; wv" marker some sites block).
-        String ua = s.getUserAgentString().replace("; wv)", ")");
-        s.setUserAgentString(ua);
+        // Keep the WebView's own UA: Cloudflare compares it with the client hints
+        // (Sec-CH-UA / navigator.userAgentData say "Android WebView"); a UA posing
+        // as Chrome while the hints say WebView fails its check (the verify box
+        // never loads / "blocked"). OkHttp image requests reuse the same UA so the
+        // cf_clearance cookie stays valid for them.
+        String ua = s.getUserAgentString();
         Net.comicUA = ua;
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
         cm.setAcceptThirdPartyCookies(web, true);
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(web, DOC_START, Collections.singleton("*"));
-        }
         web.addJavascriptInterface(new Bridge(), "MMComic");
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -152,7 +145,11 @@ final class ComicWeb {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
                 if (!req.isForMainFrame()) return;
-                errorCode = err.getErrorCode();
+                int code = err.getErrorCode();
+                // Direct connection reset / refused (SNI block) → retry through the tunnel.
+                if ((code == ERROR_CONNECT || code == ERROR_UNKNOWN || code == ERROR_TIMEOUT)
+                        && MMPlugin.webTunnelFallback(act, () -> view.loadUrl(req.getUrl().toString()))) return;
+                errorCode = code;
                 errorDesc = String.valueOf(err.getDescription());
                 committed = true;
             }

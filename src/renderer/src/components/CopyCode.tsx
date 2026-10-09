@@ -1,16 +1,15 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import ContextMenu from './ContextMenu'
+import { showToast } from '../toast'
 
-// Clickable [code]: a tap copies it (briefly shows a check); a long-press opens
+// Clickable [code]: a tap copies it ("코드 복사 완료" toast); a long-press opens
 // a small popup (작품 번호 복사) instead of the card's own menu.
 export default function CopyCode({ code, className = '' }: { code: string; className?: string }): JSX.Element {
-  const [copied, setCopied] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const copy = (): void => {
     void window.api.clipboardWriteText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1000)
+    showToast('코드 복사 완료')
   }
   return (
     <>
@@ -26,7 +25,7 @@ export default function CopyCode({ code, className = '' }: { code: string; class
           setMenu({ x: e.clientX, y: e.clientY })
         }}
       >
-        [{code}]{copied ? ' ✓' : ''}
+        [{code}]
       </span>
       {menu && (
         <ContextMenu

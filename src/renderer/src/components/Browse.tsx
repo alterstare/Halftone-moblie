@@ -24,6 +24,7 @@ import { ArtistLinks } from './ArtistLinks'
 import TileBar, { CompactBar } from './TileBar'
 import CardMore from './CardMore'
 import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav, useBackHandler } from './libraryTools'
+import { isNarrow } from '../mobile'
 
 const LANGS = [
   ['all', '전체'],
@@ -315,7 +316,10 @@ export default function Browse(): JSX.Element {
       setReloadKey((k) => k + 1)
       setTimeout(res, 15000) // never spin forever
     })
-  const ptrSpinner = usePullRefresh(rootRef, refresh, browseView)
+  const pager = favMode
+    ? { page: favPage, lastPage: favLastPage, onPage: setFavPage }
+    : { page, lastPage, onPage: setBrowsePage }
+  const ptrSpinner = usePullRefresh(rootRef, refresh, browseView, pager)
   // Swipe right → back to 라이브러리.
   useSwipeNav(rootRef, null, () => useStore.getState().goHome(), browseView && !sel.selecting)
   const downloadSelected = (): void => {
@@ -347,11 +351,7 @@ export default function Browse(): JSX.Element {
         scrollRef={rootRef}
         onRefresh={() => void refresh()}
         onSelect={sel.start}
-        pager={
-          favMode
-            ? { page: favPage, lastPage: favLastPage, onPage: setFavPage }
-            : { page, lastPage, onPage: setBrowsePage }
-        }
+        pager={pager}
       />
       <div className="browse-head">
         {/* Phone: full-width search box (Enter searches) — 언어 filter icon at its
@@ -672,7 +672,8 @@ export default function Browse(): JSX.Element {
           items={[
             { label: '새 탭에서 열기', onClick: () => openOnline(menu.g) },
             { label: '백그라운드에서 열기', onClick: () => openOnlineBackground(menu.g) },
-            { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplitOnline(menu.g) },
+            // Split view = tablet only (no room on a phone).
+            ...(isNarrow() ? [] : [{ label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplitOnline(menu.g) }]),
             { label: '다운로드', onClick: () => download(menu.g.code, menu.g.title) },
             { label: '제목 복사', onClick: () => void window.api.clipboardWriteText(menu.g.title) }
           ]}

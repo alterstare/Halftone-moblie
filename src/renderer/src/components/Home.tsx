@@ -2,11 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots } from '../store'
 import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isComicCode, sortSeries } from '../util'
-import type { SortMode, OnlineFav } from '../../../shared/types'
+import type { SortMode, OnlineFav, Work } from '../../../shared/types'
 import type { Filter } from '../store'
 import { langCategory, LANG_CAT_LABELS, type LangCat } from '../../../shared/lang'
 import Caret from './Caret'
-import { GridIcon, MenuIcon, FavoriteIcon, AddIcon, CloseIcon, SortIcon, DeleteIcon } from './icons'
+import { GridIcon, MenuIcon, FavoriteIcon, AddIcon, CloseIcon, SortIcon, DeleteIcon, MergeTypeIcon } from './icons'
+import { mergeWorks, canMerge } from '../merge'
 import { useSelection, SelectionProvider, SelectBar, usePullRefresh, LibraryFab, useSwipeNav } from './libraryTools'
 import Dropdown from './Dropdown'
 import WorkGridCard from './WorkGridCard'
@@ -487,7 +488,16 @@ export default function Home(): JSX.Element {
     if (scrollRef.current) scrollRef.current.scrollTop = 0
     await useStore.getState().scanLibraryJob()
   }
-  const ptrSpinner = usePullRefresh(scrollRef, refresh, homeView)
+  const pager = {
+    page,
+    lastPage,
+    onPage: (p: number): void => {
+      setPage(p)
+      useStore.getState().setHomeScroll(0)
+      if (scrollRef.current) scrollRef.current.scrollTop = 0
+    }
+  }
+  const ptrSpinner = usePullRefresh(scrollRef, refresh, homeView, pager)
   // Swipe left → 온라인 (the library screen only, not 기록 / while selecting).
   const onHome = useStore((s) => s.view === 'home')
   useSwipeNav(scrollRef, () => !decoy && useStore.getState().goBrowse(), null, onHome && !sel.selecting)
@@ -503,6 +513,22 @@ export default function Home(): JSX.Element {
       else series.get(k)?.chapters.forEach((c) => ids.push(c.id))
     }
     return ids
+  }
+  // 작품 통합: pick → name dialog (prefilled with the first pick's title) → merge.
+  const [mergeAsk, setMergeAsk] = useState<{ works: Work[]; name: string } | null>(null)
+  useEffect(() => {
+    if (!sel.selecting) setMergeAsk(null)
+  }, [sel.selecting])
+  const mergeSelected = (): void => {
+    const byId = new Map(works.map((w) => [w.id, w]))
+    const picked = selWorkIds().flatMap((id) => byId.get(id) ?? [])
+    if (canMerge(picked)) setMergeAsk({ works: picked, name: picked[0].title })
+  }
+  const confirmMerge = async (): Promise<void> => {
+    const m = mergeAsk
+    if (!m || !m.name.trim()) return
+    setMergeAsk(null)
+    if (await mergeWorks(m.works, m.name)) sel.stop()
   }
   const deleteSelected = async (ids: string[]): Promise<void> => {
     setDelSel(null)
@@ -558,17 +584,28 @@ export default function Home(): JSX.Element {
           onNone={sel.clear}
           onClose={sel.stop}
           action={
-            <button
-              className="sel-btn"
-              title="삭제"
-              disabled={sel.selected.size === 0}
-              onClick={() => {
-                const ids = selWorkIds()
-                if (ids.length) setDelSel(ids)
-              }}
-            >
-              <DeleteIcon />
-            </button>
+            <>
+              {/* 작품 통합: read the picked works as one (folders stay). */}
+              <button
+                className="sel-btn"
+                title="작품 통합"
+                disabled={sel.selected.size < 2}
+                onClick={mergeSelected}
+              >
+                <MergeTypeIcon />
+              </button>
+              <button
+                className="sel-btn"
+                title="삭제"
+                disabled={sel.selected.size === 0}
+                onClick={() => {
+                  const ids = selWorkIds()
+                  if (ids.length) setDelSel(ids)
+                }}
+              >
+                <DeleteIcon />
+              </button>
+            </>
           }
         />
       )}
@@ -577,16 +614,42 @@ export default function Home(): JSX.Element {
         scrollRef={scrollRef}
         onRefresh={() => void refresh()}
         onSelect={sel.start}
-        pager={{
-          page,
-          lastPage,
-          onPage: (p) => {
-            setPage(p)
-            useStore.getState().setHomeScroll(0)
-            if (scrollRef.current) scrollRef.current.scrollTop = 0
-          }
-        }}
+        pager={pager}
       />
+      {mergeAsk && (
+        <div className="exit-backdrop" onClick={() => setMergeAsk(null)}>
+          <div className="exit-modal compact page-jump" onClick={(e) => e.stopPropagation()}>
+            <h3 className="exit-title">
+              작품 통합
+              <span className="page-jump-info">{mergeAsk.works.length}개 작품을 하나로</span>
+            </h3>
+            <form
+              className="page-jump-row merge-name-row"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void confirmMerge()
+              }}
+            >
+              <input
+                className="field-input"
+                placeholder="통합 작품 이름"
+                autoFocus
+                value={mergeAsk.name}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setMergeAsk({ ...mergeAsk, name: e.target.value })}
+              />
+            </form>
+            <div className="exit-actions">
+              <button className="exit-btn ghost" onClick={() => setMergeAsk(null)}>
+                취소
+              </button>
+              <button className="exit-btn primary" disabled={!mergeAsk.name.trim()} onClick={() => void confirmMerge()}>
+                통합
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {delSel && (
         <ConfirmModal
           compact

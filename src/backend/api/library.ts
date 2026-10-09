@@ -17,6 +17,7 @@ import { applyNetwork } from '../network'
 import { encodeImg, thumbFile, isRawThumb, rawMarker } from '../lib/media'
 import { ensureStorage } from '../storage'
 import { applyGalleryHide } from '../gallery'
+import { fitName } from '../lib/nameFit'
 
 const allWorks = (): Work[] => [...store.works.values()]
 
@@ -281,7 +282,8 @@ export const libraryApi: Partial<Api> = {
   deleteWork: async (workId: string) => {
     const w = store.get(workId)
     if (!w) return
-    await fs.rm(w.path, { recursive: true, force: true })
+    // A merged work (collection): its folders only — `path` is their parent.
+    for (const p of w.sources?.length ? w.sources : [w.path]) await fs.rm(p, { recursive: true, force: true })
     store.remove(workId)
   },
 
@@ -306,7 +308,7 @@ export const libraryApi: Partial<Api> = {
   // Rename general-manga chapter folders in place (names computed by the UI).
   renameNormalChapters: async (items: { id: string; name: string }[]) => {
     const clean = (s: string): string =>
-      s.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'untitled'
+      fitName(s.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim()) || 'untitled'
     const updated: Work[] = []
     for (const it of items) {
       const w = store.get(it.id)
@@ -389,7 +391,8 @@ export const libraryApi: Partial<Api> = {
   // Full reset: wipe app data (and optionally every work folder), then reload.
   resetApp: async (deleteWorkFolders: boolean) => {
     if (deleteWorkFolders) {
-      for (const w of store.works.values()) await fs.rm(w.path, { recursive: true, force: true }).catch(() => {})
+      for (const w of store.works.values())
+        for (const p of w.sources?.length ? w.sources : [w.path]) await fs.rm(p, { recursive: true, force: true }).catch(() => {})
     }
     for (const f of ['works.json', 'settings.json', 'session.json', 'online.json', 'progress.json', 'history.json', 'doujin-suggest-seen.json', 'onlineSummaries.json']) {
       await fs.rm(join(paths.data, f), { force: true }).catch(() => {})

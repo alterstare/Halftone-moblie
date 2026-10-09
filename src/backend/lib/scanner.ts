@@ -5,6 +5,7 @@ import { IMAGE_EXTS } from '../../shared/types'
 import { parseName } from './parser'
 import { deriveId } from './store'
 import { readSidecar } from './doujin'
+import { fitName } from './nameFit'
 
 export interface ScanCallbacks {
   onProgress?: (scanned: number, current: string) => void
@@ -317,7 +318,7 @@ async function makeWork(
 // Folder-name sanitizer mirroring favorites.ts, so a work sitting in
 // <base>/<group name>/<work> is matched back to its group.
 function safeName(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+$/g, '').trim() || 'group'
+  return fitName(name.replace(/[\\/:*?"<>|]/g, '_').trim()) || 'group'
 }
 
 // Inside the doujin favorites folder? (General manga has no favorites folder.)

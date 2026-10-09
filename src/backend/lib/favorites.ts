@@ -1,10 +1,11 @@
 import * as fs from '../node/fs'
 import { join, basename, dirname, resolve, sep } from '../node/path'
 import type { Work, WorkGroup } from '../../shared/types'
+import { fitName } from './nameFit'
 
-// Sanitize a group name for use as a folder name (strip illegal chars).
+// Sanitize a group name for use as a folder name (strip illegal chars, cap length).
 export function safeName(name: string): string {
-  return name.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+$/g, '').trim() || 'group'
+  return fitName(name.replace(/[\\/:*?"<>|]/g, '_').trim()) || 'group'
 }
 
 async function rmdirIfEmpty(dir: string): Promise<void> {

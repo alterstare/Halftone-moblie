@@ -6,6 +6,7 @@ import { CHAP_FAV_PREFIX, isOnlineTitleFav, type SeriesGroup } from '../util'
 import ContextMenu from './ContextMenu'
 import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { useTagMenu } from './useTagMenu'
+import { isNarrow } from '../mobile'
 
 // Stable empty fallback — never return a fresh array from a zustand selector
 // (useSyncExternalStore would see a new reference every read → infinite loop).
@@ -191,7 +192,8 @@ export function useSeriesCard(series: SeriesGroup): {
           items={[
             { label: '새 탭에서 열기', onClick: () => openTab(rep.id) },
             { label: '백그라운드에서 열기', onClick: () => openTabBackground(rep.id) },
-            { label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(rep.id) },
+            // Split view = tablet only (no room on a phone).
+            ...(isNarrow() ? [] : [{ label: splitOpen ? '오른쪽 뷰에서 열기' : '분할 뷰에서 열기', onClick: () => openSplit(rep.id) }]),
             { label: '제목 복사', onClick: () => void window.api.clipboardWriteText(series.title) },
             ...normalGroups.map((g) => ({ label: `그룹 · ${g.name}`, onClick: () => addToGroup(g.id) })),
             { label: '＋ 새 그룹에 추가', onClick: () => setNewGrp(true) },

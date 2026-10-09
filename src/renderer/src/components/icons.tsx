@@ -217,3 +217,4 @@ export const SortIcon = mkIcon('M3 18v-2h6v2zm0-5v-2h12v2zm0-5V6h18v2z')
 export const FilterAltIcon = mkIcon(
   'M11 20q-.425 0-.712-.288T10 19v-6L4.2 5.6q-.375-.5-.112-1.05T5 4h14q.65 0 .913.55T19.8 5.6L14 13v6q0 .425-.288.713T13 20zm1-7.7L16.95 6h-9.9zm0 0'
 )
+export const MergeTypeIcon = mkIcon('M7.4 20L6 18.6l5-5V7.825L9.4 9.4L8 8l4-4l4 4l-1.4 1.4L13 7.825V14.4zm9.2 0L13 16.4l1.4-1.4l3.6 3.6z') // Merge Type

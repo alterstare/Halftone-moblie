@@ -964,6 +964,30 @@ body {
 .ptr-host.ptr-busy > .ptr-spin .micon {
   animation: convert-spin 0.8s linear infinite;
 }
+/* Which icon: 새로고침 (turns with the pull) / ↑ previous page / ↓ next page. */
+.ptr-spin > .micon + .micon {
+  display: none;
+}
+.ptr-host.ptr-page > .ptr-spin > .micon {
+  display: none;
+}
+.ptr-host.ptr-page:not(.ptr-up) > .ptr-spin > .micon:nth-child(2),
+.ptr-host.ptr-up > .ptr-spin > .micon:nth-child(3) {
+  display: block;
+}
+.ptr-host.ptr-page > .ptr-spin {
+  transform: translateY(calc(var(--ptr, 0px) - 46px));
+}
+/* Pull up at the bottom: fixed to the list's bottom edge, rising with it. */
+.ptr-host.ptr-up > .ptr-spin {
+  position: fixed;
+  top: var(--ptr-bottom, 100%);
+  transform: translateY(calc(var(--ptr, 0px) + 8px));
+}
+.ptr-host.ptr-ready > .ptr-spin {
+  background: var(--accent);
+  color: #fff;
+}
 
 /* ---------- Library tools: floating + ---------- */
 .fab-wrap {
@@ -1003,11 +1027,6 @@ body {
 }
 .fab:active {
   filter: brightness(0.9);
-}
-.fab-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 119;
 }
 /* Drop-up menu: rises from the button; rows divided by a line, no frames. */
 .fab-menu {
@@ -2754,6 +2773,7 @@ body.focus-hide-tabs .mtabbar {
 }
 .page-jump-row .field-input {
   flex: 1;
+  color: var(--text);
   min-width: 0;
   height: 44px;
   font-size: 18px;
@@ -2764,6 +2784,12 @@ body.focus-hide-tabs .mtabbar {
   background: var(--bg-2);
   outline: none;
   box-shadow: none;
+}
+/* 작품 통합 name: same box, text left-aligned and normal size */
+.merge-name-row .field-input {
+  font-size: 15px;
+  text-align: left;
+  padding: 0 18px;
 }
 .page-jump-row .field-input:focus {
   box-shadow: inset 0 0 0 2px var(--accent);
@@ -2857,11 +2883,7 @@ body.focus-hide-tabs .mtabbar {
    Same touch UI, laid out for the room: list tiles take the full width (one
    column), grid cards keep the phone card width and more fit per row (left-
    over width = side margins), the tab bar shows several tabs at once, the
-   reader list sits docked beside the pages, and the site tools sit in the
-   chips row instead of folding behind a chevron. */
-.tools-inline {
-  display: none;
-}
+   reader list sits docked beside the pages. */
 @media (min-width: 600px) {
   .work-grid:not(.compact-grid),
   .browse-grid:not(.compact-grid) {
@@ -2883,16 +2905,6 @@ body.focus-hide-tabs .mtabbar {
     scroll-snap-align: none;
     scroll-snap-stop: normal;
     transition: width 0.2s cubic-bezier(0.2, 0, 0, 1);
-  }
-  .filter-bar > .tools-toggle,
-  .comic-tools {
-    display: none !important;
-  }
-  .tools-inline {
-    display: inline-flex;
-  }
-  .browse-head > .chips > .tools-first {
-    margin-left: auto;
   }
 }
 
@@ -2962,9 +2974,9 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   }
 }
 
-/* Pull to the next / previous chapter (scroll mode): round button that slides
-   in from the edge with the pull, its ring filling purple; full = the whole
-   button turns purple (release to go). */
+/* Pull to the next / previous chapter (scroll mode): the pages follow the pull
+   and a round button comes out of the gap they leave, its ring filling purple;
+   full = the whole button turns purple (release to go). */
 .edge-pull {
   position: absolute;
   left: 50%;
@@ -2983,11 +2995,14 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
     background-color 0.15s,
     color 0.15s;
 }
+.edge-pull {
+  opacity: min(1, calc(var(--p) * 2.5));
+}
 .edge-pull.bottom {
-  bottom: calc(16px + var(--p) * 48px);
+  bottom: var(--edge, 16px);
 }
 .edge-pull.top {
-  top: calc(16px + var(--p) * 48px);
+  top: var(--edge, 16px);
 }
 .edge-pull-ring {
   position: absolute;
@@ -3039,4 +3054,31 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   border-color: transparent;
   background: transparent;
   color: var(--text-dim);
+}
+
+/* showToast (toast.ts): small pill above the bottom edge. */
+.mm-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  translate: -50% 8px;
+  z-index: 400;
+  max-width: calc(100vw - 48px);
+  padding: 8px 16px;
+  border-radius: 18px;
+  background: rgba(32, 33, 40, 0.92);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.18s,
+    translate 0.18s;
+}
+.mm-toast.show {
+  opacity: 1;
+  translate: -50% 0;
 }

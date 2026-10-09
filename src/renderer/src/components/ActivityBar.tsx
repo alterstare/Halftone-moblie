@@ -65,14 +65,15 @@ export default function ActivityBar(): JSX.Element | null {
   const installUpdate = useStore((s) => s.installUpdate)
   const wrapRef = useRef<HTMLDivElement>(null)
 
-  // Clicking anywhere outside the activity widget closes the open panel.
+  // Any touch / drag outside the activity widget closes the open panel
+  // (pointerdown: a touch drag never sends mousedown).
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent): void => {
+    const onDown = (e: PointerEvent): void => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) toggle()
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
   }, [open, toggle])
 
   // The bar is per-mode: doujin vs general-manga tasks don't mix.

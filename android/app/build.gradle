@@ -7,8 +7,8 @@ android {
         applicationId "com.noth2.mangamanager"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 511
-        versionName "0.5.92"
+        versionCode 512
+        versionName "0.5.93"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

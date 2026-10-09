@@ -119,6 +119,17 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   선택 · 해제 | 삭제(local) / 다운로드(online, sequential) | ×) — cards carry
   `data-sel` + checkbox via `useSel`/`SelBox`; Android back ends selection
   (`popBack`).
+  Pull paging (`usePullRefresh(ref, refresh, on, pager)`): pull down at the top
+  = 새로고침 on page 1, previous page (↑) after; pull up past the bottom = next
+  page (↓, icon fixed to the list's bottom edge). 작품 통합 (`merge.ts`):
+  SelectBar Merge icon (Home) → a manual collection (`settings.manualCollections`,
+  folders untouched, scanner folds them into one Work with `sources`); long-press
+  → 통합 해제. deleteWork on a collection removes only its `sources` (its `path`
+  is their parent). `toast.ts` showToast = small bottom pill ("코드 복사 완료").
+  Folder names are capped by `backend/lib/nameFit.ts` (80 chars / 180 UTF-8
+  bytes; doujin names shorten the title first, never the code) — ext4 255-byte
+  limit + Windows MAX_PATH when copied to a PC / NAS. 분할 뷰 menu items are
+  tablet-only (`isNarrow()`).
   Swipe left on 라이브러리 → 온라인, right on 온라인 → 라이브러리 (`useSwipeNav`).
   The new screen slides in from that side (`swipeSlide` → `.slide-from-*`).
   The open ☰ menu / reader list drawer follows a leftward drag (`useSwipeClose`:
@@ -147,8 +158,8 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   docked beside the pages at 78% of the drawer width (no scrim / outside-tap
   close; drag-left still closes it; list button defaults to the floating
   toggle — `sidebarBtnMode`: `settings.sidebarBtn` else phone 'bar' / tablet
-  'float'), site tools (인증창 · 주소 · 비상용) inline in the chips row
-  (`.tools-inline`) instead of behind the ⌄. Phone (< 600px) unchanged.
+  'float'). The site-tools ⌄ stays at the right end of the filter row on
+  every width. Phone (< 600px) unchanged.
   Focus mode in the reader (`.app.focus-reader`): the tab bar is position:
   fixed over the top (slides up when hidden) so the reader never resizes;
   the title bar sits at `--mtabbar-h`, scroll mode pads the top by it.
@@ -227,9 +238,19 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
     equivalent: DoH + ClientHello split into 40-byte TLS records). On when
     `settings.bypassTunnel`; comic OkHttp client + every WebView (ProxyController)
     go through it.
+    WebViews start DIRECT even with it on (`MMPlugin.webTunnel`); ComicWeb
+    switches them to the tunnel only after a main-frame connect error
+    (`webTunnelFallback`, once per setNetwork). OkHttp comic client always uses it.
+    Cloudflare's challenge fails through it (2026-10-09, toki33): the
+    fragmented ClientHello gets the verify widget stuck / looping. Direct
+    (tunnel off) the WebView uses ECH (encrypted SNI) on Cloudflare sites, so it
+    connects even where the SNI is blocked and passes the challenge. A
+    one-record TCP split was tried: the ISP's DPI reassembles it (connection
+    closed). challenges.cloudflare.com bypasses the tunnel.
   - `ComicWeb.java`: hidden scraper WebView kept BEHIND the app WebView;
     brought to front for Cloudflare / manual browsing (title bar + 닫기).
-    Doc-start script hides webdriver + stubs WebRTC. JS drives it via
+    Plain WebView UA, no doc-start overrides (Cloudflare blocks a UA / client-hint
+    mismatch or a patched navigator). JS drives it via
     comicLoad/comicState/comicEval (`backend/lib/comic.ts`).
 - Data: app-private files dir (settings/works/online json, thumbs). First run
   sets download dirs to `Download/MangaManager/{doujin,manga}`.

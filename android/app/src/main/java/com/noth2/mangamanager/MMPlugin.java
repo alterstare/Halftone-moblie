@@ -625,29 +625,53 @@ public class MMPlugin extends Plugin {
                 Tunnel.stop();
             }
             Net.setTunnelPort(port);
-            applyWebViewProxy(port > 0 ? "127.0.0.1:" + port : proxy);
+            // WebViews start direct even with the tunnel on: on Cloudflare sites the
+            // WebView's ECH hides the SNI anyway, and Cloudflare's challenge fails
+            // through the fragmenting tunnel. ComicWeb switches to the tunnel only
+            // when a page fails to connect (webTunnelFallback).
+            webTunnel = port > 0 ? "127.0.0.1:" + port : null;
+            webTunnelOn = false;
+            webProxy = proxy;
+            applyWebViewProxy(getActivity(), proxy, null);
             JSObject o = new JSObject();
             o.put("tunnelPort", port);
             call.resolve(o);
         });
     }
 
+    static volatile String webTunnel; // tunnel rule when 우회 is on, else null
+    static volatile boolean webTunnelOn;
+    static volatile String webProxy = "";
+
+    // A comic page failed to connect directly → route WebViews through the tunnel
+    // (once per setNetwork) and run `after`. false = no tunnel / already on.
+    static boolean webTunnelFallback(Activity act, Runnable after) {
+        String t = webTunnel;
+        if (t == null || webTunnelOn) return false;
+        webTunnelOn = true;
+        applyWebViewProxy(act, t, after);
+        return true;
+    }
+
     // WebView proxy (applies to every WebView in the app; the app's own
     // https://localhost content is served by the interceptor, never proxied).
-    private void applyWebViewProxy(String rule) {
-        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) return;
+    private static void applyWebViewProxy(Activity act, String rule, Runnable after) {
+        Runnable done = after == null ? () -> {} : after;
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) { act.runOnUiThread(done); return; }
         String r = rule == null ? "" : rule.trim().replaceFirst("^https?://", "");
-        getActivity().runOnUiThread(() -> {
+        act.runOnUiThread(() -> {
             ProxyController pc = ProxyController.getInstance();
             if (r.isEmpty()) {
-                pc.clearProxyOverride(Runnable::run, () -> {});
+                pc.clearProxyOverride(Runnable::run, done);
             } else {
-                ProxyConfig cfg = new ProxyConfig.Builder()
+                ProxyConfig.Builder b = new ProxyConfig.Builder()
                     .addProxyRule(r)
                     .addBypassRule("localhost")
-                    .addBypassRule("127.0.0.1")
-                    .build();
-                pc.setProxyOverride(cfg, Runnable::run, () -> {});
+                    .addBypassRule("127.0.0.1");
+                // Cloudflare's challenge host isn't blocked; a fragmented
+                // ClientHello there stalls the verify widget.
+                if (r.startsWith("127.0.0.1:")) b.addBypassRule("challenges.cloudflare.com");
+                pc.setProxyOverride(b.build(), Runnable::run, done);
             }
         });
     }
