@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots } from '../store'
-import { getImages, getOnlineImages } from '../images'
+import { getImages, getOnlineImages, reloadOnlineImages } from '../images'
 import { getComicChapters } from '../comic'
 import { analyzeSeries, seriesOf } from '../util'
 import type { ComicChapter } from '../../../shared/ipc'
@@ -35,6 +35,7 @@ import {
   FavoriteIcon,
   CheckMarkIcon,
   LanguageIcon,
+  RefreshIcon,
   MoreVertIcon,
   MenuIcon,
   FullscreenIcon,
@@ -1242,6 +1243,16 @@ export default function Reader({
     onTouchEnd: onPagesTouchEnd,
     onContextMenu: onPageContext
   }
+  // 다시 불러오기 (online): fetch the page list again, then re-run the loader
+  // (reloadNonce) — it picks the fresh list up from the cache.
+  const reloadPages = (): void => {
+    if (!online) return
+    setLoadingImgs(true)
+    setImages([])
+    void reloadOnlineImages(online.code)
+      .catch(() => null)
+      .then(() => useStore.getState().refreshTab(tabId))
+  }
   // Long-press the title: copy the title / the work number.
   const workCode = online ? (online.kind === 'comic' ? null : online.code) : (work?.code ?? null)
   const onTitleContext = (e: React.MouseEvent): void => {
@@ -1252,6 +1263,7 @@ export default function Reader({
       x: e.clientX,
       y: e.clientY,
       items: [
+        ...(online ? [{ label: '다시 불러오기', onClick: reloadPages }] : []),
         { label: '제목 복사', onClick: () => (copy(title), showToast('제목 복사 완료')) },
         ...(workCode
           ? [{ label: `작품 번호 복사 (${workCode})`, onClick: () => (copy(workCode), showToast('코드 복사 완료')) }]
@@ -1289,6 +1301,12 @@ export default function Reader({
         {/* Icon buttons, flat group (default design). Download shows its state
             in the icon: arrow → (busy, dimmed) → check when done. */}
         <span className="flat-group reader-head-btns">
+          {online && (
+            // Pages missing / stuck → fetch the page list again.
+            <button className="mini icon" onClick={reloadPages} disabled={loadingImgs} title="다시 불러오기">
+              <RefreshIcon />
+            </button>
+          )}
           {online && online.kind !== 'comic' ? (
             <button
               className={`mini icon ${dlDone ? 'dl-ok' : ''} ${downloading ? 'busy' : ''}`}

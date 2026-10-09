@@ -75,7 +75,7 @@ export const comicApi: Partial<Api> = {
     return { ...r, items: r.items.map((it) => ({ ...it, thumb: it.thumb ? encodeComic(it.thumb) : null })) }
   },
   comicChapters: (seriesUrl: string) => comicChapters(seriesUrl),
-  comicReadUrls: async (chapterUrl: string) => (await comicReadUrls(chapterUrl)).map(encodeComic),
+  comicReadUrls: async (chapterUrl: string, fresh?: boolean) => (await comicReadUrls(chapterUrl, fresh)).map(encodeComic),
   comicSeriesAuthor: (seriesUrl: string) => comicSeriesAuthor(seriesUrl),
   comicSeriesTitle: (seriesUrl: string) => comicSeriesTitle(seriesUrl),
 

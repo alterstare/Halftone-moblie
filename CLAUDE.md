@@ -316,6 +316,11 @@ Two library modes:
   List state is in the URL: `/manhwa|/ing ?g=<genre>&sort=<fresh|hot|views|rating|episodes>&page=N`,
   search `/search?q=&field=title|author&match=contains|exact&page=N`, chapter
   list paged by `?epage=N`, viewer images = `img.viewer-lazy-img[data-src]`.
+  (2026-10: the viewer is a VIRTUAL list of `img.viewer-ratio-img alt="page N"`
+  fed by POST /api/manhwa-images — only pages near the scroll position are in
+  the DOM, so `comicReadUrls` scrolls the hidden page top→bottom collecting
+  them (`COLLECT_SCRIPT`). Reader title bar ⟳ / title long-press 다시 불러오기
+  = `reloadOnlineImages` → comicReadUrls(url, fresh) reloads the page.)
   Some ISPs reset TLS by SNI for the site domain; its DNS CNAME (a BunnyCDN
   host) serves the same site unblocked. (Desktop 0.4.1
   tried switching to it automatically; reverted in 0.4.2 — not used now.)

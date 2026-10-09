@@ -49,3 +49,12 @@ export function getOnlineImages(code: string): Promise<string[]> {
   }
   return p
 }
+
+// 다시 불러오기: drop the cached list and fetch it again — a manga-site chapter
+// reloads its viewer page (fresh) instead of reusing the open one.
+export function reloadOnlineImages(code: string): Promise<string[]> {
+  const p = isComicCode(code) ? window.api.comicReadUrls(code, true) : window.api.doujinReadUrls(code)
+  onlineCache.set(code, p)
+  p.catch(() => onlineCache.delete(code))
+  return p
+}

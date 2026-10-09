@@ -155,8 +155,8 @@ async function navigate(target: string, retries: number): Promise<boolean> {
   }
 }
 
-async function ensure(url: string, needContent: boolean): Promise<void> {
-  if (sameUrl((await MM.comicState()).url, url)) {
+async function ensure(url: string, needContent: boolean, force = false): Promise<void> {
+  if (!force && sameUrl((await MM.comicState()).url, url)) {
     const p = await probe()
     if (p && !p.challenge && (p.ready || !needContent)) return // already good — no reload
   }
@@ -706,12 +706,49 @@ async function waitPageImages(ms: number): Promise<void> {
   while (!(await evalPage<boolean>(HAS_PAGE_IMG, false)) && Date.now() < end) await delay(300)
 }
 
-export async function comicReadUrls(chapterUrl: string): Promise<string[]> {
+// The viewer is a virtual list: only the pages near the scroll position are in
+// the DOM (the rest is an empty spacer), so READ_SCRIPT alone saw ~5 of a
+// chapter's pages (2026-10, a 9-page chapter → 5). Scroll the hidden page from
+// top to bottom collecting every <img alt="page N">, until the bottom is
+// reached and nothing new turns up; then back to the top.
+const COLLECT_SCRIPT = `(async () => {
+  const se = document.scrollingElement || document.documentElement
+  const got = new Map()
+  const grab = () => {
+    for (const img of document.querySelectorAll('.vw-imgs img, img.viewer-ratio-img, img.viewer-lazy-img')) {
+      const n = parseInt((img.getAttribute('alt') || '').replace(/[^0-9]/g, ''))
+      const u = img.getAttribute('data-src') || img.getAttribute('src')
+      if (n > 0 && u && /^https?:/.test(u)) got.set(n, u)
+    }
+  }
+  const step = Math.max(200, Math.round(innerHeight * 0.8))
+  let stall = 0
+  for (let i = 0; i < 2000 && stall < 6; i++) {
+    grab()
+    const before = got.size
+    se.scrollTop = se.scrollTop + step
+    await new Promise((r) => setTimeout(r, 120))
+    grab()
+    const atEnd = se.scrollTop + innerHeight >= se.scrollHeight - 2
+    if (got.size === before && atEnd) stall++
+    else stall = 0
+  }
+  se.scrollTop = 0
+  return [...got.keys()].sort((a, b) => a - b).map((k) => got.get(k))
+})()`
+
+// `fresh`: reload the chapter page even if it's already open (the user's
+// 다시 불러오기 — a partial load, an expired image token…).
+export async function comicReadUrls(chapterUrl: string, fresh = false): Promise<string[]> {
   return queue(async () => {
-    await ensure(chapterUrl, true)
+    await ensure(chapterUrl, true, fresh)
     status('만화 이미지를 기다리는 중…')
     await waitPageImages(20000)
-    return evalPage<string[]>(READ_SCRIPT, [])
+    const listed = await evalPage<string[]>(READ_SCRIPT, [])
+    status('만화 이미지 목록을 모으는 중…')
+    // (own cap: a long webtoon takes longer than evalPage's 30s to scroll)
+    const all = await withTimeout(evalRaw<string[]>(COLLECT_SCRIPT), 120000, [] as string[])
+    return all.length >= listed.length ? all : listed
   })
 }
 
