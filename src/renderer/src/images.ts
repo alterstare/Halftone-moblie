@@ -42,20 +42,55 @@ const onlineCache = new Map<string, Promise<string[]>>()
 
 // A manga-site chapter's list arrives in steps (comicPages events: the first
 // pages at once, the rest while the hidden page is scrolled). The cache keeps
-// the latest list; a list cut short ('cut') is dropped so reopening refetches.
+// the longest list seen. A list cut short ('cut' — another scraper task came
+// in) is collected again once that task is done, as long as a reader still
+// shows the chapter (up to RESUME_MAX times; the new pass starts from the top,
+// so its shorter lists are ignored until it passes the cut point). Otherwise
+// the partial list is dropped so reopening refetches.
 const pageListeners = new Map<string, Set<(urls: string[], more: boolean) => void>>()
 // Chapters whose list is still being collected.
 const collecting = new Set<string>()
 export const pagesCollecting = (code: string): boolean => collecting.has(code)
+const RESUME_MAX = 3
+const resumes = new Map<string, number>()
+const best = new Map<string, string[]>()
 let pagesHooked = false
 function hookPages(): void {
   if (pagesHooked) return
   pagesHooked = true
   window.api.onComicPages(({ code, urls, state }) => {
-    if (state === 'cut') onlineCache.delete(code)
-    else onlineCache.set(code, Promise.resolve(urls))
-    if (state !== 'more') collecting.delete(code)
-    pageListeners.get(code)?.forEach((cb) => cb(urls, state === 'more'))
+    const prev = best.get(code)
+    const list = prev && prev.length > urls.length ? prev : urls
+    best.set(code, list)
+    let more = state === 'more'
+    if (state === 'cut') {
+      const n = resumes.get(code) ?? 0
+      if (pageListeners.get(code)?.size && n < RESUME_MAX) {
+        resumes.set(code, n + 1)
+        more = true
+        onlineCache.set(code, Promise.resolve(list))
+        // Queued behind the task that cut it; resolves with the new pass's
+        // first pages (the events carry the rest).
+        window.api.comicReadUrls(code).catch(() => {
+          if (!collecting.delete(code)) return
+          onlineCache.delete(code)
+          best.delete(code)
+          pageListeners.get(code)?.forEach((cb) => cb(list, false))
+        })
+      } else {
+        onlineCache.delete(code)
+        best.delete(code)
+        resumes.delete(code)
+      }
+    } else {
+      onlineCache.set(code, Promise.resolve(list))
+      if (state === 'done') {
+        resumes.delete(code)
+        best.delete(code)
+      }
+    }
+    if (!more) collecting.delete(code)
+    pageListeners.get(code)?.forEach((cb) => cb(list, more))
   })
 }
 // Reader: follow a chapter's list as it grows. Returns the unsubscribe.
@@ -87,6 +122,9 @@ export function getOnlineImages(code: string): Promise<string[]> {
 // reloads its viewer page (fresh) instead of reusing the open one.
 export function reloadOnlineImages(code: string): Promise<string[]> {
   hookPages()
+  // Fresh load: old tokens may be expired — don't keep the earlier list.
+  best.delete(code)
+  resumes.delete(code)
   if (isComicCode(code)) collecting.add(code)
   const p = isComicCode(code) ? window.api.comicReadUrls(code, true) : window.api.doujinReadUrls(code)
   onlineCache.set(code, p)

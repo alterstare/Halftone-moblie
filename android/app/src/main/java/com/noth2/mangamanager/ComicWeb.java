@@ -67,6 +67,33 @@ final class ComicWeb {
         void done(String json);
     }
 
+    WebView webView() {
+        return web;
+    }
+
+    // Picture-in-picture: the scraper page keeps its full-screen size (the
+    // site's virtual page list renders by viewport) instead of shrinking to
+    // the tiny window. fullW/H = the last size seen outside PIP.
+    private int fullW, fullH;
+    private boolean frozen;
+
+    void freezeSize(boolean on) {
+        ui.post(() -> {
+            if (container == null) return;
+            frozen = on;
+            ViewGroup.LayoutParams lp = container.getLayoutParams();
+            if (lp == null) return;
+            if (on && fullW > 0 && fullH > 0) {
+                lp.width = fullW;
+                lp.height = fullH;
+            } else {
+                lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            }
+            container.setLayoutParams(lp);
+        });
+    }
+
     ComicWeb(Activity act, ViewGroup root, Listener listener) {
         this.act = act;
         this.root = root;
@@ -105,6 +132,7 @@ final class ComicWeb {
         container.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         web = new WebView(act);
+        DownloadService.applyPriority(web);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -169,6 +197,11 @@ final class ComicWeb {
             return insets;
         });
         root.addView(container, 0, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        container.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (frozen || (android.os.Build.VERSION.SDK_INT >= 24 && act.isInPictureInPictureMode())) return;
+            fullW = r - l;
+            fullH = b - t;
+        });
         container.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         applyImageBlock();
     }

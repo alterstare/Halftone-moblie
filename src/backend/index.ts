@@ -77,6 +77,9 @@ export async function installBackend(): Promise<void> {
   await migrateNormalFavorites()
   await migrateFavorites()
   await initThumbDir()
+  // A WebView reload (restartApp) leaves no download running — drop a service
+  // + notification left over from the previous page.
+  void MM.downloadService({ active: false }).catch(() => {})
 
   // Cloudflare check shown/cleared → "인증 필요" banner in the UI.
   setComicChallengeHandler((active) => sendToRenderer(IPC.comicChallenge, active))

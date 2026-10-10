@@ -276,6 +276,13 @@ export interface Settings {
   // Max number of online works (doujin galleries / manga-site series) downloading at
   // once. Extra downloads queue until a slot frees. 0 = unlimited.
   maxConcurrentDownloads: number
+  // Downloads keep running after 뒤로가기 / 종료 (the app goes to the background
+  // instead of closing). Off: only leaving with the home button keeps them.
+  keepDownloadsOnExit: boolean
+  // 일반 만화 downloads only run while the scraper page is on screen: leaving
+  // with the home button during one opens a small picture-in-picture window.
+  // undefined = not asked yet (asked at the first 일반 만화 download).
+  comicDownloadPip?: boolean
 }
 
 // Built-in fallback patterns (used when doujinNamePatterns is empty). Bracketed
@@ -411,7 +418,8 @@ export const DEFAULT_SETTINGS: Settings = {
   favoritesUnified: false,
   doujinNamePatterns: [...DEFAULT_DOUJIN_PATTERNS],
   doujinDownloadPatternIdx: 0,
-  maxConcurrentDownloads: 2
+  maxConcurrentDownloads: 2,
+  keepDownloadsOnExit: false
 }
 
 export const IMAGE_EXTS = ['.webp', '.jpg', '.jpeg', '.png', '.gif', '.avif', '.bmp']

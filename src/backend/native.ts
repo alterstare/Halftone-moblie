@@ -93,8 +93,21 @@ export interface MMPlugin {
   comicHide(): Promise<void>
   comicCookie(o: { url: string }): Promise<{ cookie: string | null }>
 
+  // Background downloads: active = keep the foreground service + progress
+  // notification up (DownloadService.java); false = stop it.
+  // keepOnExit: 뒤로가기 / 종료 only backgrounds the app while downloads run.
+  downloadService(o: {
+    active: boolean
+    keepOnExit?: boolean
+    pip?: boolean
+    title?: string
+    text?: string
+    done?: number
+    total?: number
+  }): Promise<void>
+
   toast(o: { text: string }): Promise<void>
-  exitApp(): Promise<void>
+  exitApp(o?: { keepDownloads?: boolean }): Promise<void>
   restartApp(): Promise<void>
 
   addListener(event: 'back', cb: () => void): Promise<PluginListenerHandle>

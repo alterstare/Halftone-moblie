@@ -72,6 +72,8 @@ public class MMPlugin extends Plugin {
     @Override
     public void load() {
         instance = this;
+        closing = false;
+        pipWanted = false;
         Net.init(getContext());
         NasStore.init(getContext());
         ViewGroup root = (ViewGroup) getBridge().getWebView().getParent();
@@ -982,8 +984,93 @@ public class MMPlugin extends Plugin {
 
     @PluginMethod
     public void exitApp(PluginCall call) {
+        Boolean keep = call.getBoolean("keepDownloads");
+        if (keep != null) keepOnExit = keep;
         call.resolve();
-        getActivity().runOnUiThread(() -> getActivity().finish());
+        getActivity().runOnUiThread(() -> exit(getActivity()));
+    }
+
+    // 설정 · 종료 후에도 다운로드 유지 (sent with every downloadService / exitApp).
+    static volatile boolean keepOnExit;
+
+    // Exit (뒤로가기 / 종료) = close the app, downloads included. With
+    // keepOnExit and downloads running: only go to the background instead
+    // (finishing destroys the WebView the downloads run in). Leaving with the
+    // home button never comes here — the service keeps those running.
+    static void exit(Activity act) {
+        if (DownloadService.running && keepOnExit) {
+            act.moveTaskToBack(true);
+            return;
+        }
+        closing = true;
+        DownloadService.stop(act);
+        act.finish();
+    }
+
+    // Set once the app is closing: progress calls still in flight from the
+    // dying WebView must not bring the service (and its notification) back.
+    static volatile boolean closing;
+
+    // 일반 만화 downloads only work while the scraper page is on screen →
+    // with the user's OK (settings.comicDownloadPip) the app goes into a small
+    // picture-in-picture window when left with the home button.
+    static volatile boolean pipWanted;
+
+    // ---- background downloads ------------------------------------------------------
+
+    private boolean askedNotify;
+    static final int NOTIFY_REQ = 7301;
+
+    // active: downloads queued / running → keep the foreground service up and
+    // its notification current; false → stop it.
+    @PluginMethod
+    public void downloadService(PluginCall call) {
+        Context ctx = getContext();
+        Boolean keep = call.getBoolean("keepOnExit");
+        if (keep != null) keepOnExit = keep;
+        boolean active = Boolean.TRUE.equals(call.getBoolean("active", false)) && !closing;
+        boolean pip = active && Boolean.TRUE.equals(call.getBoolean("pip", false));
+        String title = call.getString("title", "");
+        String text = call.getString("text", "");
+        int done = call.getInt("done", 0);
+        int total = call.getInt("total", 0);
+        Activity act = getActivity();
+        if (act instanceof MainActivity) {
+            MainActivity m = (MainActivity) act;
+            act.runOnUiThread(() -> {
+                if (pip != pipWanted) {
+                    pipWanted = pip;
+                    m.updatePip();
+                }
+                m.pipProgress(active, title, text, done, total);
+            });
+        }
+        if (!active) {
+            DownloadService.stop(ctx);
+            call.resolve();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33 && !askedNotify
+            && ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            askedNotify = true;
+            androidx.core.app.ActivityCompat.requestPermissions(getActivity(), new String[] { Manifest.permission.POST_NOTIFICATIONS }, NOTIFY_REQ);
+        }
+        DownloadService.update(ctx, title, text, done, total);
+        call.resolve();
+    }
+
+    void comicFreeze(boolean on) {
+        if (comic != null) comic.freezeSize(on);
+    }
+
+    // Service started / stopped → renderer priority of both WebViews.
+    static void onDownloadService() {
+        MMPlugin p = instance;
+        if (p == null) return;
+        p.getActivity().runOnUiThread(() -> {
+            DownloadService.applyPriority(p.getBridge().getWebView());
+            if (p.comic != null) DownloadService.applyPriority(p.comic.webView());
+        });
     }
 
     @PluginMethod

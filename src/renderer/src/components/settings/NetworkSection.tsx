@@ -131,6 +131,18 @@ export default function NetworkSection(): JSX.Element {
             ]}
           />
         </SettingRow>
+        <SettingRow
+          title="종료 후에도 다운로드 유지"
+          desc="켜면 뒤로가기·종료로 나가도 다운로드가 끝날 때까지 백그라운드에서 계속 받습니다. 끄면 홈 버튼으로 나갈 때만 계속 받습니다."
+        >
+          <Toggle checked={!!draft.keepDownloadsOnExit} onChange={(v) => patch({ keepDownloadsOnExit: v })} />
+        </SettingRow>
+        <SettingRow
+          title="일반 만화 다운로드 중 PIP"
+          desc="일반 만화는 앱 화면이 보일 때만 받아집니다. 켜면 다운로드 중 홈 버튼으로 나갈 때 작은 PIP 창으로 띄워 계속 받습니다."
+        >
+          <Toggle checked={draft.comicDownloadPip === true} onChange={(v) => patch({ comicDownloadPip: v })} />
+        </SettingRow>
       </section>
     </>
   )

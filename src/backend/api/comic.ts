@@ -22,7 +22,7 @@ import {
   downloadGenericChapters
 } from '../lib/comic'
 import { encodeComic, writeRawThumb } from '../lib/media'
-import { runDownload } from '../downloads'
+import { runDownload, chapterRecord } from '../downloads'
 import { ensureStorage } from '../storage'
 import { applyGalleryHide } from '../gallery'
 
@@ -59,7 +59,8 @@ async function runComicDownload(seriesUrl: string, title: string, chapterUrls?: 
       destRoot,
       (done, total, label) => report('downloading', done, total, label),
       chapterUrls,
-      signal
+      signal,
+      await chapterRecord(seriesUrl)
     )
     const merged = await importDownloaded(dir, artist)
     report('done', merged.length, merged.length)
@@ -109,7 +110,8 @@ export const comicApi: Partial<Api> = {
         destRoot,
         (done, total, label) => report('downloading', done, total, label),
         only,
-        signal
+        signal,
+        await chapterRecord('backup:' + title)
       )
       const merged = await importDownloaded(dir)
       report('done', merged.length, merged.length)

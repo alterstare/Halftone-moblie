@@ -19,6 +19,7 @@ import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { MM } from '../native'
 import { fitName } from './nameFit'
+import type { ChapterRecord } from '../downloads'
 import type {
   ComicListSource,
   ComicSort,
@@ -897,7 +898,8 @@ export async function downloadGenericChapters(
   destRoot: string,
   onProgress: (done: number, total: number, label: string) => void,
   only?: string[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  record?: ChapterRecord // resumed download: chapters already saved in full
 ): Promise<string> {
   const pick = only ? new Set(only) : null
   const targets = pick ? chapters.filter((c) => pick.has(c.url)) : chapters
@@ -909,6 +911,9 @@ export async function downloadGenericChapters(
     signal?.throwIfAborted()
     const ch = targets[i]
     onProgress(i, total, ch.title)
+    const n = Math.floor(ch.num || i + 1)
+    const chDir = join(seriesDir, safeName(chapterFolderName(title, ch.title, n)))
+    if (await chapterSaved(record, ch.url, chDir)) continue
     const urls = await queue(async () => {
       await ensure(ch.url, true)
       return evalPage<string[]>(GENERIC_READ_SCRIPT, [])
@@ -920,10 +925,8 @@ export async function downloadGenericChapters(
     } catch {
       /* keep chapter url */
     }
-    const n = Math.floor(ch.num || i + 1)
-    const chDir = join(seriesDir, safeName(chapterFolderName(title, ch.title, n)))
     await fs.mkdir(chDir, { recursive: true })
-    await saveChapterImages(chDir, urls, referer)
+    if (await saveChapterImages(chDir, urls, referer)) await record?.done(ch.url)
   }
   onProgress(total, total, '완료')
   return seriesDir
@@ -963,9 +966,11 @@ function extOf(url: string): string {
 // is skipped, so a retry continues where a stopped/failed download left off. A
 // failing image is skipped; the rest still download. `referer` overrides the
 // comic site referer (backup sites need their own domain).
-async function saveChapterImages(chDir: string, urls: string[], referer?: string): Promise<void> {
+// Resolves true when every image is on disk (none skipped as failed).
+async function saveChapterImages(chDir: string, urls: string[], referer?: string): Promise<boolean> {
   const headers: Record<string, string> = referer ? { Referer: referer } : {}
   let next = 0
+  let failed = 0
   const worker = async (): Promise<void> => {
     for (;;) {
       const j = next++
@@ -979,13 +984,25 @@ async function saveChapterImages(chDir: string, urls: string[], referer?: string
           await MM.httpDownload({ url: urls[j], kind: 'comic', headers, path: fp })
           break
         } catch (e) {
-          if (attempt >= 4 || /->\s*\d{3}/.test(String(e))) break // skip a bad image
+          if (attempt >= 4 || /->\s*\d{3}/.test(String(e))) {
+            failed++
+            break // skip a bad image
+          }
           await delay(300 * (attempt + 1))
         }
       }
     }
   }
   await Promise.all(Array.from({ length: 4 }, worker))
+  return failed === 0
+}
+
+// Recorded as complete AND its folder still has files (the user may have
+// deleted it since).
+async function chapterSaved(record: ChapterRecord | undefined, url: string, chDir: string): Promise<boolean> {
+  if (!record?.has(url)) return false
+  const names = await fs.readdir(chDir).catch(() => [] as string[])
+  return names.length > 0
 }
 
 // Chapter folder name = "<n>화 <subtitle>" (or just "<n>화" when the chapter has
@@ -1018,7 +1035,8 @@ export async function comicDownloadSeries(
   destRoot: string,
   onProgress: (done: number, total: number, label: string) => void,
   only?: string[], // when set, download only these chapter urls (선택/이어서)
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  record?: ChapterRecord // resumed download: chapters already saved in full
 ): Promise<string> {
   const all = await comicChapters(seriesUrl)
   if (!all.length) throw new Error('화 목록을 찾지 못했습니다')
@@ -1032,6 +1050,11 @@ export async function comicDownloadSeries(
     signal?.throwIfAborted()
     const ch = chapters[i]
     onProgress(i, total, ch.title)
+    // Folder = "<n>화 <subtitle>" (series name is only on the parent). The chapter
+    // number sorts/merges subset & 이어서 downloads correctly on its own.
+    const n = Math.floor(ch.num || i + 1)
+    const chDir = join(seriesDir, safeName(chapterFolderName(title, ch.title, n)))
+    if (await chapterSaved(record, ch.url, chDir)) continue
     let urls = await comicReadUrls(ch.url)
     if (!urls.length) {
       // Page didn't deliver its images (slow/stalled load) → load it once more
@@ -1043,12 +1066,8 @@ export async function comicDownloadSeries(
       urls = await comicReadUrls(ch.url)
     }
     if (!urls.length) continue
-    // Folder = "<n>화 <subtitle>" (series name is only on the parent). The chapter
-    // number sorts/merges subset & 이어서 downloads correctly on its own.
-    const n = Math.floor(ch.num || i + 1)
-    const chDir = join(seriesDir, safeName(chapterFolderName(title, ch.title, n)))
     await fs.mkdir(chDir, { recursive: true })
-    await saveChapterImages(chDir, urls)
+    if (await saveChapterImages(chDir, urls)) await record?.done(ch.url)
   }
   onProgress(total, total, '완료')
   return seriesDir

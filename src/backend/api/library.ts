@@ -8,6 +8,7 @@ import * as fs from '../node/fs'
 import { join, resolve, sep, basename, dirname } from '../node/path'
 import { MM } from '../native'
 import { store, paths, sendToRenderer } from '../context'
+import { stopAllDownloads } from '../downloads'
 import { scanLibrary, scanRoot, listImages, normalRoots } from '../lib/scanner'
 import { parseName } from '../lib/parser'
 import { setGroupFolder, mergeSeries, moveWorkToFolder, renameGroupFolders, safeName } from '../lib/favorites'
@@ -385,7 +386,7 @@ export const libraryApi: Partial<Api> = {
     }
     await store.flushWorks()
     await store.flushProgress()
-    await MM.exitApp()
+    await MM.exitApp({ keepDownloads: !!store.settings.keepDownloadsOnExit })
   },
 
   // Full reset: wipe app data (and optionally every work folder), then reload.
@@ -398,6 +399,15 @@ export const libraryApi: Partial<Api> = {
       await fs.rm(join(paths.data, f), { force: true }).catch(() => {})
     }
     await fs.rm(join(paths.data, 'thumbs'), { recursive: true, force: true }).catch(() => {})
+    // Downloads stop, and the resume queue (renderer store, localStorage)
+    // goes with the rest of the data — a reset must not bring them back.
+    stopAllDownloads()
+    await new Promise((r) => setTimeout(r, 300))
+    try {
+      localStorage.removeItem('mm-dl-queue')
+    } catch {
+      /* storage unavailable */
+    }
     await MM.restartApp()
   }
 }

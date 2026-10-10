@@ -54,6 +54,35 @@ export function specCode(s: DownloadSpec): string {
   return 'backup:' + s.title
 }
 
+// Downloads still queued / running are remembered (localStorage) so a start
+// after the app was closed or killed picks them up again (resumeDownloads).
+// Finished, failed and user-stopped ones drop out. Files already on disk are
+// skipped by the download itself, so a resume continues where it stopped.
+const DL_QUEUE_KEY = 'mm-dl-queue'
+const DL_ACTIVE = new Set(['queued', 'fetching', 'downloading'])
+let dlQueueSaved = ''
+function saveDlQueue(items: DownloadItem[]): void {
+  const specs = items.filter((d) => d.spec && DL_ACTIVE.has(d.phase)).map((d) => d.spec!)
+  const json = JSON.stringify(specs)
+  if (json === dlQueueSaved) return
+  dlQueueSaved = json
+  try {
+    if (specs.length) localStorage.setItem(DL_QUEUE_KEY, json)
+    else localStorage.removeItem(DL_QUEUE_KEY)
+  } catch {
+    /* storage unavailable — no resume */
+  }
+}
+export function resumeDownloads(): void {
+  let specs: DownloadSpec[] = []
+  try {
+    specs = JSON.parse(localStorage.getItem(DL_QUEUE_KEY) || '[]')
+  } catch {
+    /* corrupt → nothing to resume */
+  }
+  for (const s of specs) void useStore.getState().startDownload(s).catch(() => {})
+}
+
 // One entry in the download manager list (feature 1). Keyed by gallery code.
 export interface DownloadItem {
   code: string
@@ -260,6 +289,7 @@ interface AppState {
   setUpdate: (s: UpdateStatus) => void
   installUpdate: () => void // quit + install the downloaded update
   needDownloadDir: boolean // download attempted with no destination folder → prompt
+  pipAsk: boolean // first 일반 만화 download → ask about PIP (settings.comicDownloadPip)
   setNeedDownloadDir: (v: boolean) => void
   favDownloadedOnly: boolean // local favorites view: show only already-downloaded entries
   setFavDownloadedOnly: (v: boolean) => void
@@ -666,6 +696,7 @@ export const useStore = create<AppState>((set, get) => ({
   activityOpen: false,
   update: null,
   needDownloadDir: false,
+  pipAsk: false,
   favDownloadedOnly: false,
   favOnlineOnly: false,
   onlineListFav: false,
@@ -1452,6 +1483,7 @@ export const useStore = create<AppState>((set, get) => ({
         i >= 0
           ? st.downloads.map((d, j) => (j === i ? item : d))
           : [item, ...st.downloads]
+      saveDlQueue(downloads)
       return { downloads }
     }),
   startDownload: async (spec) => {
@@ -1480,10 +1512,11 @@ export const useStore = create<AppState>((set, get) => ({
         phase: 'queued',
         spec
       }
-      return {
-        downloads: i >= 0 ? st.downloads.map((d, j) => (j === i ? item : d)) : [item, ...st.downloads]
-      }
+      const downloads = i >= 0 ? st.downloads.map((d, j) => (j === i ? item : d)) : [item, ...st.downloads]
+      saveDlQueue(downloads)
+      return { downloads }
     })
+    if (spec.kind !== 'doujin' && s.comicDownloadPip === undefined) set({ pipAsk: true })
     try {
       let works: Work[]
       if (spec.kind === 'doujin') {
@@ -1533,7 +1566,11 @@ export const useStore = create<AppState>((set, get) => ({
     const active = new Set(['queued', 'fetching', 'downloading', 'enriching', 'converting'])
     const item = get().downloads.find((d) => d.code === code)
     if (item && active.has(item.phase)) void window.api.downloadStop(code)
-    set((st) => ({ downloads: st.downloads.filter((d) => d.code !== code) }))
+    set((st) => {
+      const downloads = st.downloads.filter((d) => d.code !== code)
+      saveDlQueue(downloads)
+      return { downloads }
+    })
   },
   stopAllDownloads: (mode) => {
     const active = new Set(['queued', 'fetching', 'downloading', 'enriching'])

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from './store'
+import { useStore, resumeDownloads } from './store'
 import { isNarrow, isTouch, sidebarBtnMode } from './mobile'
 import MobileTabBar from './components/MobileTabBar'
 import { popBack, swipeSlide, useSwipeClose } from './components/libraryTools'
@@ -37,6 +37,12 @@ export default function App(): JSX.Element {
     const t = setTimeout(() => void resumeSummaryJobs(), 3000)
     return () => clearTimeout(t)
   }, [])
+  // Downloads cut off by closing / killing the app continue where they stopped.
+  useEffect(() => {
+    const t = setTimeout(resumeDownloads, 2000)
+    return () => clearTimeout(t)
+  }, [])
+  const pipAsk = useStore((s) => s.pipAsk)
   // Tab bar height for the focus-mode overlay layout (reader title bar offset).
   useEffect(() => {
     const tb = document.querySelector<HTMLElement>('.mtabbar')
@@ -370,6 +376,23 @@ export default function App(): JSX.Element {
             useStore.getState().goSettings()
           }}
           onCancel={() => setNeedDownloadDir(false)}
+        />
+      )}
+      {pipAsk && (
+        <ConfirmModal
+          compact
+          title="일반 만화 다운로드를 PIP로 계속할까요?"
+          desc="일반 만화는 앱 화면이 보일 때만 받아집니다. 다운로드 중 홈 버튼으로 나가면 작은 PIP 창으로 띄워 계속 받습니다. 설정 › 네트워크에서 바꿀 수 있습니다."
+          confirmLabel="사용"
+          cancelLabel="사용 안 함"
+          onConfirm={() => {
+            useStore.setState({ pipAsk: false })
+            useStore.getState().patchSettings({ comicDownloadPip: true })
+          }}
+          onCancel={() => {
+            useStore.setState({ pipAsk: false })
+            useStore.getState().patchSettings({ comicDownloadPip: false })
+          }}
         />
       )}
     </div>

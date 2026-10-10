@@ -261,9 +261,39 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `.nomedia` in both download dirs (startup, settings save, each download) and
   `MM.mediaScan` rescans them so the phone gallery drops / regains the pages.
 
-Known gaps / TODO: downloads run in WebView JS (stall when app backgrounded —
-needs a foreground service); UI still desktop-shaped in places (home/browse
-toolbars, tab bar, settings); no update check; app icon = `app.png` (repo root) rendered into the mipmap
+Background downloads: they run in WebView JS; while any is queued / running
+`downloads.ts` keeps `DownloadService.java` up (foreground service, type
+dataSync, progress notification, partial wake + Wi-Fi lock, both WebView
+renderers kept IMPORTANT when invisible) via `MM.downloadService`. Leaving
+with the home button keeps them running; exit / back-exit closes the app and
+stops them, unless `settings.keepDownloadsOnExit` (설정 › 네트워크 · 종료 후에도
+다운로드 유지) — then it only moves the task to the back (`MMPlugin.exit`).
+Closing (exit, swipe from recents, activity finishing) stops the service and
+its notification (`MMPlugin.closing` ignores late progress calls). Queued /
+running download specs are kept in localStorage `mm-dl-queue` (store.ts
+`saveDlQueue`) and restarted 2s after launch (`resumeDownloads`); files on
+disk are skipped, so they continue. 일반 만화 needs the scraper page on screen:
+with `settings.comicDownloadPip` (asked at the first 일반 만화 download —
+`pipAsk` dialog; 설정 › 네트워크) the app enters picture-in-picture on home
+(Android 12+ auto-enter, older via onUserLeaveHint); MainActivity covers the
+PIP window with a native progress card and `ComicWeb.freezeSize` keeps the
+scraper page at its full-screen size. Notification icon = `ic_stat_download`:
+app.png's dark dots re-screened coarse, clipped to a circle like the
+launcher icon (vector; a plain downscale of the fine dots blurs; the system
+download icon animates).
+Android 15 caps dataSync at ~6h/day (`onTimeout` stops it).
+Auto-update = `src/backend/update.ts` (GitHub releases/latest).
+
+일반 만화 PIP downloads confirmed working on a device (2026-10-10). Resumed
+일반 만화 downloads skip chapters saved in full: `downloads.ts` `chapterRecord`
+(<data>/dlChapters.json, chapter urls per progress code; a chapter is recorded
+only when every image saved — `saveChapterImages` → true — and is skipped only
+if its folder still has files; cleared on any end of the download, so only a
+killed / closed run leaves one). App reset also drops `mm-dl-queue`; backend
+start stops a leftover service (WebView reload).
+
+Known gaps / TODO: UI still
+desktop-shaped in places (home/browse toolbars, tab bar, settings); app icon = `app.png` (repo root) rendered into the mipmap
 folders (adaptive foreground full-bleed, white background, + legacy square/round);
 comic online not tested against the live site (needs the user's address).
 
@@ -324,7 +354,7 @@ Two library modes:
   the DOM, so `comicReadUrls` scrolls the hidden page top→bottom collecting
   them (`COLLECT_STEP`, ~1.2s slices). Progressive: the API call resolves with
   the first pages, the rest come as `comicPages` events ('more' / 'done' /
-  'cut' — cut = another scraper task queued, list partial, cache dropped);
+  'cut' — cut = another scraper task queued, list partial; `images.ts` re-queues the collect after it while a reader still shows the chapter, ≤3 times, keeping the longest list, else the cache is dropped);
   Reader appends (`onOnlinePages`, growRef keeps the scroll) and blocks the
   next-chapter flow while `pagesCollecting`. Downloads still await the whole
   list. Reader title bar ⟳ / title long-press 다시 불러오기
