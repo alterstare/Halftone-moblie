@@ -1,10 +1,11 @@
 import * as fs from '../node/fs'
 import { join, basename, dirname, extname, resolve, sep } from '../node/path'
-import type { Work, Settings } from '../../shared/types'
+import type { Work, Settings, DoujinMeta } from '../../shared/types'
 import { IMAGE_EXTS } from '../../shared/types'
 import { parseName } from './parser'
 import { deriveId } from './store'
-import { readSidecar } from './doujin'
+import { readSidecar, pickSidecar } from './doujin'
+import { MM, type ScanNode } from '../native'
 import { fitName } from './nameFit'
 
 export interface ScanCallbacks {
@@ -52,58 +53,98 @@ export function libraryOfRoot(root: string, settings: Settings): 'doujin' | 'nor
 
 // Walk each library root and collect "work folders" = any directory that
 // directly contains image files. Cover/page ordering is natural-sorted.
+// The folder trees come from the native side in one call (scanTree); the walk
+// below only interprets them, then the doujin sidecars are read in batches.
 export async function scanLibrary(settings: Settings, cb: ScanCallbacks = {}): Promise<Work[]> {
-  const works: Work[] = []
-  let scanned = 0
-  const visited = new Set<string>() // avoid re-walking nested/overlapping roots
-
   // Normal roots first so they win library stamping on any overlap.
-  for (const root of normalRoots(settings)) await walk(root, 'normal')
-  // Artist-folder roots: walk normally, but each immediate child folder names the
-  // artist stamped onto every work beneath it.
-  for (const root of flattenRoots(settings)) await walk(root, 'doujin')
-  for (const root of effectiveRoots(settings)) await walk(root, 'doujin')
-
-  return applyCollections(works, settings)
-
-  async function walk(
-    dir: string,
-    library: 'doujin' | 'normal',
-    artist: string | null = null
-  ): Promise<void> {
-    const key = resolve(dir)
-    if (visited.has(key)) return
-    visited.add(key)
-    let entries: fs.Dirent[]
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    // Artist-folder root: each immediate child folder names the artist for every
-    // work found beneath it. Recurse with that name as the artist override.
-    if (isFlattenRoot(dir, settings)) {
-      for (const child of entries.filter((e) => e.isDirectory()))
-        await walk(join(dir, child.name), library, child.name)
-      return
-    }
-
-    const images = entries.filter((e) => e.isFile() && isImage(e.name))
-    const subdirs = entries.filter((e) => e.isDirectory())
-
-    if (images.length > 0) {
-      const work = await makeWork(dir, images.length, settings, library, artist)
-      works.push(work)
-      scanned++
-      cb.onProgress?.(scanned, work.title)
-    }
-
-    // Recurse into subdirectories (language folders, nested collections). The
-    // artist override, if any, carries down to every work beneath.
-    for (const sub of subdirs) {
-      await walk(join(dir, sub.name), library, artist)
-    }
+  const order: [string, 'doujin' | 'normal'][] = [
+    ...normalRoots(settings).map((r) => [r, 'normal'] as [string, 'normal']),
+    // Artist-folder roots: each immediate child folder names the artist
+    // stamped onto every work beneath it.
+    ...flattenRoots(settings).map((r) => [r, 'doujin'] as [string, 'doujin']),
+    ...effectiveRoots(settings).map((r) => [r, 'doujin'] as [string, 'doujin'])
+  ]
+  const trees = await loadTrees(order.map(([r]) => r))
+  const found: Found[] = []
+  const visited = new Set<string>() // avoid re-walking nested/overlapping roots
+  for (const [root, library] of order) {
+    const node = trees.get(root)
+    if (node) collect(root, node, library, null, settings, visited, found)
   }
+  return applyCollections(await buildWorks(found, settings, cb), settings)
+}
+
+// A work folder found by the walk (sidecar = its meta file name, doujin only).
+interface Found {
+  dir: string
+  pageCount: number
+  library: 'doujin' | 'normal'
+  artist: string | null
+  mtime: number
+  sidecar: string | null
+}
+
+async function loadTrees(roots: string[]): Promise<Map<string, ScanNode | null>> {
+  const uniq = [...new Set(roots.filter(Boolean))]
+  const out = new Map<string, ScanNode | null>()
+  if (!uniq.length) return out
+  const r = await MM.scanTree({ roots: uniq, exts: IMAGE_EXTS })
+  uniq.forEach((root, i) => out.set(root, r.roots[i] ?? null))
+  return out
+}
+
+function collect(
+  dir: string,
+  node: ScanNode,
+  library: 'doujin' | 'normal',
+  artist: string | null,
+  settings: Settings,
+  visited: Set<string>,
+  out: Found[]
+): void {
+  const key = resolve(dir)
+  if (visited.has(key)) return
+  visited.add(key)
+  const kids = node.kids ?? []
+  // Artist-folder root: each immediate child folder names the artist for every
+  // work found beneath it.
+  if (isFlattenRoot(dir, settings)) {
+    for (const k of kids) collect(join(dir, k.name!), k, library, k.name!, settings, visited, out)
+    return
+  }
+  if (node.images) {
+    const sidecar = library === 'doujin' && node.metas?.length ? pickSidecar(node.metas) : null
+    out.push({ dir, pageCount: node.images, library, artist, mtime: node.mtime, sidecar })
+  }
+  // Recurse into subdirectories (language folders, nested collections). The
+  // artist override, if any, carries down to every work beneath.
+  for (const k of kids) collect(join(dir, k.name!), k, library, artist, settings, visited, out)
+}
+
+// Read the found works' sidecars (batched — one bridge call per 200) and build
+// the Work records.
+const SIDECAR_BATCH = 200
+async function buildWorks(found: Found[], settings: Settings, cb: ScanCallbacks): Promise<Work[]> {
+  const metas = new Map<string, DoujinMeta>()
+  const withMeta = found.filter((f) => f.sidecar)
+  for (let i = 0; i < withMeta.length; i += SIDECAR_BATCH) {
+    const batch = withMeta.slice(i, i + SIDECAR_BATCH)
+    const r = await MM.readTexts({ paths: batch.map((f) => join(f.dir, f.sidecar!)) }).catch(() => ({ texts: [] }))
+    batch.forEach((f, j) => {
+      const t = r.texts[j]
+      if (!t) return
+      try {
+        metas.set(f.dir, JSON.parse(t) as DoujinMeta)
+      } catch {
+        /* broken sidecar → name-only work */
+      }
+    })
+  }
+  return found.map((f, i) => {
+    const work = workOf(f.dir, f.pageCount, settings, f.library, f.artist, f.mtime, metas.get(f.dir) ?? null)
+    cb.onProgress?.(i + 1, work.title)
+    return work
+  })
 }
 
 // Scan a single root folder (used by the per-folder "갱신" buttons). Walks just
@@ -114,31 +155,11 @@ export async function scanRoot(
   settings: Settings,
   library: 'doujin' | 'normal' = libraryOfRoot(root, settings)
 ): Promise<Work[]> {
-  const works: Work[] = []
-  const visited = new Set<string>()
-  const walk = async (dir: string, artist: string | null = null): Promise<void> => {
-    const key = resolve(dir)
-    if (visited.has(key)) return
-    visited.add(key)
-    let entries: fs.Dirent[]
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    // Artist-folder root: each immediate child folder names the artist for the
-    // works beneath it.
-    if (isFlattenRoot(dir, settings)) {
-      for (const child of entries.filter((e) => e.isDirectory()))
-        await walk(join(dir, child.name), child.name)
-      return
-    }
-    const images = entries.filter((e) => e.isFile() && isImage(e.name))
-    if (images.length > 0) works.push(await makeWork(dir, images.length, settings, library, artist))
-    for (const sub of entries.filter((e) => e.isDirectory())) await walk(join(dir, sub.name), artist)
-  }
-  await walk(root)
-  return applyCollections(works, settings)
+  const node = (await loadTrees([root])).get(root)
+  if (!node) return []
+  const found: Found[] = []
+  collect(root, node, library, null, settings, new Set(), found)
+  return applyCollections(await buildWorks(found, settings, {}), settings)
 }
 
 // Fold "collection" works out of a scanned work list. Two sources:
@@ -269,6 +290,26 @@ async function makeWork(
   library: 'doujin' | 'normal' = 'doujin',
   artistOverride: string | null = null
 ): Promise<Work> {
+  let mtime = Date.now()
+  try {
+    mtime = (await fs.stat(dir)).mtimeMs
+  } catch {
+    /* keep default */
+  }
+  // Sidecar (meta.doujin.json or the older site-named one) carries doujin metadata so it survives rescans.
+  const meta = library === 'doujin' ? await readSidecar(dir) : null
+  return workOf(dir, pageCount, settings, library, artistOverride, mtime, meta)
+}
+
+function workOf(
+  dir: string,
+  pageCount: number,
+  settings: Settings,
+  library: 'doujin' | 'normal',
+  artistOverride: string | null,
+  mtime: number,
+  meta: DoujinMeta | null
+): Work {
   const folderName = basename(dir)
   // Only doujin folders carry gallery ids; skip id detection for normal manga so
   // chapter numbers never look like codes.
@@ -276,15 +317,6 @@ async function makeWork(
   // General-manga chapter folders reuse names across series, so key their id on
   // the full path to avoid id collisions (which drop chapters).
   const id = deriveId(folderName, parsed.code, library === 'normal' ? resolve(dir) : undefined)
-  let mtime = Date.now()
-  try {
-    mtime = (await fs.stat(dir)).mtimeMs
-  } catch {
-    /* keep default */
-  }
-
-  // Sidecar (meta.doujin.json or the older site-named one) carries doujin metadata so it survives rescans.
-  const meta = library === 'doujin' ? await readSidecar(dir) : null
   const tags = [...new Set([...applyGenreRules(dir, settings), ...(meta?.tags ?? [])])]
 
   return {

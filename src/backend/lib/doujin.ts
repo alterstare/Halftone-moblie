@@ -265,6 +265,16 @@ export async function fetchMeta(code: string): Promise<DoujinMeta> {
 
 // --- sidecar ---------------------------------------------------------------
 
+// Which of a folder's meta.<x>.json files is the doujin sidecar (scan: the
+// names come from the folder listing).
+export function pickSidecar(names: string[]): string | null {
+  if (names.includes(SIDECAR)) return SIDECAR
+  if (legacySidecar && names.includes(legacySidecar)) return legacySidecar
+  const old = names.find((n) => /^meta\.[^.]+\.json$/i.test(n) && fp(n.split('.')[1]) === DOUJIN_NAME_FP)
+  if (old) legacySidecar = old
+  return old ?? null
+}
+
 export async function readSidecar(dir: string): Promise<DoujinMeta | null> {
   const tryRead = async (name: string): Promise<DoujinMeta | null> => {
     try {

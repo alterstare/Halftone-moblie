@@ -12,6 +12,16 @@ export interface FsEntry {
   mtime: number
 }
 
+// One folder of a scanTree result. images = image files directly inside (by
+// extension), metas = its meta.<x>.json names, kids = child folders.
+export interface ScanNode {
+  name?: string
+  mtime: number
+  images?: number
+  metas?: string[]
+  kids?: ScanNode[]
+}
+
 export type NetKind = 'doujin' | 'comic' | 'plain'
 
 export interface MMPlugin {
@@ -41,6 +51,10 @@ export interface MMPlugin {
     commit?: boolean
   }): Promise<void>
   fsStat(o: { path: string }): Promise<Omit<FsEntry, 'name'>>
+  // Library scan: each root's folder tree in one call (null = unreadable).
+  scanTree(o: { roots: string[]; exts: string[] }): Promise<{ roots: (ScanNode | null)[] }>
+  // Several small text files (null = missing / unreadable).
+  readTexts(o: { paths: string[] }): Promise<{ texts: (string | null)[] }>
   fsReaddir(o: { path: string }): Promise<{ entries: FsEntry[] }>
   fsMkdir(o: { path: string }): Promise<void>
   fsRm(o: { path: string; recursive?: boolean }): Promise<void>

@@ -402,6 +402,127 @@ public class MMPlugin extends Plugin {
         });
     }
 
+    // ---- library scan --------------------------------------------------------------
+    // The whole folder walk in one call (the JS walk did a readdir + stat +
+    // sidecar read per folder over the bridge, with a full stat of every image).
+    // Per folder: name, mtime, image count (by extension — no stat per image),
+    // meta.<x>.json names, child folders. Depth-limited (symlink loops).
+
+    @PluginMethod
+    public void scanTree(PluginCall call) {
+        JSArray roots = call.getArray("roots", new JSArray());
+        JSArray exts = call.getArray("exts", new JSArray());
+        bg(call, () -> {
+            java.util.Set<String> ext = new java.util.HashSet<>();
+            for (int i = 0; i < exts.length(); i++) ext.add(exts.optString(i, "").toLowerCase());
+            JSArray out = new JSArray();
+            for (int i = 0; i < roots.length(); i++) {
+                String root = roots.optString(i, "");
+                JSObject n = root.isEmpty() ? null : scanPool.submit(() -> scanNode(root, ext, 0, -1)).get();
+                out.put(n == null ? org.json.JSONObject.NULL : n);
+            }
+            JSObject res = new JSObject();
+            res.put("roots", out);
+            call.resolve(res);
+        });
+    }
+
+    // Folder listings are I/O-latency bound (shared storage goes through FUSE,
+    // NAS over the network): sibling folders are walked in parallel.
+    private static final java.util.concurrent.ForkJoinPool scanPool = new java.util.concurrent.ForkJoinPool(16);
+
+    private static final java.util.regex.Pattern META_NAME =
+        java.util.regex.Pattern.compile("^meta\\.[^.]+\\.json$", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private static boolean hasExt(String name, java.util.Set<String> ext) {
+        int dot = name.lastIndexOf('.');
+        return dot > 0 && ext.contains(name.substring(dot).toLowerCase());
+    }
+
+    // mtime < 0 = not known from the parent's listing (a root).
+    private static JSObject scanNode(String path, java.util.Set<String> ext, int depth, long mtime) {
+        if (depth > 32) return null;
+        int images = 0;
+        JSArray metas = new JSArray();
+        java.util.List<String[]> kids = new java.util.ArrayList<>(); // name, mtime
+        if (Vfs.isRemote(path)) {
+            java.util.List<RemoteFs.Entry> list;
+            try {
+                list = Vfs.list(path);
+                if (mtime < 0) mtime = Vfs.stat(path).mtime;
+            } catch (Exception e) {
+                return null;
+            }
+            for (RemoteFs.Entry e : list) {
+                if (e.dir) kids.add(new String[] { e.name, String.valueOf(e.mtime) });
+                else if (hasExt(e.name, ext)) images++;
+                else if (META_NAME.matcher(e.name).matches()) metas.put(e.name);
+            }
+        } else {
+            File d = new File(path);
+            String[] names = d.list();
+            if (names == null) return null;
+            if (mtime < 0) mtime = d.lastModified();
+            for (String name : names) {
+                if (hasExt(name, ext)) {
+                    images++;
+                    continue;
+                }
+                if (META_NAME.matcher(name).matches()) {
+                    metas.put(name);
+                    continue;
+                }
+                File f = new File(d, name);
+                if (f.isDirectory()) kids.add(new String[] { name, String.valueOf(f.lastModified()) });
+            }
+        }
+        JSObject o = new JSObject();
+        o.put("mtime", mtime);
+        if (images > 0) o.put("images", images);
+        if (metas.length() > 0) o.put("metas", metas);
+        if (!kids.isEmpty()) {
+            JSArray arr = new JSArray();
+            String base = path.endsWith("/") ? path : path + "/";
+            final int d = depth;
+            // (NAS stays sequential: one SMB / WebDAV session per connection.)
+            java.util.stream.Stream<String[]> st = Vfs.isRemote(path) ? kids.stream() : kids.parallelStream();
+            java.util.List<JSObject> nodes = st.map(k -> {
+                JSObject c = scanNode(base + k[0], ext, d + 1, Long.parseLong(k[1]));
+                if (c != null) c.put("name", k[0]);
+                return c;
+            }).collect(java.util.stream.Collectors.toList());
+            for (JSObject c : nodes) if (c != null) arr.put(c);
+            if (arr.length() > 0) o.put("kids", arr);
+        }
+        return o;
+    }
+
+    // Several small text files at once (scan: the works' sidecars). Missing /
+    // unreadable → null in its slot. Callers keep batches small (bridge size).
+    @PluginMethod
+    public void readTexts(PluginCall call) {
+        JSArray paths = call.getArray("paths", new JSArray());
+        bg(call, () -> {
+            java.util.List<Integer> idx = new java.util.ArrayList<>();
+            for (int i = 0; i < paths.length(); i++) idx.add(i);
+            boolean remote = paths.length() > 0 && Vfs.isRemote(paths.optString(0, ""));
+            java.util.List<String> texts = scanPool.submit(() -> (remote ? idx.stream() : idx.parallelStream()).map(i -> {
+                String p = paths.optString(i, "");
+                try {
+                    byte[] b = Vfs.isRemote(p) ? Vfs.read(p) : Files.readAllBytes(new File(p).toPath());
+                    return new String(b, StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    return null;
+                }
+            }).collect(java.util.stream.Collectors.toList())).get();
+            JSArray out = new JSArray();
+            for (String t : texts) out.put(t == null ? org.json.JSONObject.NULL : t);
+            JSObject res = new JSObject();
+            res.put("texts", out);
+            call.resolve(res);
+        });
+    }
+
     @PluginMethod
     public void fsMkdir(PluginCall call) {
         bg(call, () -> {

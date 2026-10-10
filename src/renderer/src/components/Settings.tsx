@@ -37,6 +37,21 @@ const CATS: { id: Cat; label: string }[] = [
   { id: 'manage', label: '관리' }
 ]
 
+// Settings the library scan reads (backend/lib/scanner.ts): saving a change
+// to any of them rescans the library.
+const SCAN_KEYS: (keyof SettingsT)[] = [
+  'libraryRoots',
+  'normalRoots',
+  'downloadDir',
+  'normalDownloadDir',
+  'favoritesDir',
+  'langDirs',
+  'flattenRoots',
+  'flattenCollectThreshold',
+  'doujinNamePatterns',
+  'genreRules'
+]
+
 export default function Settings(): JSX.Element {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
@@ -118,6 +133,7 @@ export default function Settings(): JSX.Element {
   // Persist the draft. Per-mode keys (SPLIT_SETTING_KEYS) go into this mode's
   // overlay so the other library mode keeps its own values.
   const persist = async (): Promise<SettingsT> => {
+    const before = useStore.getState().settings
     const overlay = Object.fromEntries(SPLIT_SETTING_KEYS.map((k) => [k, draft[k]])) as Partial<SettingsT>
     const saved = await window.api.saveSettings({
       ...draft,
@@ -129,6 +145,10 @@ export default function Settings(): JSX.Element {
     setDraft(useStore.getState().settings)
     setExcluded(saved.excludedImageHashes)
     setSettingsDirty(false)
+    // Folders / name patterns / genre rules changed → what the library holds
+    // changed: rescan (pull-to-refresh no longer does).
+    if (SCAN_KEYS.some((k) => JSON.stringify(before[k] ?? null) !== JSON.stringify(saved[k] ?? null)))
+      void useStore.getState().scanLibraryJob()
     return saved
   }
   const save = async (): Promise<void> => {

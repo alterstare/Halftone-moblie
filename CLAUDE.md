@@ -292,6 +292,15 @@ if its folder still has files; cleared on any end of the download, so only a
 killed / closed run leaves one). App reset also drops `mm-dl-queue`; backend
 start stops a leftover service (WebView reload).
 
+Library scan (2026-10-10): `scanner.ts` gets each root's folder tree from
+`MM.scanTree` in one call (Java walks it — sibling folders in parallel on
+local storage, NAS sequential; images counted by extension, no per-file stat;
+meta.<x>.json names listed) and reads the doujin sidecars via `MM.readTexts`
+in batches of 200. 2000 works × 40 pages on the emulator: 44–50s → ~2.8s.
+Pull-to-refresh / + 새로고침 on Home no longer scans (reloads the list only —
+folders change only through in-app downloads, which register themselves);
+the full scan is 설정 › 라이브러리 갱신.
+
 Known gaps / TODO: UI still
 desktop-shaped in places (home/browse toolbars, tab bar, settings); app icon = `app.png` (repo root) rendered into the mipmap
 folders (adaptive foreground full-bleed, white background, + legacy square/round);

@@ -508,7 +508,9 @@ export default function Home(): JSX.Element {
     return m
   }, [modeWorks])
 
-  // Phone tools: pull-to-refresh / + 새로고침 (page 1 + library rescan) and
+  // Phone tools: pull-to-refresh / + 새로고침 (page 1 + reload the list — no
+  // folder scan: only in-app downloads change the folders, and those register
+  // themselves; a full rescan is 설정 › 라이브러리 갱신) and
   // 작품 선택 (delete the picked local works).
   const homeView = useStore((s) => s.view === 'home' || s.view === 'history')
   const sel = useSelection()
@@ -520,7 +522,7 @@ export default function Home(): JSX.Element {
     setPage(0)
     useStore.getState().setHomeScroll(0)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
-    await useStore.getState().scanLibraryJob()
+    useStore.setState({ works: await window.api.getWorks() })
   }
   const pager = {
     page,
