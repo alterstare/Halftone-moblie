@@ -91,6 +91,12 @@ export default function Browse(): JSX.Element {
   const libTokens = useMemo(() => tagTokens(works), [works])
   const [lang, setLang] = useState<string>(activeSource.language ?? 'all')
   const [query, setQuery] = useState(activeSource.kind === 'search' ? activeSource.query : '')
+  // A search started elsewhere (tag long-press → 온라인에서 검색) replaces the
+  // source while this view stays mounted: mirror it in the box + language.
+  useEffect(() => {
+    if (activeSource.kind === 'search') setQuery(activeSource.query)
+    setLang(activeSource.language ?? 'all')
+  }, [activeSource])
   // One sort drives BOTH browse and search. Search only supports date/popular, so
   // any "인기-기간" maps to popular there.
   const [sort, setSort] = useState<OnlineSort>(
@@ -200,6 +206,14 @@ export default function Browse(): JSX.Element {
   useEffect(() => {
     if (rootRef.current) rootRef.current.scrollTop = 0
   }, [page])
+
+  // Language applies at once to whatever is showing (list or search), and is
+  // what a tag search from elsewhere keeps (store.searchOnline).
+  const changeLang = (l: string): void => {
+    setLang(l)
+    setBrowsePage(0)
+    setBrowseSource({ ...activeSource, language: l === 'all' ? null : l })
+  }
 
   // Change the single sort; re-run whichever view is active (search vs browse).
   const changeSort = (s: OnlineSort): void => {
@@ -359,7 +373,7 @@ export default function Browse(): JSX.Element {
         <div className="search-row">
           <TagSearchInput
             leading={
-              <Dropdown<string> icon={<FilterAltIcon />} title="언어" align="left" value={lang} onChange={setLang} options={LANGS} />
+              <Dropdown<string> icon={<FilterAltIcon />} title="언어" align="left" value={lang} onChange={changeLang} options={LANGS} />
             }
             trailing={
               <Dropdown<OnlineSort> icon={<SortIcon />} title="정렬" value={sort} onChange={changeSort} options={SORTS} />
