@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
-import { useStore } from '../store'
+import { useStore, useFavoriteTags } from '../store'
 import { tagToken, type SeriesGroup } from '../util'
 import Thumb from './Thumb'
 import { ArtistLinks } from './ArtistLinks'
@@ -23,7 +23,7 @@ import { useSel } from './libraryTools'
 // 즐겨찾기 | 그룹); otherwise the 목록형 card with the 더보기 preview.
 export default function SeriesGridCard({ series, compact = false }: { series: SeriesGroup; compact?: boolean }): JSX.Element {
   const addSearchToken = useStore((s) => s.addSearchToken)
-  const favoriteTags = useStore((s) => s.settings.favoriteTags)
+  const favoriteTags = useFavoriteTags()
   const c = useSeriesCard(series)
   const sel = useSel(series.key)
   const [moreOpen, setMoreOpen] = useState(false)

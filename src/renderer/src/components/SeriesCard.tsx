@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { JSX, MouseEvent } from 'react'
 import type { SeriesGroup, ChapterInfo } from '../util'
 import { analyzeSeries, tagToken } from '../util'
-import { useStore, lastReadKey } from '../store'
+import { useStore, lastReadKey, useFavoriteTags } from '../store'
 import Thumb from './Thumb'
 import { ArtistLinks } from './ArtistLinks'
 import Stars from './Stars'
@@ -26,7 +26,7 @@ export default function SeriesCard({ series }: { series: SeriesGroup }): JSX.Ele
   const addSearchToken = useStore((s) => s.addSearchToken)
   const openTab = useStore((s) => s.openTab)
   const removeWork = useStore((s) => s.removeWork)
-  const favoriteTags = useStore((s) => s.settings.favoriteTags)
+  const favoriteTags = useFavoriteTags()
   const scheme = useStore((s) => s.settings.normalChapterScheme)
   const c = useSeriesCard(series)
   const sel = useSel(series.key)
@@ -172,7 +172,7 @@ export function ChapterRow({
 }): JSX.Element {
   const work = info.work
   const upsertWork = useStore((s) => s.upsertWork)
-  const favoriteTags = useStore((s) => s.settings.favoriteTags)
+  const favoriteTags = useFavoriteTags()
   const toggleNormalFav = useStore((s) => s.toggleNormalFav)
   const favChapters = useStore((s) => s.settings.normalFavChapters)
   const isFav = (favChapters ?? []).includes(work.id)

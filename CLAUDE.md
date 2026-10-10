@@ -350,6 +350,10 @@ summaries; `OnlineFavCard` also falls back to the summary. 설정 › 즐겨찾�
 Home's 분류 modal (작품 / 언어 / 그룹) also filters the online favorite cards
 (`passesCategory`: coded, language from entry or summary, no group).
 Settings `SettingRow stack` buttons = one line of flat text buttons with dividers.
+Tag lists per library: doujin = `favoriteTags` / `onlineExcludeTags`; 일반 만화 =
+`normalFavoriteTags` / `comicExcludeGenres` (설정 › 태그·검색 binds by mode;
+cards read `useFavoriteTags()`; `addFavoriteTag` writes the current mode's).
+즐겨찾는 태그 › 전체 삭제 saves that key immediately.
 Big favorites: Browse 즐겨찾기 requests summaries only for the shown page ± 2
 pages (`favWindow`; list entries are placeholders until fetched); the reader's
 online list renders favorites in 60-item steps around the open gallery

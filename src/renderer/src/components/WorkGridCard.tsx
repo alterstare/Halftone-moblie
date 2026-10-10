@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import type { Work } from '../../../shared/types'
-import { useStore } from '../store'
+import { useStore, useFavoriteTags } from '../store'
 import { allTags, tagToken } from '../util'
 import Thumb from './Thumb'
 import { ArtistLinks } from './ArtistLinks'
@@ -27,7 +27,7 @@ import { useSel } from './libraryTools'
 export default function WorkGridCard({ work, compact = false }: { work: Work; compact?: boolean }): JSX.Element {
   const setFilter = useStore((s) => s.setFilter)
   const addSearchToken = useStore((s) => s.addSearchToken)
-  const favoriteTags = useStore((s) => s.settings.favoriteTags)
+  const favoriteTags = useFavoriteTags()
   const c = useWorkCard(work)
   const sel = useSel(work.id)
   const [moreOpen, setMoreOpen] = useState(false)

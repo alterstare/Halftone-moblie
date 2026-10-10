@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { JSX } from 'react'
 import type { OnlineFav } from '../../../shared/types'
-import { useStore, lastReadKey } from '../store'
+import { useStore, lastReadKey, useFavoriteTags } from '../store'
 import { getOnlineImages } from '../images'
 import OnlineThumb from './OnlineThumb'
 import Stars from './Stars'
@@ -46,7 +46,7 @@ export default function OnlineFavCard({ fav: stored, layout }: { fav: OnlineFav;
   const setOnlineRank = useStore((s) => s.setOnlineRank)
   const setOnlineListFav = useStore((s) => s.setOnlineListFav)
   const d = useStore((s) => s.downloads.find((x) => x.code === fav.code))
-  const favoriteTags = useStore((s) => s.settings.favoriteTags)
+  const favoriteTags = useFavoriteTags()
   const addSearchToken = useStore((s) => s.addSearchToken)
   const { openTagMenu, tagMenu } = useTagMenu('online')
   // Artist names are links like on the local cards: click = search by that

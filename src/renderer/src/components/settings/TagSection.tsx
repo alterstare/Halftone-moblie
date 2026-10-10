@@ -429,8 +429,14 @@ export default function TagSection(): JSX.Element {
     }
     return [...s].sort();
   }, [works]);
-  const excludeTags = draft.onlineExcludeTags ?? [];
+  // Each library keeps its own lists: doujin = favoriteTags / onlineExcludeTags,
+  // 일반 만화 = normalFavoriteTags / comicExcludeGenres (online genres hidden).
+  const favKey = isDoujin ? "favoriteTags" : "normalFavoriteTags";
+  const exKey = isDoujin ? "onlineExcludeTags" : "comicExcludeGenres";
+  const favTags = (draft[favKey] as string[] | undefined) ?? [];
+  const excludeTags = (draft[exKey] as string[] | undefined) ?? [];
   const favSearches = draft.favoriteSearches ?? [];
+  const [clearTagsAsk, setClearTagsAsk] = useState(false);
 
   return (
     <>
@@ -440,7 +446,33 @@ export default function TagSection(): JSX.Element {
           <SettingRow
             title="즐겨찾는 태그"
             desc="여기 등록한 태그는 목록에서 강조됩니다. 태그 입력 후 Enter."
-          />
+          >
+            <button
+              className="mini danger"
+              disabled={favTags.length === 0}
+              onClick={() => setClearTagsAsk(true)}
+            >
+              전체 삭제
+            </button>
+          </SettingRow>
+          {clearTagsAsk && (
+            <ConfirmModal
+              compact
+              danger
+              title={`즐겨찾는 태그 ${favTags.length}개를 모두 삭제할까요?`}
+              desc={<>태그 강조만 사라지고 작품 · 즐겨찾기는 그대로입니다.</>}
+              confirmLabel="전체 삭제"
+              onConfirm={async () => {
+                setClearTagsAsk(false);
+                // applied + saved right away (only this key — other unsaved edits stay in the draft)
+                const s = { ...useStore.getState().settings, [favKey]: [] };
+                await window.api.saveSettings(s);
+                useStore.setState({ settings: s });
+                patch({ [favKey]: [] });
+              }}
+              onCancel={() => setClearTagsAsk(false)}
+            />
+          )}
           <TagPickInput
             value={tagInput}
             onChange={setTagInput}
@@ -450,28 +482,25 @@ export default function TagSection(): JSX.Element {
             onEnter={() => {
               if (!tagInput.trim()) return;
               patch({
-                favoriteTags: [
-                  ...new Set([
-                    ...draft.favoriteTags,
-                    tagInput.trim().toLowerCase(),
-                  ]),
-                ],
+                [favKey]: [...new Set([...favTags, tagInput.trim().toLowerCase()])],
               });
               setTagInput("");
             }}
           />
           <ChipList
-            items={draft.favoriteTags}
+            items={favTags}
             chipClass="tag fav-tag"
-            onRemove={(t) =>
-              patch({ favoriteTags: draft.favoriteTags.filter((x) => x !== t) })
-            }
+            onRemove={(t) => patch({ [favKey]: favTags.filter((x) => x !== t) })}
           />
         </div>
         <div className="set-block">
           <SettingRow
-            title="검색 제외 태그"
-            desc="여기 등록한 태그는 온라인 검색 시 자동으로 제외됩니다. 검색창에는 표시되지 않습니다."
+            title={isDoujin ? "검색 제외 태그" : "검색 제외 장르"}
+            desc={
+              isDoujin
+                ? "여기 등록한 태그는 온라인 검색 시 자동으로 제외됩니다. 검색창에는 표시되지 않습니다."
+                : "여기 등록한 장르의 작품은 온라인 목록에서 숨깁니다. (동인지와 따로 관리)"
+            }
           />
           <TagPickInput
             value={excludeInput}
@@ -481,18 +510,15 @@ export default function TagSection(): JSX.Element {
             placeholder="태그 입력 후 Enter"
             onEnter={() => {
               if (!excludeInput.trim()) return;
-              const tok = tagToken(excludeInput.trim());
-              if (!excludeTags.includes(tok))
-                patch({ onlineExcludeTags: [...excludeTags, tok] });
+              const tok = isDoujin ? tagToken(excludeInput.trim()) : excludeInput.trim();
+              if (!excludeTags.includes(tok)) patch({ [exKey]: [...excludeTags, tok] });
               setExcludeInput("");
             }}
           />
           <ChipList
             items={excludeTags}
             label={(t) => `-${t}`}
-            onRemove={(t) =>
-              patch({ onlineExcludeTags: excludeTags.filter((x) => x !== t) })
-            }
+            onRemove={(t) => patch({ [exKey]: excludeTags.filter((x) => x !== t) })}
           />
         </div>
         <div className="set-block">

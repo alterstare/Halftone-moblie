@@ -141,6 +141,9 @@ export interface Settings {
   genreRules: GenreRule[]
   autoMoveByGenre: boolean // move works into a rule's folder by its genre tag
   favoriteTags: string[]
+  // 일반 만화's own 즐겨찾는 태그 (favoriteTags = doujin). Its 검색 제외 list
+  // is comicExcludeGenres (genres hidden from the online comic lists).
+  normalFavoriteTags?: string[]
   ignoreBracketTagsInSort: boolean
   marginWidth: number
   defaultSort: SortMode
@@ -355,6 +358,7 @@ export const DEFAULT_SETTINGS: Settings = {
   genreRules: [],
   autoMoveByGenre: false,
   favoriteTags: [],
+  normalFavoriteTags: [],
   ignoreBracketTagsInSort: true,
   marginWidth: 1120,
   defaultSort: 'random',

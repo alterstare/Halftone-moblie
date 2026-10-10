@@ -1721,8 +1721,11 @@ export const useStore = create<AppState>((set, get) => ({
   addFavoriteTag: async (tag) => {
     const cur = get().settings
     const t = tag.trim()
-    if (!t || cur.favoriteTags.includes(t)) return
-    const s = { ...cur, favoriteTags: [...cur.favoriteTags, t] }
+    // each library has its own list (일반 만화 = normalFavoriteTags)
+    const key = get().libraryMode === 'normal' ? 'normalFavoriteTags' : 'favoriteTags'
+    const list = cur[key] ?? []
+    if (!t || list.includes(t)) return
+    const s = { ...cur, [key]: [...list, t] }
     set({ settings: s })
     await window.api.saveSettings(s)
   },
@@ -1897,3 +1900,8 @@ export function lastReadKey(progress: Record<string, ReadProgress>, keys: string
   }
   return best
 }
+
+// The current library's 즐겨찾는 태그 (doujin and 일반 만화 keep separate lists).
+const NO_TAGS: string[] = []
+export const useFavoriteTags = (): string[] =>
+  useStore((s) => (s.libraryMode === 'normal' ? s.settings.normalFavoriteTags ?? NO_TAGS : s.settings.favoriteTags))
