@@ -65,10 +65,21 @@ export function doujinFavCodes(onlineFavs: Record<string, OnlineFav>): string[] 
 // coded works, deduped by code. Tags come from the local work when downloaded,
 // else from the cached gallery summary. With `sort`, ordered by favorite time
 // or rating; without, online favorites first, then local-only ones.
+// Online 즐겨찾기 order: added newest / oldest first, rating, or the gallery
+// number (newest / oldest works first).
+export type FavSort = 'recent' | 'old' | 'rank' | 'new' | 'oldwork'
+export const FAV_SORTS: [FavSort, string][] = [
+  ['recent', '최근 추가순'],
+  ['old', '오래된 추가순'],
+  ['rank', '평점 높은순'],
+  ['new', '최신 작품순'],
+  ['oldwork', '오래된 작품순']
+]
+
 export function doujinFavGalleries(
   onlineFavs: Record<string, OnlineFav>,
   works: Work[],
-  sort?: 'rank' | 'recent'
+  sort?: FavSort
 ): GallerySummary[] {
   const byCode = new Map<string, Work>()
   for (const w of works) if (w.code) byCode.set(w.code, w)
@@ -82,13 +93,14 @@ export function doujinFavGalleries(
     rows.push({
       g: {
         code: f.code,
-        title: f.title,
+        // an imported favorite stores only its number → the summary fills in
+        title: (f.title && f.title !== f.code ? f.title : sum?.title) || f.title,
         artists: f.artist ? [f.artist] : sum?.artists ?? [],
         tags: local ? allTags(local) : sum?.tags ?? [],
         language: f.language ?? sum?.language ?? null,
         type: null,
-        pageCount: f.pageCount,
-        thumbUrl: f.thumbUrl
+        pageCount: f.pageCount || sum?.pageCount || 0,
+        thumbUrl: f.thumbUrl ?? sum?.thumbUrl ?? null
       },
       t: f.addedAt,
       r: Math.max(f.rank, local?.rank ?? 0)
@@ -112,6 +124,18 @@ export function doujinFavGalleries(
       r: w.rank
     })
   }
-  if (sort) rows.sort((x, y) => (sort === 'rank' ? y.r - x.r || y.t - x.t : y.t - x.t))
+  const num = (g: GallerySummary): number => Number(g.code) || 0
+  if (sort)
+    rows.sort((x, y) =>
+      sort === 'rank'
+        ? y.r - x.r || y.t - x.t
+        : sort === 'old'
+          ? x.t - y.t
+          : sort === 'new'
+            ? num(y.g) - num(x.g) // gallery number ≈ upload order
+            : sort === 'oldwork'
+              ? num(x.g) - num(y.g)
+              : y.t - x.t
+    )
   return rows.map((x) => x.g)
 }

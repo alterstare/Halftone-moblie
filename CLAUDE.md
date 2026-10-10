@@ -209,7 +209,10 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
 - `src/backend/` — the desktop main process ported to run IN the WebView and
   implement `window.api` (`index.ts` installBackend, `api/*.ts` = old
   `ipc/*.ts`, `lib/*.ts` = old `lib/*.ts`). Node APIs are shimmed:
-  `node/fs.ts`, `node/path.ts`, `node/bytes.ts` → native plugin. Events
+  `node/fs.ts`, `node/path.ts`, `node/bytes.ts` → native plugin (files > 1MB
+  cross the bridge in 512KB pieces: fsRead offset/length, fsWrite part=new/
+  append + commit renames `<path>.part` over — one 5MB string OOM-crashed the
+  Java side with 7000 favorite summaries). Events
   (`sendToRenderer`) are an in-process bus (`context.ts`).
 - `android/app/src/main/java/com/noth2/mangamanager/` — native side:
   - `MMPlugin.java` (`MM`): fs, httpGet/httpDownload, DoH, pickers (SAF
@@ -331,6 +334,27 @@ Two library modes:
   tried switching to it automatically; reverted in 0.4.2 — not used now.)
 - A "backup" gnuboard-style site can be scraped by hand (user navigates, app
   reads the chapter list) — `ComicBackupModal`.
+
+Favorites import (mobile, 2026-10): `importFavorites` batches
+(`setFavoritesByCodes`, one works.json write; `store.setOnlineFav` coalesces
+online.json saves — a per-call save OOM-crashed the WebView on a 7000-entry
+Pupil backup). After an import / list file add, `summaryJob` (renderer) runs
+`preloadSummaries` as an activity-bar job with progress; the job is recorded in
+`<data>/summaryJobs.json` until done and resumed at app start
+(`resumeSummaryJobs`); summaries are saved every 100 and in-flight fetches are
+shared. Imported favorites get title / thumb / artist backfilled from the
+summaries; `OnlineFavCard` also falls back to the summary. 설정 › 즐겨찾기 파일 ›
+초기화 (two confirms) = `resetFavorites` (all doujin hearts off; ranks / lists kept).
+404s while fetching summaries go to `<data>/deadGalleries.json` (not refetched);
+설정 › 삭제된 작품 정리 = `removeDeadFavorites` (dead + not downloaded → unheart).
+Home's 분류 modal (작품 / 언어 / 그룹) also filters the online favorite cards
+(`passesCategory`: coded, language from entry or summary, no group).
+Settings `SettingRow stack` buttons = one line of flat text buttons with dividers.
+Big favorites: Browse 즐겨찾기 requests summaries only for the shown page ± 2
+pages (`favWindow`; list entries are placeholders until fetched); the reader's
+online list renders favorites in 60-item steps around the open gallery
+(`favRange`, append near the end / prepend near the top) — all 7000 at once
+froze the reader (657ms task).
 
 Favorites model (desktop, 2026-10): one heart per gallery — the favorites list
 keyed by doujin code; local copies mirror it; general-manga series favorites

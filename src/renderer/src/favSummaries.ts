@@ -12,7 +12,8 @@ export function getFavSummary(code: string): GallerySummary | undefined {
   return cache.get(code)
 }
 
-function request(codes: string[]): void {
+// (exported for summaryJob: pull freshly preloaded entries into this cache)
+export function request(codes: string[]): void {
   const need = codes.filter((c) => /^\d+$/.test(c) && !cache.has(c) && !pending.has(c))
   if (!need.length) return
   need.forEach((c) => pending.add(c))

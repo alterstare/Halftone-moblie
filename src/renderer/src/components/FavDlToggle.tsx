@@ -55,22 +55,28 @@ export function OnlineOnlyToggle(): JSX.Element {
 }
 
 // Sort of every favorites view: 평점 높은순 / 최근 추가순 (by favorite time).
-export function FavSortSelect({
+export function FavSortSelect<T extends string = 'rank' | 'recent'>({
   value,
-  onChange
+  onChange,
+  options
 }: {
-  value: 'rank' | 'recent'
-  onChange: (v: 'rank' | 'recent') => void
+  value: T
+  onChange: (v: T) => void
+  // default: 평점 / 최근 (library 즐겨찾기); the online view passes FAV_SORTS
+  options?: [T, string][]
 }): JSX.Element {
   return (
-    <Dropdown<'rank' | 'recent'>
+    <Dropdown<T>
       chip
       value={value}
       onChange={onChange}
-      options={[
-        ['rank', '평점 높은순'],
-        ['recent', '최근 추가순']
-      ]}
+      options={
+        options ??
+        ([
+          ['rank', '평점 높은순'],
+          ['recent', '최근 추가순']
+        ] as [T, string][])
+      }
     />
   )
 }

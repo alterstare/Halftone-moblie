@@ -300,6 +300,17 @@ export default function Home(): JSX.Element {
     () => (normal ? new Set(groupSeries(modeWorks, normalRoots).map((g) => titleKey(g.title))) : new Set<string>()),
     [normal, modeWorks, normalRoots]
   )
+  // The 분류 panel (작품 coded/uncoded · 언어 · 그룹) applies to the online
+  // favorite cards too, like to the local works: they're coded doujin works,
+  // their language comes from the entry (or its fetched summary; unknown
+  // passes), and they belong to no group (= 그룹 없음).
+  const passesCategory = (f: OnlineFav): boolean => {
+    if (normal) return true
+    if (!showCoded) return false
+    const lc = langCategory(f.language ?? getFavSummary(f.code)?.language ?? null)
+    if (lc !== null && !langFilter[lc]) return false
+    return showUngrouped
+  }
   // Unified favorites view: online favorites NOT in the library show as online
   // cards next to the local ones ("다운로드한 것만" toggle hides them). Per mode:
   // doujin = numeric codes, general manga = manga-site urls (matched by title).
@@ -314,10 +325,12 @@ export default function Home(): JSX.Element {
           f.favorite &&
           isComicCode(f.code) === normal &&
           !libCodes.has(f.code) &&
-          !(normal && localSeriesKeys.has(titleKey(f.title)))
+          !(normal && localSeriesKeys.has(titleKey(f.title))) &&
+          passesCategory(f)
       )
       .sort((a, b) => (favSort === 'rank' ? b.rank - a.rank || b.addedAt - a.addedAt : b.addedAt - a.addedAt))
-  }, [favActive, favDownloadedOnly, filter, onlineFavs, works, normal, favSort, localSeriesKeys])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favActive, favDownloadedOnly, filter, onlineFavs, works, normal, favSort, localSeriesKeys, showCoded, langFilter, groupFilter, showUngrouped])
   // One merged favorites list (local works / series + online-only), sorted
   // together by favorite time (최근 추가순) or rating (평점 높은순), then paged.
   const favMerged = useMemo(
@@ -450,6 +463,27 @@ export default function Home(): JSX.Element {
     favLists.length === 0 && sel.includes(FAV_BASE)
       ? { kind: 'favorites' }
       : { kind: 'favlists', value: sel, codes: favLists.filter((l) => sel.includes(l.name)).flatMap((l) => l.codes) }
+  // A list added / removed (설정 › 즐겨찾기 목록) while the 즐겨찾기 view is on:
+  // the filter holds the codes picked back then — rebuild it from the lists now.
+  // (Also on mount: Home may have been unmounted while 설정 was open.)
+  const favListsKey = favLists.map((l) => `${l.name}:${l.codes.length}`).join('|')
+  const prevFavNames = useRef<string[] | null>(null)
+  useEffect(() => {
+    const before = prevFavNames.current
+    prevFavNames.current = allFavNames
+    const f = useStore.getState().filter
+    if (f.kind !== 'favorites' && f.kind !== 'favlists') return
+    // Keep the drawer choice, minus lists that no longer exist (none left → 기본);
+    // a list added while this screen was up comes in checked.
+    const added = before ? allFavNames.filter((n) => !before.includes(n)) : []
+    let sel =
+      f.kind === 'favlists' ? [...f.value.filter((n) => allFavNames.includes(n)), ...added] : favSelected
+    if (!sel.length) sel = [FAV_BASE]
+    const next = favFilterFor(sel)
+    if (JSON.stringify(next) !== JSON.stringify(f)) setFilter(next)
+    setFavUnchecked(allFavNames.filter((n) => !sel.includes(n)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favListsKey])
   // Count reflects the checked selection (updates as lists are toggled). Normal
   // mode counts its in-app favorites (series + standalone chapters) instead.
   // Unified favorite count: local + online favorites, each favorite counted once.

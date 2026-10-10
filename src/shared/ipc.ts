@@ -78,6 +78,11 @@ export const IPC = {
   removeOnlineFavList: 'fav:removeOnlineList',
   doujinSummaries: 'doujin:summaries',
   preloadOnlineFavLists: 'fav:preloadOnline',
+  preloadSummaries: 'fav:preloadSummaries',
+  pendingSummaryJobs: 'fav:pendingSummaryJobs',
+  resetFavorites: 'fav:reset',
+  deadFavorites: 'fav:dead',
+  removeDeadFavorites: 'fav:removeDead',
   onlineFavPreloadProgress: 'fav:preloadProgress',
   mergeFavorites: 'fav:merge',
   exportRatings: 'ratings:export',
@@ -252,7 +257,16 @@ export interface Api {
   removeOnlineFavList: (name: string) => Promise<{ ok: boolean }>
   doujinSummaries: (codes: string[]) => Promise<GallerySummary[]>
   preloadOnlineFavLists: () => Promise<{ ok: boolean; total: number; cached: number }>
-  onOnlineFavPreload: (cb: (p: { done: number; total: number }) => void) => () => void
+  // Summaries for these codes; progress events carry `key`.
+  preloadSummaries: (codes: string[], key: string, title?: string) => Promise<{ ok: boolean; total: number; cached: number; dead: number }>
+  // Favorites deleted from the site (404) and not downloaded.
+  deadFavorites: () => Promise<number>
+  removeDeadFavorites: () => Promise<{ ok: boolean; count: number }>
+  // Preload jobs cut short (app closed) → resumed at start.
+  pendingSummaryJobs: () => Promise<{ key: string; title: string; codes: string[] }[]>
+  // 즐겨찾기 초기화 (doujin hearts off; ratings / lists kept).
+  resetFavorites: () => Promise<{ ok: boolean; count: number }>
+  onOnlineFavPreload: (cb: (p: { done: number; total: number; key?: string }) => void) => () => void
   // Merge 2+ favorite files into one new file (union); no library change.
   mergeFavorites: () => Promise<{ ok: boolean; count: number; files: number; path?: string }>
   // Rating files, per library mode (동인지 / 일반 만화 kept separate).

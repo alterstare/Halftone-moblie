@@ -12,12 +12,12 @@ import ContextMenu from './ContextMenu'
 import { useTagMenu } from './useTagMenu'
 import Stars from './Stars'
 import { favMeta, tagTokens, tagToken, tokenLabel, FAV_BASE } from '../util'
-import { useFavSummaries } from '../favSummaries'
+import { useFavSummaries, getFavSummary } from '../favSummaries'
 import Caret from './Caret'
 import Dropdown from './Dropdown'
 import { CheckIcon, PauseIcon, PlayIcon, SyncIcon, GridIcon, MenuIcon, FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon } from './icons'
 import { OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
-import { doujinFavCodes, doujinFavGalleries } from '../favorites'
+import { doujinFavGalleries, FAV_SORTS, type FavSort } from '../favorites'
 import type { OnlineGallery } from '../store'
 import MoreClamp from './MoreClamp'
 import { ArtistLinks } from './ArtistLinks'
@@ -62,7 +62,7 @@ export default function Browse(): JSX.Element {
   const downloads = useStore((s) => s.downloads)
   const works = useStore((s) => s.works)
   const [favMode, setFavMode] = useState(false)
-  const [favSort, setFavSort] = useState<'rank' | 'recent'>('recent')
+  const [favSort, setFavSort] = useState<FavSort>('recent')
   const onlineFavLists = useStore((s) => s.settings.onlineFavLists ?? [])
   const pageSize = useStore((s) => s.settings.pageSize || 50)
   const marginWidth = useStore((s) => s.settings.marginWidth)
@@ -75,8 +75,6 @@ export default function Browse(): JSX.Element {
     () => allFavNames.filter((n) => !favUnchecked.includes(n)),
     [allFavNames, favUnchecked]
   )
-  const [listGallery, setListGallery] = useState<GallerySummary[]>([])
-  const [listLoading, setListLoading] = useState(false)
   const activeSource = useStore((s) => s.browseSource)
   const setBrowseSource = useStore((s) => s.setBrowseSource)
   const page = useStore((s) => s.browsePage)
@@ -236,8 +234,11 @@ export default function Browse(): JSX.Element {
   // "내 즐겨찾기" view: render the persisted online favorites instead of doujin
   // results, sorted by rank or recency.
   // Favorites are stored without tags → fetch their gallery summaries (cached).
-  const favCodes = useMemo(() => doujinFavCodes(onlineFavs), [onlineFavs])
-  const sumVer = useFavSummaries(favMode ? favCodes : [])
+  // Summaries are requested only for the pages around the one shown (see
+  // favWindow below) — asking for all of a 7000-entry list at once fetched /
+  // parsed everything up front and made opening 즐겨찾기 lag.
+  const [favWindow, setFavWindow] = useState<string[]>([])
+  const sumVer = useFavSummaries(favMode ? favWindow : [])
   // Unified favorites (online + locally favorited coded works), sorted by
   // favorite time or rating. sumVer re-runs it as summaries (tags) arrive.
   const favGalleries = useMemo(
@@ -247,26 +248,18 @@ export default function Browse(): JSX.Element {
   )
   // Checked online lists → fetch their gallery summaries (union of codes). '기본'
   // has no codes (it's the app's own online favorites), so it isn't fetched.
-  useEffect(() => {
-    const codes = [
-      ...new Set(
-        onlineFavLists.filter((l) => favSelected.includes(l.name)).flatMap((l) => l.codes)
-      )
-    ]
-    if (!favMode || codes.length === 0) {
-      setListGallery([])
-      return
-    }
-    let alive = true
-    setListLoading(true)
-    window.api
-      .doujinSummaries(codes)
-      .then((r) => alive && setListGallery(r))
-      .finally(() => alive && setListLoading(false))
-    return () => {
-      alive = false
-    }
-  }, [favMode, favSelected, onlineFavLists])
+  // Checked lists: every code as a card at once (a placeholder until its
+  // summary is fetched — only around the shown page, like the hearts).
+  const listGallery = useMemo<GallerySummary[]>(() => {
+    if (!favMode) return []
+    const codes = [...new Set(onlineFavLists.filter((l) => favSelected.includes(l.name)).flatMap((l) => l.codes))]
+    return codes.map(
+      (c) =>
+        getFavSummary(c) ?? { code: c, title: c, artists: [], tags: [], language: null, type: null, pageCount: 0, thumbUrl: null }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favMode, favSelected, onlineFavLists, sumVer])
+  const listLoading = false
 
   const gallery = useMemo<GallerySummary[]>(() => {
     if (!favMode) return items
@@ -274,8 +267,12 @@ export default function Browse(): JSX.Element {
     // each imported list contributes its fetched summaries.
     const base = favSelected.includes(FAV_BASE) ? favGalleries : []
     const seen = new Set<string>()
-    return [...base, ...listGallery].filter((g) => !seen.has(g.code) && seen.add(g.code))
-  }, [favMode, favSelected, items, favGalleries, listGallery])
+    // the 언어 filter applies to the favorites too (unknown language = hidden)
+    const want = lang === 'all' ? null : lang
+    return [...base, ...listGallery].filter(
+      (g) => !seen.has(g.code) && !!seen.add(g.code) && (!want || g.language === want)
+    )
+  }, [favMode, favSelected, items, favGalleries, listGallery, lang])
   // Library lookups by gallery code (downloaded? local cover? local heart?).
   const { libCodes, codeWorkId, localFavCodes } = useLibraryCodes()
 
@@ -295,6 +292,17 @@ export default function Browse(): JSX.Element {
   useEffect(() => setFavPage(0), [favMode, favSort, favSelected, base.length])
   const ordered = reverse ? [...base].reverse() : base
   const shown = favMode ? ordered.slice(favPage * pageSize, favPage * pageSize + pageSize) : ordered
+  // The shown page first, then 2 pages either side (likely next moves).
+  const windowKey = favMode
+    ? ordered.slice(Math.max(0, (favPage - 2) * pageSize), (favPage + 3) * pageSize).map((g) => g.code)
+    : []
+  const windowSig = windowKey.join(',')
+  useEffect(() => {
+    if (!favMode) return
+    const cur = shown.map((g) => g.code)
+    setFavWindow([...cur, ...windowKey.filter((c) => !cur.includes(c))])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [favMode, windowSig])
 
   // Direct download from a card (feature 10). Progress shows in the shared
   // download manager (fed by the doujinProgress channel).
@@ -376,7 +384,12 @@ export default function Browse(): JSX.Element {
               <Dropdown<string> icon={<FilterAltIcon />} title="언어" align="left" value={lang} onChange={changeLang} options={LANGS} />
             }
             trailing={
-              <Dropdown<OnlineSort> icon={<SortIcon />} title="정렬" value={sort} onChange={changeSort} options={SORTS} />
+              // 즐겨찾기 view: the icon sorts the favorites (the online sorts don't apply)
+              favMode ? (
+                <Dropdown<FavSort> icon={<SortIcon />} title="정렬" value={favSort} onChange={setFavSort} options={FAV_SORTS} />
+              ) : (
+                <Dropdown<OnlineSort> icon={<SortIcon />} title="정렬" value={sort} onChange={changeSort} options={SORTS} />
+              )
             }
             value={query}
             onChange={setQuery}
@@ -470,14 +483,14 @@ export default function Browse(): JSX.Element {
           {favMode && (
             <span className="chips-extra">
               <OnlineOnlyToggle />
-              <FavSortSelect value={favSort} onChange={setFavSort} />
+              <FavSortSelect<FavSort> value={favSort} onChange={setFavSort} options={FAV_SORTS} />
             </span>
           )}
         </div>
         {favMode && (
           <div className="chips chips-extra-row">
             <OnlineOnlyToggle />
-            <FavSortSelect value={favSort} onChange={setFavSort} />
+            <FavSortSelect<FavSort> value={favSort} onChange={setFavSort} options={FAV_SORTS} />
           </div>
         )}
       </div>

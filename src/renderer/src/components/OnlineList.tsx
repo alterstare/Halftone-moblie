@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useLibraryCodes, useStore } from '../store'
 import type { GallerySummary, DoujinListSource, OnlineSort } from '../../../shared/ipc'
@@ -6,7 +6,7 @@ import Pager from './Pager'
 import CopyCode from './CopyCode'
 import ContextMenu from './ContextMenu'
 import { useTagMenu } from './useTagMenu'
-import { doujinFavCodes, doujinFavGalleries } from '../favorites'
+import { doujinFavGalleries } from '../favorites'
 import Stars from './Stars'
 import Dropdown from './Dropdown'
 import { CheckIcon, PauseIcon, PlayIcon, FavoriteIcon, DownloadIcon, SyncIcon, SortIcon } from './icons'
@@ -17,6 +17,8 @@ import { useFavSummaries } from '../favSummaries'
 import type { OnlineGallery, DownloadItem } from '../store'
 import SearchClear from './SearchClear'
 import { useTabState } from './useTabState'
+
+const FAV_STEP = 60 // favorites rendered per step in the reader list
 import { isNarrow } from '../mobile'
 
 // Sidebar keeps it short: 인기 = the yearly ranking.
@@ -63,14 +65,59 @@ export default function OnlineList(): JSX.Element {
   // + locally-favorited works) instead of the latest online listing.
   const onlineListFav = useStore((s) => s.onlineListFav)
   const works = useStore((s) => s.works)
-  const favCodes = useMemo(() => doujinFavCodes(onlineFavs), [onlineFavs])
-  const sumVer = useFavSummaries(onlineListFav ? favCodes : [])
+  // Favorites: thousands of entries → render them in steps (more as the list
+  // is scrolled near its end) and fetch summaries only for what's rendered;
+  // drawing / fetching all 7000 at once froze the reader on open.
+  const [favRange, setFavRange] = useState<[number, number]>([0, FAV_STEP])
+  const [favShown, setFavShown] = useState<string[]>([])
+  const sumVer = useFavSummaries(onlineListFav ? favShown : [])
   const favList = useMemo(
-    () => doujinFavGalleries(onlineFavs, works),
+    // same order as the 즐겨찾기 view's default (최근 추가순)
+    () => doujinFavGalleries(onlineFavs, works, 'recent'),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [onlineFavs, works, sumVer]
   )
-  const displayItems = onlineListFav ? favList : items
+  const activeCodeNow = useStore((s) => s.tabs.find((t) => t.id === s.activeTabId)?.online?.code)
+  // Start around the open gallery (a little before it, a step after).
+  const activeIdx = onlineListFav ? favList.findIndex((g) => g.code === activeCodeNow) : -1
+  useEffect(() => {
+    if (!onlineListFav) return
+    const a = Math.max(0, activeIdx - 20)
+    setFavRange([a, a + FAV_STEP])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlineListFav, activeCodeNow])
+  const [from, to] = favRange
+  const displayItems = onlineListFav ? favList.slice(from, to) : items
+  const shownSig = onlineListFav ? displayItems.map((g) => g.code).join(',') : ''
+  useEffect(() => {
+    setFavShown(shownSig ? shownSig.split(',') : [])
+  }, [shownSig])
+  // Near the end → append a step; near the top → prepend one (keeping the
+  // view where it was: the scroll moves down by what was added above).
+  const listRef = useRef<HTMLDivElement>(null)
+  const prepend = useRef<number | null>(null)
+  const onListScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+    if (!onlineListFav) return
+    const el = e.currentTarget
+    if (to < favList.length && el.scrollTop + el.clientHeight > el.scrollHeight - 600) setFavRange([from, to + FAV_STEP])
+    else if (from > 0 && el.scrollTop < 300 && prepend.current === null) {
+      prepend.current = el.scrollHeight
+      setFavRange([Math.max(0, from - FAV_STEP), to])
+    }
+  }
+  useLayoutEffect(() => {
+    const el = listRef.current
+    if (el && prepend.current !== null) {
+      el.scrollTop += el.scrollHeight - prepend.current
+      prepend.current = null
+    }
+  }, [from])
+  // The open gallery in view when the list (re)opens around it.
+  useEffect(() => {
+    if (!onlineListFav) return
+    listRef.current?.querySelector('.lib-tile.active')?.scrollIntoView({ block: 'center' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlineListFav, activeCodeNow, favList.length > 0])
   const { codeWorkId, localFavCodes } = useLibraryCodes()
   const isFav = (code: string): boolean => !!onlineFavs[code]?.favorite || localFavCodes.has(code)
 
@@ -148,7 +195,7 @@ export default function OnlineList(): JSX.Element {
           </span>
         </div>
       </div>
-      <div className="lib-list-scroll">
+      <div className="lib-list-scroll" ref={listRef} onScroll={onListScroll}>
         {error && <div className="warn err">{error}</div>}
         {loading && <div className="reader-loading">불러오는 중…</div>}
         {displayItems.map((g) => (

@@ -29,8 +29,17 @@ export interface MMPlugin {
   storageStatus(): Promise<{ granted: boolean }>
   requestStorage(): Promise<{ granted: boolean }>
 
-  fsRead(o: { path: string; encoding?: 'utf8' | 'base64' }): Promise<{ data: string }>
-  fsWrite(o: { path: string; data: string; encoding?: 'utf8' | 'base64'; append?: boolean }): Promise<void>
+  // offset/length: read a byte range (big files go through in pieces).
+  fsRead(o: { path: string; encoding?: 'utf8' | 'base64'; offset?: number; length?: number }): Promise<{ data: string }>
+  // part: 'new' / 'append' write <path>.part; commit renames it over <path>.
+  fsWrite(o: {
+    path: string
+    data: string
+    encoding?: 'utf8' | 'base64'
+    append?: boolean
+    part?: 'new' | 'append'
+    commit?: boolean
+  }): Promise<void>
   fsStat(o: { path: string }): Promise<Omit<FsEntry, 'name'>>
   fsReaddir(o: { path: string }): Promise<{ entries: FsEntry[] }>
   fsMkdir(o: { path: string }): Promise<void>

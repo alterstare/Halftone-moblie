@@ -153,11 +153,28 @@ export class Store {
 
     if (!next.favorite && next.rank === 0) this.onlineFavs.delete(code)
     else this.onlineFavs.set(code, next)
-    void this.saveOnline()
+    this.scheduleSaveOnline()
     return next
   }
 
+  // Saving rewrites the whole list, so a burst of setOnlineFav calls (a
+  // 7000-entry favorites import) coalesces into one write — a write per call
+  // serialized the growing list thousands of times and ran the WebView out of
+  // memory (the app crashed). saveOnline() writes now, cancelling a pending one.
+  private onlineSaveT: ReturnType<typeof setTimeout> | null = null
+  private scheduleSaveOnline(): void {
+    if (this.onlineSaveT) return
+    this.onlineSaveT = setTimeout(() => {
+      this.onlineSaveT = null
+      void this.saveOnline()
+    }, 200)
+  }
+
   async saveOnline(): Promise<void> {
+    if (this.onlineSaveT) {
+      clearTimeout(this.onlineSaveT)
+      this.onlineSaveT = null
+    }
     await writeJson(this.onlineFile, { favs: [...this.onlineFavs.values()] })
   }
 

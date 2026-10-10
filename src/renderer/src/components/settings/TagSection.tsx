@@ -1,9 +1,9 @@
 // 태그·검색: favorite (highlighted) tags, online exclude tags, search history,
 // favorite searches, and folder-name → genre tag rules (with optional move).
 // Plus the 즐겨찾기 box (doujin): favorites folder, lists, and file.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { JSX } from "react";
-import type { GenreRule } from "../../../../shared/types";
+import type { GenreRule, Settings } from "../../../../shared/types";
 import { useStore } from "../../store";
 import { tagToken } from "../../util";
 import SettingRow from "../SettingRow";
@@ -12,6 +12,8 @@ import Toggle from "../Toggle";
 import TagPickInput from "../TagPickInput";
 import TagSearchInput from "../TagSearchInput";
 import { useSettings } from "./context";
+import { summaryJob } from "../../summaryJob";
+import ConfirmModal from "../ConfirmModal";
 import { ChipList, FolderRow } from "./parts";
 
 // Last path segment, for compact folder buttons.
@@ -162,7 +164,7 @@ function RatingFileRow(): JSX.Element {
           notify(`파일의 평점 ${r.total}개 중 ${r.applied}개를 적용했습니다.`);
         }}
       >
-        불러오기 (병합)
+        불러오기
       </button>
       <button
         className="mini"
@@ -185,15 +187,35 @@ function Favorites(): JSX.Element {
   const setWorks = useStore((s) => s.setWorks);
   const setOnlineFavs = useStore((s) => s.setOnlineFavs);
   const [preloading, setPreloading] = useState(false);
+  const [importing, setImporting] = useState(false); // a big file takes a moment
+  // 삭제된 작품 정리: favorites the site deleted (404) and not downloaded.
+  const [deadCount, setDeadCount] = useState(0);
+  const [deadAsk, setDeadAsk] = useState(false);
+  useEffect(() => {
+    const load = (): void => void window.api.deadFavorites().then(setDeadCount, () => {});
+    load();
+    window.addEventListener("mm-summaries-done", load);
+    return () => window.removeEventListener("mm-summaries-done", load);
+  }, []);
+  // 즐겨찾기 초기화: two confirms (1 = first ask, 2 = final).
+  const [resetStep, setResetStep] = useState<0 | 1 | 2>(0);
+  const favTotal = useStore((s) => Object.values(s.onlineFavs).filter((f) => f.favorite && /^\d+$/.test(f.code)).length);
+  // Adding / removing a list is saved by the backend at once → apply it to the
+  // app right away too (not only to the unsaved settings draft), so the
+  // library / online favorites follow without pressing 저장.
+  const setFavLists = (onlineFavLists: Settings["onlineFavLists"]): void => {
+    patch({ onlineFavLists });
+    useStore.setState((st) => ({ settings: { ...st.settings, onlineFavLists } }));
+  };
   const lists = draft.onlineFavLists ?? [];
 
   const preload = async (): Promise<void> => {
     setPreloading(true);
     const { startJob, updateJob, endJob } = useStore.getState();
     const jid = startJob("meta", "doujin", "즐겨찾기 목록 미리 불러오기");
-    const off = window.api.onOnlineFavPreload(({ done, total }) =>
-      updateJob(jid, { done, total }),
-    );
+    const off = window.api.onOnlineFavPreload(({ done, total, key }) => {
+      if (!key) updateJob(jid, { done, total });
+    });
     try {
       const r = await window.api.preloadOnlineFavLists();
       endJob(jid, { status: "done", detail: `${r.cached}/${r.total}개` });
@@ -236,10 +258,14 @@ function Favorites(): JSX.Element {
             onClick={async () => {
               const r = await window.api.importOnlineFavList();
               if (!r.ok) return;
-              patch({
-                onlineFavLists: (await window.api.getSettings()).onlineFavLists,
-              });
+              const favLists = (await window.api.getSettings()).onlineFavLists ?? [];
+              setFavLists(favLists);
               notify(`목록 “${r.name}” — ${r.total}개 추가.`);
+              // titles / thumbnails / tags in the background (작업 목록 progress)
+              void summaryJob(
+                `목록 “${r.name}” 정보 불러오기`,
+                favLists.find((l) => l.name === r.name)?.codes ?? [],
+              );
             }}
           >
             + 파일 추가
@@ -254,9 +280,7 @@ function Favorites(): JSX.Element {
               className="mini danger"
               onClick={async () => {
                 await window.api.removeOnlineFavList(l.name);
-                patch({
-                  onlineFavLists: lists.filter((x) => x.name !== l.name),
-                });
+                setFavLists(lists.filter((x) => x.name !== l.name));
               }}
             >
               제거
@@ -278,7 +302,7 @@ function Favorites(): JSX.Element {
       <SettingRow
         title="즐겨찾기 파일"
         stack
-        desc="즐겨찾기(작품 번호·즐겨찾는 태그·평점)를 JSON 파일로 내보내거나 불러와 합치고, 여러 파일을 하나로 병합합니다."
+        desc="즐겨찾기(작품 번호·즐겨찾는 태그·평점)를 JSON 파일로 내보내거나 불러와 합치고, 여러 파일을 하나로 병합합니다. 초기화는 즐겨찾기를 모두 해제합니다."
       >
         <button
           className="mini"
@@ -291,19 +315,31 @@ function Favorites(): JSX.Element {
         </button>
         <button
           className="mini"
+          disabled={importing}
           onClick={async () => {
-            const r = await window.api.importFavorites();
-            if (!r.ok) return;
-            setWorks(await window.api.getWorks());
-            setOnlineFavs(await window.api.getOnlineFavs());
-            applySaved(await window.api.getSettings()); // favorite tags were merged in
-            notify(
-              `${r.total}개를 즐겨찾기에 합쳤습니다. (라이브러리에 있는 작품 ${r.matched}개)`,
-            );
+            setImporting(true);
+            try {
+              const r = await window.api.importFavorites();
+              if (!r.ok) return;
+              setWorks(await window.api.getWorks());
+              setOnlineFavs(await window.api.getOnlineFavs());
+              applySaved(await window.api.getSettings()); // favorite tags were merged in
+              notify(
+                `${r.total}개를 즐겨찾기에 합쳤습니다. (라이브러리에 있는 작품 ${r.matched}개)`,
+              );
+              // titles / thumbnails / tags in the background (작업 목록 progress)
+              void summaryJob(
+                "즐겨찾기 정보 불러오기",
+                (await window.api.getOnlineFavs()).filter((f) => f.favorite).map((f) => f.code),
+              );
+            } finally {
+              setImporting(false);
+            }
           }}
         >
-          불러오기 (병합)
+          {importing ? "불러오는 중…" : "불러오기"}
         </button>
+
         <button
           className="mini"
           onClick={async () => {
@@ -316,6 +352,62 @@ function Favorites(): JSX.Element {
         >
           파일 병합
         </button>
+        <button className="mini danger" onClick={() => setResetStep(1)}>
+          초기화
+        </button>
+        {resetStep === 1 && (
+          <ConfirmModal
+            compact
+            danger
+            title="즐겨찾기를 초기화할까요?"
+            desc={<>즐겨찾기 {favTotal}개와 라이브러리 작품의 ♥가 모두 해제됩니다. (평점 · 즐겨찾기 목록 파일은 그대로)</>}
+            confirmLabel="초기화"
+            onConfirm={() => setResetStep(2)}
+            onCancel={() => setResetStep(0)}
+          />
+        )}
+        {resetStep === 2 && (
+          <ConfirmModal
+            compact
+            danger
+            title="정말 초기화합니다"
+            desc={<>되돌릴 수 없습니다. 필요하면 먼저 “내보내기”로 백업하세요.</>}
+            confirmLabel="모두 해제"
+            onConfirm={async () => {
+              setResetStep(0);
+              const r = await window.api.resetFavorites();
+              setWorks(await window.api.getWorks());
+              setOnlineFavs(await window.api.getOnlineFavs());
+              notify(`즐겨찾기 ${r.count}개를 해제했습니다.`);
+            }}
+            onCancel={() => setResetStep(0)}
+          />
+        )}
+      </SettingRow>
+      <SettingRow
+        title="삭제된 작품 정리"
+        desc="사이트에서 삭제돼 더 이상 불러올 수 없는 즐겨찾기 중, 라이브러리에 받아두지 않은 작품을 즐겨찾기에서 뺍니다. (정보 불러오기에서 확인된 작품)"
+      >
+        <button className="mini danger" disabled={deadCount === 0} onClick={() => setDeadAsk(true)}>
+          정리 ({deadCount}개)
+        </button>
+        {deadAsk && (
+          <ConfirmModal
+            compact
+            danger
+            title={`삭제된 작품 ${deadCount}개를 즐겨찾기에서 뺄까요?`}
+            desc={<>사이트에서 삭제돼 볼 수 없는 작품입니다. 받아둔 작품은 그대로 둡니다.</>}
+            confirmLabel="정리"
+            onConfirm={async () => {
+              setDeadAsk(false);
+              const r = await window.api.removeDeadFavorites();
+              setOnlineFavs(await window.api.getOnlineFavs());
+              setDeadCount(await window.api.deadFavorites());
+              notify(`삭제된 작품 ${r.count}개를 즐겨찾기에서 뺐습니다.`);
+            }}
+            onCancel={() => setDeadAsk(false)}
+          />
+        )}
       </SettingRow>
 
       <RatingFileRow />

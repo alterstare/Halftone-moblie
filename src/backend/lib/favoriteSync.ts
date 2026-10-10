@@ -14,6 +14,8 @@
 // work that newly appears inside favoritesDir is added to the favorites
 // (manual drag-in still works), but leaving the folder never removes a heart.
 import type { OnlineFav, Work } from '../../shared/types'
+import type { GallerySummary } from '../../shared/ipc'
+import { ensureSummaries } from './summaries'
 import { store } from '../context'
 import { moveToFavorites, moveFromFavorites, isUnder } from './favorites'
 
@@ -30,6 +32,39 @@ const metaOf = (w: Work): Partial<OnlineFav> => ({
   language: w.language,
   pageCount: w.pageCount
 })
+
+// Title / thumb / artist from the cached gallery summary (a heart set where
+// only the number is known — a list, a file import, a re-heart — still shows
+// the real card at once instead of waiting for a fetch).
+const sumMeta = (g: GallerySummary): Partial<OnlineFav> => ({
+  title: g.title,
+  artist: g.artists[0] ?? null,
+  language: g.language,
+  pageCount: g.pageCount,
+  thumbUrl: g.thumbUrl ?? undefined
+})
+async function cachedMeta(code: string): Promise<Partial<OnlineFav> | undefined> {
+  const g = (await ensureSummaries([]))[code]
+  return g ? sumMeta(g) : undefined
+}
+
+// Startup: favorites saved with just their number (imported / re-hearted before
+// their summary was known) get title / thumb from the cache. One save.
+export async function backfillFavMeta(): Promise<void> {
+  const sums = await ensureSummaries([])
+  let n = 0
+  for (const f of store.onlineFavs.values()) {
+    const g = sums[f.code]
+    if (!g || (f.title && f.title !== f.code && f.thumbUrl)) continue
+    store.setOnlineFav(f.code, {}, {
+      ...sumMeta(g),
+      title: f.title && f.title !== f.code ? f.title : g.title,
+      thumbUrl: f.thumbUrl ?? g.thumbUrl ?? undefined
+    })
+    n++
+  }
+  if (n) await store.saveOnline()
+}
 
 // Apply a heart to one local work: flag + timestamp, and the folder move when
 // enabled. Never touches the favorites list (callers do).
@@ -55,11 +90,60 @@ export async function setFavoriteByCode(
   meta?: Partial<OnlineFav>
 ): Promise<{ fav: OnlineFav; works: Work[] }> {
   const locals = [...store.works.values()].filter((w) => listKeyOf(w) === code)
-  const entry = store.setOnlineFav(code, { favorite: fav }, meta ?? (locals[0] ? metaOf(locals[0]) : undefined))
+  const entry = store.setOnlineFav(
+    code,
+    { favorite: fav },
+    meta ?? (locals[0] ? metaOf(locals[0]) : fav ? await cachedMeta(code) : undefined)
+  )
   const works: Work[] = []
   for (const w of locals) works.push(w.favorite === fav ? w : await applyToWork(w, fav))
   await store.flushWorks()
   return { fav: entry, works }
+}
+
+// Many codes at once (favorites file import): same as setFavoriteByCode per
+// code, but the local copies are looked up once and works.json is written once
+// — per-code writes made a 7000-entry Pupil backup take many minutes (it looked
+// like the import did nothing). Returns how many codes have a local copy.
+export async function setFavoritesByCodes(codes: string[], fav: boolean, ranks: Record<string, number> = {}): Promise<number> {
+  const byKey = new Map<string, Work[]>()
+  for (const w of store.works.values()) {
+    const k = listKeyOf(w)
+    if (!k) continue
+    const arr = byKey.get(k)
+    if (arr) arr.push(w)
+    else byKey.set(k, [w])
+  }
+  const sums = fav ? await ensureSummaries([]) : {}
+  let matched = 0
+  for (const code of codes) {
+    const locals = byKey.get(code) ?? []
+    const r = ranks[code] ?? 0
+    store.setOnlineFav(
+      code,
+      r > 0 ? { favorite: fav, rank: r } : { favorite: fav },
+      locals[0] ? metaOf(locals[0]) : fav ? sums[code] && sumMeta(sums[code]) : undefined
+    )
+    if (locals.length) matched++
+    for (const w of locals) if (w.favorite !== fav) await applyToWork(w, fav)
+  }
+  await store.flushWorks()
+  return matched
+}
+
+// 즐겨찾기 초기화: every doujin heart off — list entries (rank kept) and the
+// local works (folders move back home like a normal unheart). One write.
+export async function clearAllFavorites(): Promise<number> {
+  const codes = [...store.onlineFavs.values()].filter((f) => f.favorite && isGalleryCode(f.code)).map((f) => f.code)
+  for (const code of codes) store.setOnlineFav(code, { favorite: false })
+  let n = codes.length
+  for (const w of [...store.works.values()]) {
+    if ((w.library ?? 'doujin') !== 'doujin' || !w.favorite) continue
+    if (!listKeyOf(w)) n++
+    await applyToWork(w, false)
+  }
+  await store.flushWorks()
+  return n
 }
 
 // Heart / unheart a local work (routes coded works through the list).

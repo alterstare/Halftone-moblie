@@ -11,16 +11,51 @@ import type { OnlineFav } from '../../shared/types'
 import type { Api } from '../../shared/ipc'
 import { IPC } from '../../shared/ipc'
 import { MM } from '../native'
-import { basename, dirname } from '../node/path'
-import { store, sendToRenderer } from '../context'
+import { basename, dirname, join } from '../node/path'
+import * as fs from '../node/fs'
+import { store, sendToRenderer, paths } from '../context'
 import { parseIds, tagToEntry, parseFavoriteTags, listNameFromFile } from '../lib/favfile'
-import { ensureSummaries } from '../lib/summaries'
-import { isGalleryCode, setFavoriteByCode } from '../lib/favoriteSync'
+import { ensureSummaries, deadCodes } from '../lib/summaries'
+import { isGalleryCode, setFavoriteByCode, setFavoritesByCodes, clearAllFavorites } from '../lib/favoriteSync'
 
 async function pickJsons(multiple: boolean): Promise<{ name: string; text: string }[]> {
   const r = await MM.pickFiles({ mime: '*/*', multiple, as: 'text' })
   return r.files.map((f) => ({ name: f.name, text: f.text ?? '' }))
 }
+
+async function deadFavoriteCodes(): Promise<string[]> {
+  const gone = await deadCodes()
+  const local = new Set([...store.works.values()].map((w) => w.code).filter(Boolean) as string[])
+  return [...store.onlineFavs.values()].filter((f) => f.favorite && gone.has(f.code) && !local.has(f.code)).map((f) => f.code)
+}
+
+// Summary preload jobs still running / cut short (<data>/summaryJobs.json).
+interface SummaryJob {
+  key: string
+  title: string
+  codes: string[]
+}
+const JOBS_FILE = (): string => join(paths.data, 'summaryJobs.json')
+async function readSummaryJobs(): Promise<SummaryJob[]> {
+  try {
+    const j = JSON.parse(await fs.readFile(JOBS_FILE(), 'utf-8'))
+    return Array.isArray(j) ? j : []
+  } catch {
+    return []
+  }
+}
+const writeSummaryJobs = (jobs: SummaryJob[]): Promise<void> =>
+  fs.writeFile(JOBS_FILE(), JSON.stringify(jobs)).catch(() => {})
+// Read-modify-write one at a time (two jobs finishing together lost an update).
+let jobsChain: Promise<unknown> = Promise.resolve()
+const editJobs = (fn: (jobs: SummaryJob[]) => SummaryJob[]): Promise<void> => {
+  const run = jobsChain.then(async () => writeSummaryJobs(fn(await readSummaryJobs())))
+  jobsChain = run.catch(() => {})
+  return run
+}
+const addSummaryJob = (job: SummaryJob): Promise<void> =>
+  editJobs((jobs) => [...jobs.filter((j) => j.key !== job.key), job])
+const removeSummaryJob = (key: string): Promise<void> => editJobs((jobs) => jobs.filter((j) => j.key !== key))
 
 const saveJson = (name: string, data: unknown): Promise<{ ok: boolean; name?: string }> =>
   MM.saveTextFile({ name, text: JSON.stringify(data), mime: 'application/json' })
@@ -204,14 +239,9 @@ export const favoritesApi: Partial<Api> = {
       return { ok: false, matched: 0, total: 0 }
     }
     const ids = parseIds(raw)
-    const ranks: Record<string, unknown> = raw?.ranks ?? {}
-    let matched = 0
-    for (const id of ids) {
-      const { works } = await setFavoriteByCode(id, true)
-      if (works.length) matched++
-      const r = Number(ranks[id]) || 0
-      if (r > 0) store.setOnlineFav(id, { rank: r })
-    }
+    const ranks: Record<string, number> = {}
+    for (const [k, v] of Object.entries(raw?.ranks ?? {})) ranks[k] = Number(v) || 0
+    const matched = await setFavoritesByCodes(ids, true, ranks)
     const tags = parseFavoriteTags(raw)
     if (tags.length) {
       await store.saveSettings({ ...store.settings, favoriteTags: [...new Set([...store.settings.favoriteTags, ...tags])] })
@@ -269,6 +299,61 @@ export const favoritesApi: Partial<Api> = {
   doujinSummaries: async (codes: string[]) => {
     const cache = await ensureSummaries(codes)
     return codes.map((c) => cache[c]).filter(Boolean)
+  },
+
+  // Fetch title / thumb / tags for these codes (after a favorites import or a
+  // list added), reporting progress tagged with `key` for the activity bar.
+  // The job is recorded until it finishes, so a run cut short by closing the
+  // app is picked up again at the next start (pendingSummaryJobs) — the codes
+  // fetched so far are already in the cache, so it continues where it stopped.
+  preloadSummaries: async (codes: string[], key: string, title = '') => {
+    const uniq = [...new Set(codes)]
+    await addSummaryJob({ key, title, codes: uniq })
+    const pre = await ensureSummaries([])
+    const already = uniq.filter((c) => pre[c]).length
+    const cache = await ensureSummaries(uniq, (done) =>
+      sendToRenderer(IPC.onlineFavPreloadProgress, { done: already + done, total: uniq.length, key })
+    )
+    await removeSummaryJob(key)
+    // Imported favorites hold just their number → store the real title / thumb
+    // / artist in the list too (기록, the reader, search all read it from there).
+    let filled = 0
+    for (const c of uniq) {
+      const f = store.onlineFavs.get(c)
+      const g = cache[c]
+      if (!f || !g || (f.title && f.title !== c && f.thumbUrl)) continue
+      store.setOnlineFav(c, {}, {
+        title: f.title && f.title !== c ? f.title : g.title,
+        artist: f.artist ?? g.artists[0] ?? null,
+        language: f.language ?? g.language,
+        pageCount: f.pageCount || g.pageCount,
+        thumbUrl: f.thumbUrl ?? g.thumbUrl ?? undefined
+      })
+      filled++
+    }
+    if (filled) await store.saveOnline()
+    const gone = await deadCodes()
+    return { ok: true, total: uniq.length, cached: uniq.filter((c) => cache[c]).length, dead: uniq.filter((c) => gone.has(c)).length }
+  },
+
+  pendingSummaryJobs: async () => readSummaryJobs(),
+
+  // Favorites deleted from the site (404) that aren't downloaded — they can't
+  // be read or shown anymore. Count / remove them (설정 › 삭제된 작품 정리).
+  deadFavorites: async () => (await deadFavoriteCodes()).length,
+  removeDeadFavorites: async () => {
+    const codes = await deadFavoriteCodes()
+    await setFavoritesByCodes(codes, false)
+    await store.saveOnline()
+    return { ok: true, count: codes.length }
+  },
+
+  // 즐겨찾기 초기화: unheart every doujin favorite (list entries + local copies,
+  // incl. uncoded local hearts). Ratings and the named lists stay.
+  resetFavorites: async () => {
+    const n = await clearAllFavorites()
+    await store.saveOnline()
+    return { ok: true, count: n }
   },
 
   preloadOnlineFavLists: async () => {

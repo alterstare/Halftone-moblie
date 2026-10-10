@@ -85,8 +85,40 @@
     align-items: stretch;
     gap: 10px;
   }
+  /* …all on one line as flat text buttons split by short dividers (the app's
+     default button look — no pill boxes, so 4 buttons fit a phone row). */
   .set-row.stack .set-ctl {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    gap: 0;
+    margin-left: -8px;
+  }
+  .set-row.stack .set-ctl > .mini {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: var(--text);
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .set-row.stack .set-ctl > .mini.danger {
+    color: var(--danger);
+  }
+  .set-row.stack .set-ctl > .mini:disabled {
+    opacity: 0.45;
+  }
+  .set-row.stack .set-ctl > * + * {
+    position: relative;
+    margin-left: 1px;
+  }
+  .set-row.stack .set-ctl > * + *::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 50%;
+    width: 1px;
+    height: 14px;
+    margin-top: -7px;
+    background: var(--line);
   }
 }
 

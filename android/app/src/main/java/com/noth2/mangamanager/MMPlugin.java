@@ -271,6 +271,13 @@ public class MMPlugin extends Plugin {
     public void fsRead(PluginCall call) {
         bg(call, () -> {
             byte[] b = Vfs.read(need(call, "path"));
+            // Byte range (big files are read in pieces — see node/fs.ts).
+            Integer off = call.getInt("offset");
+            if (off != null) {
+                int start = Math.max(0, Math.min(off, b.length));
+                int len = Math.max(0, Math.min(call.getInt("length", b.length), b.length - start));
+                b = java.util.Arrays.copyOfRange(b, start, start + len);
+            }
             JSObject o = new JSObject();
             o.put("data", "base64".equals(call.getString("encoding")) ? Base64.encodeToString(b, Base64.NO_WRAP) : new String(b, StandardCharsets.UTF_8));
             call.resolve(o);
@@ -300,6 +307,22 @@ public class MMPlugin extends Plugin {
             File parent = f.getParentFile();
             if (parent != null) //noinspection ResultOfMethodCallIgnored
                 parent.mkdirs();
+            // Big writes arrive in pieces: part=new/append build <path>.part,
+            // commit renames it over <path> (still an atomic replace).
+            String part = call.getString("part");
+            if (part != null || Boolean.TRUE.equals(call.getBoolean("commit", false))) {
+                File pf = new File(f.getPath() + ".part");
+                if (part != null) {
+                    try (OutputStream out = new FileOutputStream(pf, "append".equals(part))) {
+                        out.write(b);
+                    }
+                } else {
+                    if (f.exists() && !f.delete()) throw new IOException("cannot replace " + f);
+                    if (!pf.renameTo(f)) throw new IOException("rename failed: " + f);
+                }
+                call.resolve();
+                return;
+            }
             boolean append = Boolean.TRUE.equals(call.getBoolean("append", false));
             if (append) {
                 try (OutputStream out = new FileOutputStream(f, true)) {

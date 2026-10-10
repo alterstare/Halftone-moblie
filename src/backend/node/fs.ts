@@ -21,10 +21,26 @@ function enoent(path: string): Error & { code: string } {
   return Object.assign(new Error(`ENOENT: no such file or directory, '${path}'`), { code: 'ENOENT' })
 }
 
+// Big files cross the native bridge in pieces: one multi-MB string (a 7000-
+// entry favorites summary file is ~5MB) ran the Java side out of memory while
+// Capacitor serialized it — the app crashed opening the favorites.
+const BIG = 1024 * 1024
+const PIECE = 512 * 1024
+const writing = new Map<string, Promise<void>>()
+
 export async function readFile(path: string): Promise<Uint8Array>
 export async function readFile(path: string, enc: 'utf-8' | 'utf8'): Promise<string>
 export async function readFile(path: string, enc?: string): Promise<string | Uint8Array> {
   try {
+    const st = await MM.fsStat({ path })
+    if (st.exists && st.isFile && st.size > BIG) {
+      const out = new Uint8Array(st.size)
+      for (let off = 0; off < st.size; off += PIECE) {
+        const part = b64ToBytes((await MM.fsRead({ path, encoding: 'base64', offset: off, length: PIECE })).data)
+        out.set(part, off)
+      }
+      return enc ? new TextDecoder().decode(out) : out
+    }
     if (enc) return (await MM.fsRead({ path, encoding: 'utf8' })).data
     return b64ToBytes((await MM.fsRead({ path, encoding: 'base64' })).data)
   } catch {
@@ -33,6 +49,22 @@ export async function readFile(path: string, enc?: string): Promise<string | Uin
 }
 
 export async function writeFile(path: string, data: string | Uint8Array, _enc?: string): Promise<void> {
+  const big = typeof data === 'string' ? data.length > BIG / 3 : data.length > BIG
+  if (big && !path.startsWith('/nas/')) {
+    // One piecewise write per file at a time (two would mix their pieces).
+    const run = (writing.get(path) ?? Promise.resolve()).then(async () => {
+      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
+      for (let off = 0; off < bytes.length; off += PIECE) {
+        const chunk = bytesToB64(bytes.subarray(off, off + PIECE))
+        await MM.fsWrite({ path, data: chunk, encoding: 'base64', part: off === 0 ? 'new' : 'append' })
+      }
+      await MM.fsWrite({ path, data: '', commit: true })
+    })
+    const settled = run.catch(() => {})
+    writing.set(path, settled)
+    void settled.then(() => writing.get(path) === settled && writing.delete(path))
+    return run
+  }
   if (typeof data === 'string') await MM.fsWrite({ path, data, encoding: 'utf8' })
   else await MM.fsWrite({ path, data: bytesToB64(data), encoding: 'base64' })
 }

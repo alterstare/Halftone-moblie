@@ -26,11 +26,17 @@ import { setExcluded } from './exclude'
 import { startLockGuard, markLockReady, useLock, decoyHiddenTabs } from './lock'
 import LockPrompt from './components/LockPrompt'
 import { restoreSoftReload } from './softReload'
+import { resumeSummaryJobs } from './summaryJob'
 import Caret from './components/Caret'
 
 export default function App(): JSX.Element {
   const view = useStore((s) => s.view)
   const focusMode = useStore((s) => !!s.settings.focusMode)
+  // 즐겨찾기 정보 불러오기 jobs cut short last time pick up where they stopped.
+  useEffect(() => {
+    const t = setTimeout(() => void resumeSummaryJobs(), 3000)
+    return () => clearTimeout(t)
+  }, [])
   // Tab bar height for the focus-mode overlay layout (reader title bar offset).
   useEffect(() => {
     const tb = document.querySelector<HTMLElement>('.mtabbar')

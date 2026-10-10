@@ -8,7 +8,7 @@ import { MM } from './native'
 import { join } from './node/path'
 import { store, paths, on, sendToRenderer } from './context'
 import { moveFromFavorites } from './lib/favorites'
-import { scannedFavorite, migrateFavorites } from './lib/favoriteSync'
+import { scannedFavorite, migrateFavorites, backfillFavMeta } from './lib/favoriteSync'
 import { setComicChallengeHandler, setComicStatusHandler } from './lib/comic'
 import { initThumbDir } from './lib/media'
 import { applyNetwork } from './network'
@@ -85,6 +85,9 @@ export async function installBackend(): Promise<void> {
   await MM.addListener('back', () => sendToRenderer(IPC.navBack))
 
   window.api = { ...libraryApi, ...favoritesApi, ...doujinApi, ...comicApi, ...events } as Api
+  // Load the favorites' summary cache in the background (the first 즐겨찾기
+  // open doesn't wait for it) and fill favorites saved with just a number.
+  setTimeout(() => void backfillFavMeta().catch(() => {}), 1500)
   // Look for a newer release once the UI has settled.
   setTimeout(() => void checkForUpdate(), 5000)
 }

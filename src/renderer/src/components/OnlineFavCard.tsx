@@ -20,8 +20,22 @@ import CopyCode from './CopyCode'
 // An online work that isn't downloaded yet — a favorite, or a 기록 entry — (doujin numeric code or manga-site http url),
 // shown inside the unified favorites grid alongside local work cards. Clicking
 // opens it online; the download button pulls it into the library.
-export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout: 'grid' | 'list' }): JSX.Element {
-  const isComic = isComicCode(fav.code)
+export default function OnlineFavCard({ fav: stored, layout }: { fav: OnlineFav; layout: 'grid' | 'list' }): JSX.Element {
+  const isComic = isComicCode(stored.code)
+  // Stored favorites carry no tags (and an imported one only its number) → pull
+  // the cached gallery summary (doujin only) and fill the gaps from it.
+  useFavSummaries(isComic ? [] : [stored.code])
+  const sum = isComic ? undefined : getFavSummary(stored.code)
+  const fav: OnlineFav = sum
+    ? {
+        ...stored,
+        title: !stored.title || stored.title === stored.code ? sum.title || stored.title : stored.title,
+        artist: stored.artist ?? sum.artists[0] ?? null,
+        language: stored.language ?? sum.language,
+        pageCount: stored.pageCount || sum.pageCount,
+        thumbUrl: stored.thumbUrl ?? sum.thumbUrl
+      }
+    : stored
   const openOnline = useStore((s) => s.openOnline)
   const openComic = useStore((s) => s.openComic)
   const startDownload = useStore((s) => s.startDownload)
@@ -44,9 +58,7 @@ export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout:
       onMenu={(x, e) => openTagMenu(e, tagToken(`artist:${x}`), x)}
     />
   )
-  // Stored favorites carry no tags → pull the cached gallery summary (doujin only).
-  useFavSummaries(isComic ? [] : [fav.code])
-  const tags = (getFavSummary(fav.code)?.tags ?? []).filter((t) => !t.startsWith('language:'))
+  const tags = (sum?.tags ?? []).filter((t) => !t.startsWith('language:'))
 
   const phase = d?.phase
   const active = phase === 'queued' || phase === 'fetching' || phase === 'downloading' || phase === 'enriching'
@@ -140,9 +152,15 @@ export default function OnlineFavCard({ fav, layout }: { fav: OnlineFav; layout:
         </div>
         <div className="tile-info">
           <div className="gtile-title selectable">{fav.title}</div>
+          {/* same as the online list: 쪽수 · [번호] · 언어 */}
           <div className="gtile-meta">
-            {fav.pageCount ? `${fav.pageCount}p` : ''}
-            {fav.language && `${fav.pageCount ? ' · ' : ''}${fav.language}`}
+            {[
+              fav.pageCount ? `${fav.pageCount}p` : null,
+              !isComic ? <CopyCode key="code" code={fav.code} /> : null,
+              fav.language || null
+            ]
+              .filter(Boolean)
+              .flatMap((x, i) => (i ? [' · ', x] : [x]))}
           </div>
           {fav.artist && <MoreClamp className="gtile-meta gtile-artist">{artistLinks(fav.artist)}</MoreClamp>}
           {tags.length > 0 && (
