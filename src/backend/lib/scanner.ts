@@ -1,7 +1,7 @@
 import * as fs from '../node/fs'
 import { join, basename, dirname, extname, resolve, sep } from '../node/path'
 import type { Work, Settings, DoujinMeta } from '../../shared/types'
-import { IMAGE_EXTS } from '../../shared/types'
+import { IMAGE_EXTS, workCodes, allFavoritesDirs } from '../../shared/types'
 import { parseName } from './parser'
 import { deriveId } from './store'
 import { readSidecar, pickSidecar } from './doujin'
@@ -19,7 +19,7 @@ export interface ScanCallbacks {
 export function effectiveRoots(settings: Settings): string[] {
   const roots = new Set<string>()
   for (const r of settings.libraryRoots) if (r) roots.add(r)
-  if (settings.favoritesDir) roots.add(settings.favoritesDir)
+  for (const d of allFavoritesDirs(settings)) roots.add(d)
   if (settings.downloadDir) roots.add(settings.downloadDir)
   for (const d of [settings.langDirs.english, settings.langDirs.japanese, settings.langDirs.other])
     if (d) roots.add(d)
@@ -162,6 +162,35 @@ export async function scanRoot(
   return applyCollections(await buildWorks(found, settings, {}), settings)
 }
 
+// Rebuild just these work folders (작품 통합 / 해제): their own images only,
+// library from the normal roots, artist from an artist-folder root. The manual
+// collections in `settings` then fold them as a full scan would. (Callers fall
+// back to a full scan when artist-folder auto collections are on — those need
+// every folder of the artist.)
+export async function scanDirs(dirs: string[], settings: Settings): Promise<Work[]> {
+  const trees = await loadTrees(dirs)
+  const nRoots = normalRoots(settings).map((r) => resolve(r))
+  const fRoots = flattenRoots(settings).map((r) => resolve(r))
+  const found: Found[] = []
+  for (const dir of [...new Set(dirs)]) {
+    const node = trees.get(dir)
+    if (!node?.images) continue
+    const rp = resolve(dir)
+    const library = nRoots.some((r) => rp === r || rp.startsWith(r + sep)) ? 'normal' : 'doujin'
+    const af = artistFolderOf(rp, fRoots)
+    const sidecar = library === 'doujin' && node.metas?.length ? pickSidecar(node.metas) : null
+    found.push({ dir, pageCount: node.images, library, artist: af ? basename(af) : null, mtime: node.mtime, sidecar })
+  }
+  return applyCollections(await buildWorks(found, settings, {}), settings)
+}
+
+// Is any of `dirs` under an artist-folder root with auto collections on?
+export function needsFullScan(dirs: string[], settings: Settings): boolean {
+  if ((settings.flattenCollectThreshold ?? 0) <= 0) return false
+  const fRoots = flattenRoots(settings).map((r) => resolve(r))
+  return dirs.some((d) => artistFolderOf(resolve(d), fRoots) !== null)
+}
+
 // Fold "collection" works out of a scanned work list. Two sources:
 //  1. auto: under an artist folder (flattenRoots), work folders with pageCount
 //     <= flattenCollectThreshold are merged into one "<artist> collection".
@@ -241,6 +270,7 @@ function makeCollection(
 ): Work {
   const sources = [...group.map((w) => w.path)].sort(naturalCompare)
   const pageCount = group.reduce((n, w) => n + w.pageCount, 0)
+  const codes = [...new Set(group.flatMap((w) => workCodes(w)))]
   const id = deriveId(`${basename(idBasis)}::collection`, null, resolve(idBasis) + '#collection')
   return {
     id,
@@ -262,7 +292,8 @@ function makeCollection(
     mtime: Math.max(0, ...group.map((w) => w.mtime)),
     source: 'local',
     library,
-    sources
+    sources,
+    ...(codes.length ? { codes } : {})
   }
 }
 
@@ -355,11 +386,12 @@ function safeName(name: string): string {
 
 // Inside the doujin favorites folder? (General manga has no favorites folder.)
 function underFavorites(dir: string, settings: Settings, library: 'doujin' | 'normal'): boolean {
-  const favDir = library === 'normal' ? null : settings.favoritesDir
-  if (!favDir) return false
-  const fav = resolve(favDir)
+  if (library === 'normal') return false
   const d = resolve(dir)
-  return d === fav || d.startsWith(fav + sep)
+  return allFavoritesDirs(settings).some((f) => {
+    const fav = resolve(f)
+    return d === fav || d.startsWith(fav + sep)
+  })
 }
 
 // If the work's immediate parent folder is named after a group, return that

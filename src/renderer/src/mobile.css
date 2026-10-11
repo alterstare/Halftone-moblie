@@ -3114,3 +3114,19 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   opacity: 1;
   translate: -50% 0;
 }
+
+/* Inline tag add (cards / chapter rows): the form is only a wrapper. */
+.tag-add-form {
+  display: contents;
+}
+.tag-add-list {
+  z-index: 1200;
+}
+
+/* × after a hand-typed artist (cards): a finger-sized hit area. */
+.gtile-artist .tag-x,
+.ctile-artist .tag-x {
+  margin-left: 4px;
+  padding: 0 6px;
+  cursor: pointer;
+}

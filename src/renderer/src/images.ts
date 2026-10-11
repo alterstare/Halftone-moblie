@@ -102,6 +102,18 @@ export function onOnlinePages(code: string, cb: (urls: string[], more: boolean) 
   return () => {
     set!.delete(cb)
     if (!set!.size) pageListeners.delete(code)
+    // Nobody shows this chapter any more (flipped on, back to the list, tab
+    // closed) → stop loading it, so the scraper goes to what the user looks at
+    // now. Checked a moment later: a reader re-rendering the same chapter
+    // (다시 불러오기) unsubscribes and subscribes again in one go.
+    setTimeout(() => {
+      if (pageListeners.get(code)?.size || !collecting.has(code)) return
+      collecting.delete(code)
+      onlineCache.delete(code)
+      best.delete(code)
+      resumes.delete(code)
+      void window.api.comicCancelRead(code).catch(() => {})
+    }, 300)
   }
 }
 

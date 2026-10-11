@@ -15,6 +15,7 @@ import { useSettings } from "./context";
 import { summaryJob } from "../../summaryJob";
 import ConfirmModal from "../ConfirmModal";
 import { ChipList, FolderRow } from "./parts";
+import { useNas } from "../../nas";
 
 // Last path segment, for compact folder buttons.
 const shortPath = (p: string): string =>
@@ -183,7 +184,8 @@ function RatingFileRow(): JSX.Element {
 }
 
 function Favorites(): JSX.Element {
-  const { draft, patch, applySaved, notify, pickDir } = useSettings();
+  const { draft, patch, applySaved, notify, pickDir, pickNasDir } = useSettings();
+  const nasConns = useNas((s) => s.conns);
   const setWorks = useStore((s) => s.setWorks);
   const setOnlineFavs = useStore((s) => s.setOnlineFavs);
   const [preloading, setPreloading] = useState(false);
@@ -238,6 +240,21 @@ function Favorites(): JSX.Element {
         onClear={() => patch({ favoritesDir: null })}
         mode="doujin"
       />
+      {nasConns.map((c) => (
+        <FolderRow
+          key={c.id}
+          title={`NAS 즐겨찾기 폴더 · ${c.name}`}
+          desc="이 NAS에 있는 작품을 즐겨찾기하면 이 폴더로 옮깁니다. 비워 두면 NAS 작품은 옮기지 않고 하트만 바뀝니다."
+          path={draft.nasFavoritesDirs?.[c.id] ?? null}
+          onPick={() => pickNasDir(c, (d) => patch({ nasFavoritesDirs: { ...(draft.nasFavoritesDirs ?? {}), [c.id]: d } }))}
+          onClear={() => {
+            const next = { ...(draft.nasFavoritesDirs ?? {}) };
+            delete next[c.id];
+            patch({ nasFavoritesDirs: next });
+          }}
+          mode="doujin"
+        />
+      ))}
       <SettingRow
         title="즐겨찾기하면 폴더로 이동"
         desc="하트를 누르면 작품 폴더를 즐겨찾기 폴더로 옮기고, 해제하면 원래 위치로 되돌립니다. 끄면 폴더는 그대로 두고 하트만 바뀝니다."
@@ -421,6 +438,8 @@ export default function TagSection(): JSX.Element {
   const [excludeInput, setExcludeInput] = useState("");
   const [favSearchInput, setFavSearchInput] = useState("");
   // Every tag used in the library — autocomplete source for the inputs.
+  // Online tag index (doujin): offers tags no local work carries yet.
+  const suggestTags = useMemo(() => (q: string) => window.api.doujinSuggest(q), []);
   const allTagTokens = useMemo(() => {
     const s = new Set<string>();
     for (const w of works) {
@@ -477,12 +496,16 @@ export default function TagSection(): JSX.Element {
             value={tagInput}
             onChange={setTagInput}
             tokens={allTagTokens}
+            fetchTokens={isDoujin ? suggestTags : undefined}
             className="field-input"
             placeholder="태그 입력 후 Enter"
             onEnter={() => {
-              if (!tagInput.trim()) return;
+              // Works carry tags as "male:sole male" / "incest" — an online
+              // suggestion ("male:sole_male", "tag:incest") is stored that way.
+              const t = tagInput.trim().toLowerCase().replace(/^tag:/, "").replace(/_/g, " ");
+              if (!t) return;
               patch({
-                [favKey]: [...new Set([...favTags, tagInput.trim().toLowerCase()])],
+                [favKey]: [...new Set([...favTags, t])],
               });
               setTagInput("");
             }}
@@ -506,6 +529,7 @@ export default function TagSection(): JSX.Element {
             value={excludeInput}
             onChange={setExcludeInput}
             tokens={allTagTokens}
+            fetchTokens={isDoujin ? suggestTags : undefined}
             className="field-input"
             placeholder="태그 입력 후 Enter"
             onEnter={() => {

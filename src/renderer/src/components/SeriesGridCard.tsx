@@ -44,11 +44,14 @@ export default function SeriesGridCard({ series, compact = false }: { series: Se
         <div className="ctile-title">{series.title}</div>
         <div className="ctile-artist">
           {c.artist && (
-            <ArtistLinks
-              artist={c.artist}
-              onPick={(a) => addSearchToken(tagToken(`artist:${a}`))}
-              onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
-            />
+            <span className="removable">
+              <ArtistLinks
+                artist={c.artist}
+                onPick={(a) => addSearchToken(tagToken(`artist:${a}`))}
+                onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
+              />
+              {c.manualArtist && <span className="tag-x" onClick={(e) => { e.stopPropagation(); void c.clearManualArtist() }}>×</span>}
+            </span>
           )}
         </div>
         <div className="ctile-meta">전체 {c.chapters.length}화</div>
@@ -75,6 +78,7 @@ export default function SeriesGridCard({ series, compact = false }: { series: Se
                 onPick={(a) => addSearchToken(tagToken(`artist:${a}`))}
                 onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
               />
+              {c.manualArtist && <span className="tag-x" onClick={(e) => { e.stopPropagation(); void c.clearManualArtist() }}>×</span>}
             </MoreClamp>
           )}
           <div className="gtile-tags">

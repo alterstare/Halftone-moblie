@@ -1,3 +1,4 @@
+import { workCodes } from '../../shared/types'
 // Unified favorites — list builders shared by the favorites views.
 //
 // mergeFavorites: the home "즐겨찾기" view.
@@ -82,7 +83,7 @@ export function doujinFavGalleries(
   sort?: FavSort
 ): GallerySummary[] {
   const byCode = new Map<string, Work>()
-  for (const w of works) if (w.code) byCode.set(w.code, w)
+  for (const w of works) for (const code of workCodes(w)) if (!byCode.has(code) || w.code === code) byCode.set(code, w)
   const rows: { g: GallerySummary; t: number; r: number }[] = []
   const seen = new Set<string>()
   for (const f of Object.values(onlineFavs)) {

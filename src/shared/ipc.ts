@@ -218,6 +218,9 @@ export interface Api {
   scanLibrary: () => Promise<Work[]>
   // Rescan a single folder; works get favorite/group inferred from their path.
   scanFolder: (root: string) => Promise<Work[]>
+  // 작품 통합 / 해제: save settings.manualCollections and rebuild only the
+  // works made from `dirs` (no full library scan).
+  setCollections: (collections: Settings['manualCollections'], dirs: string[]) => Promise<{ settings: Settings; works: Work[] }>
   onScanProgress: (cb: (p: ScanProgress) => void) => () => void
   organizeLanguages: () => Promise<Work[]>
   organizeByGenre: () => Promise<{ works: Work[]; moved: number }>
@@ -294,6 +297,8 @@ export interface Api {
   ) => Promise<{ fav: OnlineFav; works: Work[] }>
   addManualTag: (workId: string, tag: string) => Promise<Work>
   removeManualTag: (workId: string, tag: string) => Promise<Work>
+  // Drop a hand-typed artist → back to the scanned one.
+  removeManualArtist: (workId: string) => Promise<Work>
   incrementView: (workId: string) => Promise<Work>
   openInExplorer: (workId: string) => Promise<void>
   // NAS (WebDAV / SMB) connections + folder browsing.
@@ -360,6 +365,8 @@ export interface Api {
   comicRegenCover: (workIds: string[], title: string) => Promise<{ ok: boolean; error?: string }>
   // Scrape the author(s) of a series from its page (comma-joined, or null).
   comicSeriesAuthor: (seriesUrl: string) => Promise<string | null>
+  // The reader no longer shows this chapter: stop loading its page list.
+  comicCancelRead: (chapterUrl: string) => Promise<void>
   comicSeriesTitle: (seriesUrl: string) => Promise<string | null>
   // Fill the artist field on the given works by searching the online source for
   // `title`, taking the first result's author. Returns the updated works.

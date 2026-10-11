@@ -101,7 +101,7 @@ export default function Browse(): JSX.Element {
     activeSource.kind === 'index' ? activeSource.sort ?? 'date' : 'date'
   )
   const [reverse, setReverse] = useState(false)
-  const [browseLayout, setBrowseLayout] = useState<'grid' | 'list'>('grid')
+  const browseLayout = useStore((s) => s.settings.browseLayout ?? 'grid')
   const [items, setItems] = useState<GallerySummary[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -421,7 +421,7 @@ export default function Browse(): JSX.Element {
         <div className="chips">
           <button
             className="chip layout-toggle"
-            onClick={() => setBrowseLayout((l) => (l === 'grid' ? 'list' : 'grid'))}
+            onClick={() => useStore.getState().patchSettings({ browseLayout: browseLayout === 'grid' ? 'list' : 'grid' })}
             title={browseLayout === 'grid' ? '격자형' : '목록형'}
           >
             {browseLayout === 'grid' ? <GridIcon /> : <MenuIcon />}

@@ -8,6 +8,7 @@
 //    export / merge-import / merging several files.
 //  • Lists: a file imported as a named list of codes.
 import type { OnlineFav } from '../../shared/types'
+import { workCodes } from '../../shared/types'
 import type { Api } from '../../shared/ipc'
 import { IPC } from '../../shared/ipc'
 import { MM } from '../native'
@@ -25,7 +26,7 @@ async function pickJsons(multiple: boolean): Promise<{ name: string; text: strin
 
 async function deadFavoriteCodes(): Promise<string[]> {
   const gone = await deadCodes()
-  const local = new Set([...store.works.values()].map((w) => w.code).filter(Boolean) as string[])
+  const local = new Set([...store.works.values()].flatMap((w) => workCodes(w)))
   return [...store.onlineFavs.values()].filter((f) => f.favorite && gone.has(f.code) && !local.has(f.code)).map((f) => f.code)
 }
 

@@ -6,6 +6,7 @@
 // push the stored result back with applySaved.
 import { createContext, useContext } from 'react'
 import type { Settings, Work } from '../../../../shared/types'
+import type { NasConn } from '../../../../shared/ipc'
 
 export interface SettingsCtl {
   draft: Settings
@@ -23,6 +24,8 @@ export interface SettingsCtl {
   rescan: (path: string, mode: 'doujin' | 'normal') => Promise<void>
   // Open the folder picker; `apply` runs only if the user chose a folder.
   pickDir: (apply: (dir: string) => void) => Promise<void>
+  // Browse straight into one NAS connection (its own folders only).
+  pickNasDir: (conn: NasConn, apply: (dir: string) => void) => void
 }
 
 export const SettingsContext = createContext<SettingsCtl | null>(null)

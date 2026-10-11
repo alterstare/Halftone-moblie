@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { workCodes } from '../../../shared/types'
 import { useStore, useSeriesRoots } from '../store'
 import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isComicCode, sortSeries } from '../util'
 import type { SortMode, OnlineFav, Work } from '../../../shared/types'
@@ -318,7 +319,7 @@ export default function Home(): JSX.Element {
     if (!favActive || favDownloadedOnly) return []
     // Only with 기본 (the hearts) checked — imported lists show downloaded works only.
     if (filter.kind === 'favlists' && !filter.value.includes(FAV_BASE)) return []
-    const libCodes = new Set(works.map((w) => w.code).filter(Boolean) as string[])
+    const libCodes = new Set(works.flatMap((w) => workCodes(w)))
     return Object.values(onlineFavs)
       .filter(
         (f) =>
@@ -360,7 +361,7 @@ export default function Home(): JSX.Element {
         if (t) out.push({ kind: 'series', series: sg, t, r: Math.max(0, ...sg.chapters.map((c) => c.rank)) })
       }
     }
-    const libCodes = new Set(works.map((w) => w.code).filter(Boolean) as string[])
+    const libCodes = new Set(works.flatMap((w) => workCodes(w)))
     const words = search
       .toLowerCase()
       .split(/[\s,]+/)
@@ -560,11 +561,12 @@ export default function Home(): JSX.Element {
     const picked = selWorkIds().flatMap((id) => byId.get(id) ?? [])
     if (canMerge(picked)) setMergeAsk({ works: picked, name: picked[0].title })
   }
-  const confirmMerge = async (): Promise<void> => {
+  const confirmMerge = (): void => {
     const m = mergeAsk
     if (!m || !m.name.trim()) return
     setMergeAsk(null)
-    if (await mergeWorks(m.works, m.name)) sel.stop()
+    // Back to the plain list at once; the merge runs as a job (작업 바).
+    if (mergeWorks(m.works, m.name)) sel.stop()
   }
   const deleteSelected = async (ids: string[]): Promise<void> => {
     setDelSel(null)
@@ -663,7 +665,7 @@ export default function Home(): JSX.Element {
               className="page-jump-row merge-name-row"
               onSubmit={(e) => {
                 e.preventDefault()
-                void confirmMerge()
+                confirmMerge()
               }}
             >
               <input
@@ -679,7 +681,7 @@ export default function Home(): JSX.Element {
               <button className="exit-btn ghost" onClick={() => setMergeAsk(null)}>
                 취소
               </button>
-              <button className="exit-btn primary" disabled={!mergeAsk.name.trim()} onClick={() => void confirmMerge()}>
+              <button className="exit-btn primary" disabled={!mergeAsk.name.trim()} onClick={confirmMerge}>
                 통합
               </button>
             </div>

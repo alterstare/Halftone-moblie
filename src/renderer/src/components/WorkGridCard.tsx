@@ -47,11 +47,14 @@ export default function WorkGridCard({ work, compact = false }: { work: Work; co
         <div className="ctile-title">{work.title}</div>
         <div className="ctile-artist">
           {work.artist && (
-            <ArtistLinks
-              artist={work.artist}
-              onPick={(a) => setFilter({ kind: 'artist', value: a })}
-              onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
-            />
+            <span className="removable">
+              <ArtistLinks
+                artist={work.artist}
+                onPick={(a) => setFilter({ kind: 'artist', value: a })}
+                onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
+              />
+              {c.manualArtist && <span className="tag-x" onClick={(e) => { e.stopPropagation(); void c.clearManualArtist() }}>×</span>}
+            </span>
           )}
         </div>
         <div className="ctile-meta">
@@ -95,6 +98,7 @@ export default function WorkGridCard({ work, compact = false }: { work: Work; co
                 onPick={(a) => setFilter({ kind: 'artist', value: a })}
                 onMenu={(a, e) => c.openTagMenu(e, tagToken(`artist:${a}`), a)}
               />
+              {c.manualArtist && <span className="tag-x" onClick={(e) => { e.stopPropagation(); void c.clearManualArtist() }}>×</span>}
             </MoreClamp>
           )}
           <div className="gtile-tags">

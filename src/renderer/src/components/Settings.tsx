@@ -45,6 +45,7 @@ const SCAN_KEYS: (keyof SettingsT)[] = [
   'downloadDir',
   'normalDownloadDir',
   'favoritesDir',
+  'nasFavoritesDirs',
   'langDirs',
   'flattenRoots',
   'flattenCollectThreshold',
@@ -127,7 +128,8 @@ export default function Settings(): JSX.Element {
       }
     },
     // Where to pick from: this device, or one of the NAS connections.
-    pickDir: async (apply) => setChooser({ apply })
+    pickDir: async (apply) => setChooser({ apply }),
+    pickNasDir: (conn, apply) => setBrowse({ conn, apply })
   }
 
   // Persist the draft. Per-mode keys (SPLIT_SETTING_KEYS) go into this mode's

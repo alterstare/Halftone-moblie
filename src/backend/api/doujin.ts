@@ -56,7 +56,7 @@ async function enrichOne(workId: string): Promise<Work> {
   return store.update(workId, {
     tags: [...new Set([...w.tags, ...meta.tags])],
     language: meta.language,
-    artist: w.artist ?? (meta.artists.length ? meta.artists.join(', ') : null)
+    artist: w.manualArtist != null ? w.artist : (w.artist ?? (meta.artists.length ? meta.artists.join(', ') : null))
   })
 }
 

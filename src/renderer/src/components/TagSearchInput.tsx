@@ -139,6 +139,12 @@ export default function TagSearchInput({
         className="search"
         value={value}
         placeholder={placeholder}
+        // The phone keyboard's action key = 검색 (sends Enter); without it a
+        // following field turns it into "다음", which never fires onEnter.
+        enterKeyHint="search"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         onChange={(e) => {
           onChange(e.target.value)
           setOpen(true)

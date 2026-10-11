@@ -8,6 +8,7 @@ import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { useTagMenu } from './useTagMenu'
 import { isNarrow } from '../mobile'
 import { mergedIndex, unmergeWork } from '../merge'
+import TagAddInput from './TagAddInput'
 
 // Everything a local work card (list WorkCard / grid WorkGridCard) does besides
 // its layout:
@@ -30,6 +31,9 @@ export function useWorkCard(work: Work): {
   toggleFav: (e: MouseEvent) => Promise<void>
   setRank: (rank: number) => Promise<void>
   removeTag: (tag: string) => Promise<void>
+  // Artist typed by hand → × next to it restores the scanned one.
+  manualArtist: boolean
+  clearManualArtist: () => Promise<void>
   adding: boolean
   startAddTag: () => void
   tagInput: JSX.Element | null
@@ -50,7 +54,6 @@ export function useWorkCard(work: Work): {
   const [confirmDel, setConfirmDel] = useState(false)
   const removeWork = useStore((s) => s.removeWork)
   const [adding, setAdding] = useState(false)
-  const [newTag, setNewTag] = useState('')
   const { openTagMenu, tagMenu } = useTagMenu('online')
 
   const cardEvents = {
@@ -93,27 +96,18 @@ export function useWorkCard(work: Work): {
     upsertWork(await window.api.setRank(work.id, rank))
   }
 
-  const addTag = async (): Promise<void> => {
-    const t = newTag.trim()
-    if (t) upsertWork(await window.api.addManualTag(work.id, t))
-    setNewTag('')
+  const addTag = async (tag: string): Promise<void> => {
+    const t = tag.trim()
     setAdding(false)
+    if (t) upsertWork(await window.api.addManualTag(work.id, t))
   }
   const removeTag = async (tag: string): Promise<void> => {
     upsertWork(await window.api.removeManualTag(work.id, tag))
   }
-  const tagInput = adding ? (
-    <input
-      autoFocus
-      className="tag-input"
-      value={newTag}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setNewTag(e.target.value)}
-      onBlur={addTag}
-      onKeyDown={(e) => e.key === 'Enter' && addTag()}
-      placeholder="태그…"
-    />
-  ) : null
+  const clearManualArtist = async (): Promise<void> => {
+    upsertWork(await window.api.removeManualArtist(work.id))
+  }
+  const tagInput = adding ? <TagAddInput onCommit={(t) => void addTag(t)} /> : null
 
   // Long-press menu (phone): open / copy, plus what the old list row had as
   // buttons — 폴더 열기, 메타 채우기 (doujin with a code) and 삭제.
@@ -179,6 +173,8 @@ export function useWorkCard(work: Work): {
     toggleFav,
     setRank,
     removeTag,
+    manualArtist: !!work.manualArtist,
+    clearManualArtist,
     adding,
     startAddTag: () => setAdding(true),
     tagInput,

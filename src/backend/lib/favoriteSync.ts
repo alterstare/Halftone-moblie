@@ -14,6 +14,7 @@
 // work that newly appears inside favoritesDir is added to the favorites
 // (manual drag-in still works), but leaving the folder never removes a heart.
 import type { OnlineFav, Work } from '../../shared/types'
+import { favoritesDirFor, allFavoritesDirs } from '../../shared/types'
 import type { GallerySummary } from '../../shared/ipc'
 import { ensureSummaries } from './summaries'
 import { store } from '../context'
@@ -72,9 +73,10 @@ async function applyToWork(w: Work, fav: boolean): Promise<Work> {
   const s = store.settings
   const stamp = { favorite: fav, favoritedAt: fav ? (w.favoritedAt ?? Date.now()) : undefined }
   let patch: Partial<Work> = {}
-  if ((w.library ?? 'doujin') === 'doujin' && s.favoriteMoveToFolder !== false && s.favoritesDir) {
+  const favDir = favoritesDirFor(w.path, s)
+  if ((w.library ?? 'doujin') === 'doujin' && s.favoriteMoveToFolder !== false && favDir) {
     try {
-      if (fav && !isUnder(w.path, s.favoritesDir)) patch = await moveToFavorites(w, s.favoritesDir, s.groups)
+      if (fav && !isUnder(w.path, favDir)) patch = await moveToFavorites(w, favDir, s.groups)
       else if (!fav && w.homePath) patch = await moveFromFavorites(w)
     } catch {
       /* folder busy/missing — the heart still changes, the folder stays put */
@@ -170,7 +172,7 @@ export async function placeIfFavorite(w: Work): Promise<Work> {
 // Store.favoriteRule. `inFavDir` = the scan found it inside favoritesDir.
 export function scannedFavorite(w: Work, prev: Work | undefined, inFavDir: boolean): boolean {
   const key = listKeyOf(w)
-  const enteredFavDir = inFavDir && (!prev || !isUnder(prev.path, store.settings.favoritesDir))
+  const enteredFavDir = inFavDir && (!prev || !allFavoritesDirs(store.settings).some((d) => isUnder(prev.path, d)))
   if (key) {
     const listed = !!store.onlineFavs.get(key)?.favorite
     if (!listed && enteredFavDir) store.setOnlineFav(key, { favorite: true }, metaOf(w))

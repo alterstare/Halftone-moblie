@@ -22,6 +22,7 @@ type Prog = { done: number; total: number }
 const KEEP_ON_RESET = [
   'libraryRoots',
   'favoritesDir',
+  'nasFavoritesDirs',
   'downloadDir',
   'langDirs',
   'normalRoots',

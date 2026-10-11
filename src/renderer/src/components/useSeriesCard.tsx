@@ -7,6 +7,7 @@ import ContextMenu from './ContextMenu'
 import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { useTagMenu } from './useTagMenu'
 import { isNarrow } from '../mobile'
+import TagAddInput from './TagAddInput'
 
 // Stable empty fallback — never return a fresh array from a zustand selector
 // (useSyncExternalStore would see a new reference every read → infinite loop).
@@ -41,6 +42,9 @@ export function useSeriesCard(series: SeriesGroup): {
   toggleFav: (e: MouseEvent) => Promise<void>
   rankAll: (r: number) => Promise<void>
   clearField: (field: 'artist' | 'language') => Promise<void>
+  // Some chapter has a hand-typed artist → × restores the scanned ones.
+  manualArtist: boolean
+  clearManualArtist: () => Promise<void>
   seriesTags: string[]
   removeSeriesTag: (t: string) => Promise<void>
   adding: boolean
@@ -70,7 +74,6 @@ export function useSeriesCard(series: SeriesGroup): {
   const [confirmDel, setConfirmDel] = useState(false)
   const removeWork = useStore((s) => s.removeWork)
   const [adding, setAdding] = useState(false)
-  const [newTag, setNewTag] = useState('')
   const [newGrp, setNewGrp] = useState(false)
   const [grpName, setGrpName] = useState('')
   const { openTagMenu, tagMenu } = useTagMenu('online')
@@ -136,9 +139,8 @@ export function useSeriesCard(series: SeriesGroup): {
     for (const c of chapters) upsertWork(await window.api.addManualTag(c.id, `${field}:`))
   }
 
-  const addSeriesTag = async (): Promise<void> => {
-    const t = newTag.trim()
-    setNewTag('')
+  const addSeriesTag = async (tag: string): Promise<void> => {
+    const t = tag.trim()
     setAdding(false)
     if (!t) return
     if (/^(artist|language):/i.test(t)) {
@@ -152,18 +154,11 @@ export function useSeriesCard(series: SeriesGroup): {
       series.key,
       seriesTags.filter((x) => x !== t)
     )
-  const tagInput = adding ? (
-    <input
-      autoFocus
-      className="tag-input"
-      value={newTag}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => setNewTag(e.target.value)}
-      onBlur={addSeriesTag}
-      onKeyDown={(e) => e.key === 'Enter' && addSeriesTag()}
-      placeholder="시리즈 태그…"
-    />
-  ) : null
+  const tagInput = adding ? <TagAddInput placeholder="시리즈 태그…" onCommit={(t) => void addSeriesTag(t)} /> : null
+
+  const clearManualArtist = async (): Promise<void> => {
+    for (const c of chapters) if (c.manualArtist != null) upsertWork(await window.api.removeManualArtist(c.id))
+  }
 
   // Groups (general-manga ones only): every chapter joins the chosen group.
   const normalGroups = allGroups.filter((g) => (g.mode ?? 'doujin') === 'normal')
@@ -250,6 +245,8 @@ export function useSeriesCard(series: SeriesGroup): {
   )
 
   return {
+    manualArtist: chapters.some((c) => !!c.manualArtist),
+    clearManualArtist,
     chapters,
     rep,
     artist,

@@ -5,7 +5,7 @@ import * as fs from '../node/fs'
 import { join } from '../node/path'
 import { utf8 } from '../node/bytes'
 import type { Work, Settings, SessionState, OnlineFav, ReadProgress, OnlineHistoryEntry } from '../../shared/types'
-import { DEFAULT_SETTINGS } from '../../shared/types'
+import { DEFAULT_SETTINGS, allFavoritesDirs } from '../../shared/types'
 import { isUnder } from './favorites'
 
 // Plain-JSON persistence. Metadata for a few thousand works fits comfortably in
@@ -189,17 +189,22 @@ export class Store {
     const favorite = this.favoriteRule ? this.favoriteRule(w, prev, inFavDir) : (prev?.favorite ?? inFavDir)
     const favoritedAt = favorite ? (prev?.favoritedAt ?? Date.now()) : prev?.favoritedAt
     if (!prev) return { ...w, favorite, favoritedAt }
-    const locAuth = (w.library ?? 'doujin') === 'doujin' && !!this.settings.favoritesDir
+    const favDirs = allFavoritesDirs(this.settings)
+    const locAuth = (w.library ?? 'doujin') === 'doujin' && favDirs.length > 0
     return {
       ...w,
       tags: w.tags,
       manualTags: prev.manualTags,
+      // A hand-typed artist wins over the scan; the scanned one is kept for ×.
+      artist: prev.manualArtist != null ? prev.manualArtist || null : w.artist,
+      manualArtist: prev.manualArtist ?? null,
+      autoArtist: w.artist,
       library: w.library ?? prev.library, // location-derived; prefer fresh scan
       favorite,
       favoritedAt,
       groups: locAuth ? w.groups : prev.groups,
       // Where to move back on unheart — only while it still sits in the folder.
-      homePath: prev.homePath && isUnder(w.path, this.settings.favoritesDir) ? prev.homePath : null,
+      homePath: prev.homePath && favDirs.some((d) => isUnder(w.path, d)) ? prev.homePath : null,
       rank: prev.rank,
       viewCount: prev.viewCount,
       lastViewedAt: prev.lastViewedAt,

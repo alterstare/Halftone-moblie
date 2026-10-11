@@ -1,20 +1,41 @@
 // 작품 통합: several local works read as ONE work while their folders stay
 // as they are — a manual collection (settings.manualCollections; the scanner
 // folds the folders into one Work whose `sources` = the folders, pages
-// concatenated). 통합 해제 drops the entry; both rescan the library.
+// concatenated). 통합 해제 drops the entry. Both rebuild only the works of the
+// folders involved (window.api.setCollections), as an activity-bar job.
 import type { Work } from '../../shared/types'
 import { useStore } from './store'
 import { showToast } from './toast'
+import { warmThumbs } from './thumbs'
 
 const key = (p: string): string => p.replace(/[\/]+$/, '').toLowerCase()
 const dirsOf = (w: Work): string[] => (w.sources?.length ? w.sources : [w.path])
 
-async function saveAndRescan(manualCollections: ReturnType<typeof useStore.getState>['settings']['manualCollections']): Promise<void> {
+// Save the collections and rebuild the works of `dirs` in the background
+// (activity bar: `title`); `done` = the toast when it's finished.
+async function applyCollections(
+  manualCollections: ReturnType<typeof useStore.getState>['settings']['manualCollections'],
+  dirs: string[],
+  title: string,
+  done: string
+): Promise<void> {
   const st = useStore.getState()
-  const s = { ...st.settings, manualCollections }
-  await window.api.saveSettings(s)
-  st.setSettings(s)
-  await useStore.getState().scanLibraryJob()
+  const jobId = st.startJob('organize', st.libraryMode, title)
+  try {
+    const r = await window.api.setCollections(manualCollections, dirs)
+    const now = useStore.getState()
+    now.setSettings(r.settings)
+    useStore.setState({ works: r.works })
+    now.endJob(jobId, { status: 'done' })
+    showToast(done)
+    // Cover for a new merged work (its id is new — no thumbnail yet).
+    const before = new Set(st.works.map((w) => w.id))
+    const fresh = r.works.filter((w) => !before.has(w.id)).map((w) => w.id)
+    if (fresh.length) void warmThumbs(fresh).catch(() => {})
+  } catch (e: any) {
+    useStore.getState().endJob(jobId, { status: 'error', error: String(e?.message ?? e) })
+    showToast('작품 통합 실패')
+  }
 }
 
 // Can `works` be merged? Shows why not (toast) and returns false.
@@ -34,15 +55,24 @@ export function canMerge(works: Work[]): boolean {
 
 // Merge `works` under `title` (the artist = the first one's). Works that are
 // already merged bring their folders along (their old entry is replaced).
-export async function mergeWorks(works: Work[], title: string): Promise<boolean> {
+// Returns at once (false = can't merge); the merge runs as a job.
+export function mergeWorks(works: Work[], title: string): boolean {
   if (!canMerge(works)) return false
   const dirs = [...new Set(works.flatMap(dirsOf))]
   const set = new Set(dirs.map(key))
-  const keep = (useStore.getState().settings.manualCollections ?? []).filter((c) => !c.dirs.some((d) => set.has(key(d))))
+  const old = useStore.getState().settings.manualCollections ?? []
+  const keep = old.filter((c) => !c.dirs.some((d) => set.has(key(d))))
+  // Folders of replaced collections are rebuilt too (they fall apart or move).
+  const touched = [...new Set([...dirs, ...old.filter((c) => !keep.includes(c)).flatMap((c) => c.dirs)])]
   const first = works[0]
   const name = title.trim() || first.title
-  await saveAndRescan([...keep, { title: name, artist: first.artist, library: first.library ?? 'doujin', dirs }])
-  showToast(`작품 ${works.length}개 통합 완료`)
+  showToast('작품 통합을 시작했습니다')
+  void applyCollections(
+    [...keep, { title: name, artist: first.artist, library: first.library ?? 'doujin', dirs }],
+    touched,
+    `작품 통합 · ${name}`,
+    `작품 ${works.length}개 통합 완료`
+  )
   return true
 }
 
@@ -58,6 +88,11 @@ export function mergedIndex(w: Work): number {
 export async function unmergeWork(w: Work): Promise<void> {
   const i = mergedIndex(w)
   if (i < 0) return
-  await saveAndRescan((useStore.getState().settings.manualCollections ?? []).filter((_, j) => j !== i))
-  showToast('통합 해제 완료')
+  const all = useStore.getState().settings.manualCollections ?? []
+  await applyCollections(
+    all.filter((_, j) => j !== i),
+    all[i].dirs,
+    `통합 해제 · ${w.title}`,
+    '통합 해제 완료'
+  )
 }

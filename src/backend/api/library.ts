@@ -9,7 +9,7 @@ import { join, resolve, sep, basename, dirname } from '../node/path'
 import { MM } from '../native'
 import { store, paths, sendToRenderer } from '../context'
 import { stopAllDownloads } from '../downloads'
-import { scanLibrary, scanRoot, listImages, normalRoots } from '../lib/scanner'
+import { scanLibrary, scanRoot, scanDirs, needsFullScan, listImages, normalRoots } from '../lib/scanner'
 import { parseName } from '../lib/parser'
 import { setGroupFolder, mergeSeries, moveWorkToFolder, renameGroupFolders, safeName } from '../lib/favorites'
 import { setWorkFavorite } from '../lib/favoriteSync'
@@ -68,6 +68,25 @@ export const libraryApi: Partial<Api> = {
     sendToRenderer(IPC.scanProgress, { scanned: merged.length, total: merged.length, current: '', done: true })
     if (store.settings.autoOrganizeOnScan) await runOrganize()
     return allWorks()
+  },
+
+  setCollections: async (collections: Settings['manualCollections'], dirs: string[]) => {
+    const s = await store.saveSettings({ ...store.settings, manualCollections: collections })
+    if (needsFullScan(dirs, s)) {
+      const works = await libraryApi.scanLibrary!()
+      return { settings: s, works }
+    }
+    const key = (p: string): string => resolve(p).toLowerCase()
+    const set = new Set(dirs.map(key))
+    // Works built from these folders before: the single ones and any old
+    // collection that held one of them.
+    const old = [...store.works.values()].filter((w) => (w.sources?.length ? w.sources : [w.path]).some((d) => set.has(key(d))))
+    const scanned = await scanDirs(dirs, s)
+    const keep = new Set(scanned.map((w) => w.id))
+    for (const w of old) if (!keep.has(w.id)) store.remove(w.id)
+    store.mergeScanPartial(scanned)
+    await store.flushWorks()
+    return { settings: s, works: allWorks() }
   },
 
   // Rescan just one folder (favorites / a library root / download dir).
@@ -211,8 +230,18 @@ export const libraryApi: Partial<Api> = {
     if (!raw) return w
     const low = raw.toLowerCase()
     if (low.startsWith('language:')) return store.update(workId, { language: raw.slice(9).trim() || null })
-    if (low.startsWith('artist:')) return store.update(workId, { artist: raw.slice(7).trim() || null })
+    if (low.startsWith('artist:')) {
+      const v = raw.slice(7).trim()
+      // Remember the scanned artist the first time it gets overridden.
+      const autoArtist = w.manualArtist != null ? (w.autoArtist ?? null) : w.artist
+      return store.update(workId, { artist: v || null, manualArtist: v, autoArtist })
+    }
     return store.update(workId, { manualTags: [...new Set([...w.manualTags, low])] })
+  },
+
+  removeManualArtist: async (workId: string) => {
+    const w = store.get(workId)!
+    return store.update(workId, { artist: w.autoArtist ?? null, manualArtist: null })
   },
 
   removeManualTag: async (workId: string, tag: string) => {

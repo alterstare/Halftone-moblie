@@ -6,12 +6,24 @@
 import { create } from 'zustand'
 import { useMemo } from 'react'
 import type { Work, Settings, SortMode, SessionState, OnlineFav, FitMode, ReadProgress, OnlineHistoryEntry } from '../../shared/types'
-import { DEFAULT_SETTINGS, SPLIT_SETTING_KEYS } from '../../shared/types'
+import { DEFAULT_SETTINGS, SPLIT_SETTING_KEYS, workCodes } from '../../shared/types'
 import type { DoujinListSource, DoujinProgress, ComicChapter, UpdateStatus } from '../../shared/ipc'
 import { warmThumbs, invalidateThumb } from './thumbs'
 import { convertWorkToWebp } from './convert'
 import { thumbTargetIds, groupSeries, titleKey, seriesRoots, isComicCode } from './util'
 import { getFavSummary } from './favSummaries'
+import { isNarrow } from './mobile'
+
+// Tablet: the reader list docked open / closed is remembered for the next
+// start (phone: an overlay drawer, always starts closed — see App.tsx).
+const LIST_COLLAPSED_KEY = 'mm-list-collapsed'
+function savedListCollapsed(): boolean {
+  try {
+    return !isNarrow() && localStorage.getItem(LIST_COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
 
 // Merge the active mode's per-mode overrides over the base settings so doujin and
 // general-manga keep independent display/reader/sort prefs. The result still
@@ -654,7 +666,7 @@ export const useStore = create<AppState>((set, get) => ({
   navStack: [],
   navPos: -1,
   navRedo: [],
-  listCollapsed: false,
+  listCollapsed: savedListCollapsed(),
   thumbNonce: 0,
   tabs: [],
   closedTabs: [],
@@ -875,7 +887,18 @@ export const useStore = create<AppState>((set, get) => ({
     ),
   toggleMenu: () => set((st) => ({ menuOpen: !st.menuOpen })),
   setMenuOpen: (b) => set({ menuOpen: b }),
-  toggleListCollapsed: () => set((st) => ({ listCollapsed: !st.listCollapsed })),
+  toggleListCollapsed: () =>
+    set((st) => {
+      const listCollapsed = !st.listCollapsed
+      if (!isNarrow()) {
+        try {
+          localStorage.setItem(LIST_COLLAPSED_KEY, listCollapsed ? '1' : '0')
+        } catch {
+          /* storage unavailable */
+        }
+      }
+      return { listCollapsed }
+    }),
   bumpThumbNonce: () => set((st) => ({ thumbNonce: st.thumbNonce + 1 })),
 
   // ---------- tabs: replace / continuous reading / open ----------
@@ -1914,10 +1937,11 @@ export function useLibraryCodes(): {
     const codeWorkId = new Map<string, string>()
     const localFavCodes = new Set<string>()
     for (const w of works) {
-      if (!w.code) continue
-      libCodes.add(w.code)
-      codeWorkId.set(w.code, w.id)
-      if (w.favorite) localFavCodes.add(w.code)
+      for (const code of workCodes(w)) {
+        libCodes.add(code)
+        if (!codeWorkId.has(code) || w.code === code) codeWorkId.set(code, w.id)
+        if (w.favorite) localFavCodes.add(code)
+      }
     }
     return { libCodes, codeWorkId, localFavCodes }
   }, [works])

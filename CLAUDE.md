@@ -113,7 +113,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   space falls through to the card's click.
   Library screens (Home incl. 기록, Browse, ComicBrowse) use
   `components/libraryTools.tsx`: `usePullRefresh` (children slide by --ptr,
-  spinner above the search box; Home = page 1 + `scanLibraryJob`, online = page
+  spinner above the search box; Home = page 1 + list reload (no scan), online = page
   1 + reloadKey fetch), `LibraryFab` (portaled round +, hides on scroll down,
   drop-up 새로고침 / 작품 선택 / 페이지 이동 — `pager` prop, a number dialog that jumps the screen's list page; 일반 만화 online has no total, so any number, overshoot lands on the last), `useSelection` + `SelectBar` (fixed to the bottom edge, portaled; 전체
   선택 · 해제 | 삭제(local) / 다운로드(online, sequential) | ×) — cards carry
@@ -124,7 +124,14 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   page (↓, icon fixed to the list's bottom edge). 작품 통합 (`merge.ts`):
   SelectBar Merge icon (Home) → a manual collection (`settings.manualCollections`,
   folders untouched, scanner folds them into one Work with `sources`); long-press
-  → 통합 해제. deleteWork on a collection removes only its `sources` (its `path`
+  → 통합 해제. Both run as an activity-bar job (`작품 통합 · <title>`) via
+  `window.api.setCollections(collections, dirs)`: saves the setting and rebuilds
+  only the works of those folders (`scanner.scanDirs`; full scan only when
+  artist-folder auto collections cover them); the name dialog's 진행 closes the
+  selection at once with a "작품 통합을 시작했습니다" toast. A merged work carries
+  `codes` (its sources' gallery codes; `workCodes(w)` in shared/types) — code
+  lookups (`useLibraryCodes`, online-only favorites / 기록, favorite ↔ local,
+  dead-favorite cleanup) use it, so merged galleries count as downloaded. deleteWork on a collection removes only its `sources` (its `path`
   is their parent). `toast.ts` showToast = small bottom pill ("코드 복사 완료").
   Folder names are capped by `backend/lib/nameFit.ts` (80 chars / 180 UTF-8
   bytes; doujin names shorten the title first, never the code) — ext4 255-byte
@@ -235,7 +242,12 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
     in the 400MB image cache (`Net.cachedNas`); downloads to a NAS go to a
     local temp file, then upload. Settings: 폴더 · NAS 연결 list; "+ 폴더 추가"
     asks 이 기기 / NAS · <name> / + NAS 연결 (`NasDialogs.tsx`, `nas.ts`
-    displayPath). App allows cleartext http (LAN NAS). `ensureStorage(paths)`
+    displayPath). App allows cleartext http (LAN NAS). Each NAS connection can
+    have its own favorites folder (`settings.nasFavoritesDirs[connId]`, 설정 ›
+    태그·검색 under 즐겨찾기 폴더, picked by browsing that NAS): hearting a work on
+    that NAS moves it there; `favoritesDirFor(path)` picks the folder (NAS work
+    without one → not moved; never across phone ⇄ NAS), `allFavoritesDirs` =
+    scan roots / "inside favorites" checks. `ensureStorage(paths)`
     skips the storage permission when all paths are NAS.
   - `Tunnel.java`: SNI-bypass local CONNECT proxy (desktop green-tunnel
     equivalent: DoH + ClientHello split into 40-byte TLS records). On when
@@ -300,6 +312,16 @@ in batches of 200. 2000 works × 40 pages on the emulator: 44–50s → ~2.8s.
 Pull-to-refresh / + 새로고침 on Home no longer scans (reloads the list only —
 folders change only through in-app downloads, which register themselves);
 the full scan is 설정 › 라이브러리 갱신.
+
+Hand-typed artist ("artist:…" in a tag input): `work.manualArtist` wins over
+scans and fetched meta (reconcile / enrich / comic artist fill skip it),
+`autoArtist` keeps the scanned one; the × after the artist on work / series
+cards (`removeManualArtist`) restores it. Tag add inputs on cards = `TagAddInput`
+(local + online-index suggestions, portaled list).
+
+Remembered view state: home 목록형/격자형 = `settings.homeLayout`, online
+(동인지) list = `settings.browseLayout`; tablet reader list open / closed =
+localStorage `mm-list-collapsed` (phone drawer always starts closed).
 
 Known gaps / TODO: UI still
 desktop-shaped in places (home/browse toolbars, tab bar, settings); app icon = `app.png` (repo root) rendered into the mipmap
@@ -368,6 +390,15 @@ Two library modes:
   next-chapter flow while `pagesCollecting`. Downloads still await the whole
   list. Reader title bar ⟳ / title long-press 다시 불러오기
   = `reloadOnlineImages` → comicReadUrls(url, fresh) reloads the page.)
+  Scraper queue (comic.ts `queue`, 2026-10-11): user first — lane 'user'
+  (chapter / list / chapter list) runs before 'bg' (downloads: `bgQueue`,
+  re-run after giving way — a running bg task YIELDs at its next
+  `checkpoint()` when a user task waits); a reader's chapter load is cancelled
+  when no reader shows it any more (images.ts `onOnlinePages` unsubscribe →
+  300ms later `comicCancelRead`), so rapid chapter flips load only the last
+  and leaving to the list stops it; ComicBrowse lists use slot 'browse'
+  (latest wins). Checkpoints: navigate / ensure / waitPageImages / collect /
+  chapter-page loops.
   Some ISPs reset TLS by SNI for the site domain; its DNS CNAME (a BunnyCDN
   host) serves the same site unblocked. (Desktop 0.4.1
   tried switching to it automatically; reverted in 0.4.2 — not used now.)
@@ -392,7 +423,12 @@ Settings `SettingRow stack` buttons = one line of flat text buttons with divider
 Tag lists per library: doujin = `favoriteTags` / `onlineExcludeTags`; 일반 만화 =
 `normalFavoriteTags` / `comicExcludeGenres` (설정 › 태그·검색 binds by mode;
 cards read `useFavoriteTags()`; `addFavoriteTag` writes the current mode's).
-즐겨찾는 태그 › 전체 삭제 saves that key immediately.
+즐겨찾는 태그 › 전체 삭제 saves that key immediately. The tag list inputs
+(`TagPickInput`) also suggest from the online tag index (`doujinSuggest`,
+doujin mode) — local works may carry no male:… tags; a picked favorite is
+stored in the works' form ("male:sole male", no tag:/underscores). Text inputs
+that commit on Enter set `enterKeyHint` (+ a form in TagPickInput): without it
+the phone keyboard shows 다음 when another field follows, which only moves focus.
 Big favorites: Browse 즐겨찾기 requests summaries only for the shown page ± 2
 pages (`favWindow`; list entries are placeholders until fetched); the reader's
 online list renders favorites in 60-item steps around the open gallery

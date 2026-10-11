@@ -44,7 +44,6 @@ const SORT_LABEL: Record<ComicSort, string> = {
 // --- scraper WebView (native ComicWeb, serialized) ---
 // The page lives in a second WebView behind the app (ComicWeb.java); it is
 // brought to the front only for a Cloudflare check or manual browsing.
-let chain: Promise<unknown> = Promise.resolve()
 
 // Notified when a Cloudflare challenge needs the user (overlay shown) and when it
 // clears, so the app can show/hide an "인증이 필요합니다" banner.
@@ -77,19 +76,99 @@ function sameUrl(a: string, b: string): boolean {
   return !!a && !!b && norm(a) === norm(b)
 }
 
-// Tasks waiting for the scraper. A reader's progressive collect stops when one
-// shows up (the user moved on to another chapter / list) — see comicReadUrls.
-let waiting = 0
+// One scraper page → one task at a time. The user always comes first:
+//  • two lanes — 'user' (what the user is looking at: a chapter, a list, a
+//    series' chapter list) runs before 'bg' (downloads);
+//  • a running bg task gives way at its next checkpoint when a user task
+//    arrives (YIELD — bgQueue runs it again afterwards);
+//  • a reader's chapter load is dropped once nobody shows it any more
+//    (comicCancelRead — rapid chapter flips load only the last one; leaving
+//    to the list stops it), waiting or running (CANCELLED);
+//  • `slot`: latest wins — a newer request of the same slot (list paging)
+//    drops the older one.
+// Long steps (navigation, waits, the page collect) call checkpoint().
+export const CANCELLED = 'COMIC_CANCELLED'
+const YIELD = 'COMIC_YIELD'
+type Lane = 'user' | 'bg'
+interface Task {
+  run: () => Promise<void>
+  check: () => void
+  cancel: () => void
+  slot?: string
+}
+const lanes: Record<Lane, Task[]> = { user: [], bg: [] }
+let current: Task | null = null
+let pumping = false
+const userWaiting = (): boolean => lanes.user.length > 0
+const checkpoint = (): void => current?.check()
 
-function queue<T>(fn: () => Promise<T>): Promise<T> {
-  waiting++
-  const go = (): Promise<T> => {
-    waiting--
-    return fn()
+function queue<T>(fn: () => Promise<T>, opts: { lane?: Lane; slot?: string; signal?: AbortSignal } = {}): Promise<T> {
+  const lane = opts.lane ?? 'user'
+  return new Promise<T>((resolve, reject) => {
+    let cancelled = false
+    const task: Task = {
+      slot: opts.slot,
+      cancel: () => {
+        cancelled = true
+      },
+      check: () => {
+        if (cancelled || opts.signal?.aborted) throw new Error(CANCELLED)
+        if (lane === 'bg' && userWaiting()) throw new Error(YIELD)
+      },
+      run: async () => {
+        try {
+          task.check()
+          resolve(await fn())
+        } catch (e) {
+          reject(e)
+        }
+      }
+    }
+    if (opts.slot) {
+      for (const l of ['user', 'bg'] as Lane[])
+        lanes[l] = lanes[l].filter((t) => {
+          if (t.slot !== opts.slot) return true
+          t.cancel()
+          void t.run() // rejects at once (CANCELLED), never touches the page
+          return false
+        })
+      if (current?.slot === opts.slot) current.cancel()
+    }
+    lanes[lane].push(task)
+    void pump()
+  })
+}
+
+async function pump(): Promise<void> {
+  if (pumping) return
+  pumping = true
+  for (;;) {
+    const t = lanes.user.shift() ?? lanes.bg.shift()
+    if (!t) break
+    current = t
+    await t.run()
+    current = null
+    status(null)
   }
-  const run = chain.then(go, go).finally(() => status(null))
-  chain = run.catch(() => {})
-  return run
+  pumping = false
+}
+
+// A download's scraper step: queued behind the user's, and re-run when it
+// had to give way.
+async function bgQueue<T>(fn: () => Promise<T>): Promise<T> {
+  for (;;) {
+    try {
+      return await queue(fn, { lane: 'bg' })
+    } catch (e: any) {
+      if (e?.message !== YIELD) throw e
+    }
+  }
+}
+
+// Reader chapter loads by chapter url (comicCancelRead stops them).
+const readers = new Map<string, Set<AbortController>>()
+export function comicCancelRead(chapterUrl: string): void {
+  for (const c of readers.get(chapterUrl) ?? []) c.abort()
 }
 
 interface Probe {
@@ -156,6 +235,7 @@ async function navigate(target: string, retries: number): Promise<boolean> {
   const { nav } = await MM.comicLoad({ url: target })
   const t0 = Date.now()
   for (;;) {
+    checkpoint()
     const st = await MM.comicState()
     if (st.nav !== nav) return false // superseded
     if (st.errorDesc && isReset(st.errorDesc)) return true
@@ -166,74 +246,81 @@ async function navigate(target: string, retries: number): Promise<boolean> {
 }
 
 async function ensure(url: string, needContent: boolean, force = false): Promise<void> {
+  checkpoint()
   if (!force && sameUrl((await MM.comicState()).url, url)) {
     const p = await probe()
     if (p && !p.challenge && (p.ready || !needContent)) return // already good — no reload
   }
-  // Initial load, re-tried while the connection itself fails.
-  let retries = 0
-  let failed = await navigate(url, retries)
-  while (failed && retries < MAX_RETRIES) {
-    retries++
-    await dropConnections()
-    await delay(retryDelay(retries))
-    failed = await navigate(url, retries)
-  }
-  let contentRetried = false
   let shown = false
-  const start = Date.now()
-  if (!failed) status('페이지를 읽는 중…')
-  for (let first = true; ; first = false) {
-    if (!first) await delay(300)
-    const st = await MM.comicState()
-    // Connection reset after the page started (late failure) → reload.
-    if (st.errorDesc && isReset(st.errorDesc) && retries < MAX_RETRIES) {
+  try {
+    // Initial load, re-tried while the connection itself fails.
+    let retries = 0
+    let failed = await navigate(url, retries)
+    while (failed && retries < MAX_RETRIES) {
       retries++
       await dropConnections()
       await delay(retryDelay(retries))
+      checkpoint()
       failed = await navigate(url, retries)
-      continue
     }
-    const p = await probe()
-    if (!p) {
-      if (Date.now() - start > 8000 && !needContent) break
-      if (Date.now() - start > 30000) break
-      continue
-    }
-    if (p.challenge && !(await hasClearance(url))) {
-      // Still being challenged and no clearance cookie yet → let the user solve.
-      if (!shown) {
-        shown = true
-        await MM.comicShow({ title: '사람 확인을 완료해 주세요' })
-        onChallenge?.(true) // tell the app to show the "인증 필요" banner
-        status('사이트 인증 대기 중 — 열린 화면에서 인증을 마쳐 주세요')
-      } else if (!st.visible) {
-        break // the user closed the overlay → give up on this load
+    let contentRetried = false
+    const start = Date.now()
+    if (!failed) status('페이지를 읽는 중…')
+    for (let first = true; ; first = false) {
+      if (!first) await delay(300)
+      checkpoint()
+      const st = await MM.comicState()
+      // Connection reset after the page started (late failure) → reload.
+      if (st.errorDesc && isReset(st.errorDesc) && retries < MAX_RETRIES) {
+        retries++
+        await dropConnections()
+        await delay(retryDelay(retries))
+        failed = await navigate(url, retries)
+        continue
       }
-      if (Date.now() - start > 180000) break // give up after 3 min
-      continue
+      const p = await probe()
+      if (!p) {
+        if (Date.now() - start > 8000 && !needContent) break
+        if (Date.now() - start > 30000) break
+        continue
+      }
+      if (p.challenge && !(await hasClearance(url))) {
+        // Still being challenged and no clearance cookie yet → let the user solve.
+        if (!shown) {
+          shown = true
+          await MM.comicShow({ title: '사람 확인을 완료해 주세요' })
+          onChallenge?.(true) // tell the app to show the "인증 필요" banner
+          status('사이트 인증 대기 중 — 열린 화면에서 인증을 마쳐 주세요')
+        } else if (!st.visible) {
+          break // the user closed the overlay → give up on this load
+        }
+        if (Date.now() - start > 180000) break // give up after 3 min
+        continue
+      }
+      if (p.ready) {
+        failed = false
+        break
+      }
+      if (!shown) status('페이지를 읽는 중…')
+      // Page is up but its content never arrives (stalled API call) → once per
+      // ensure, drop the sockets and reload.
+      if (needContent && !contentRetried && Date.now() - start > CONTENT_STALL_MS) {
+        contentRetried = true
+        await dropConnections()
+        failed = await navigate(url, retries)
+        continue
+      }
+      // No content selector needed → done once the page has settled a little.
+      if (!needContent && Date.now() - start > 1500) break
+      if (Date.now() - start > 30000) break // content never matched selectors → scrape anyway
     }
-    if (p.ready) {
-      failed = false
-      break
-    }
-    if (!shown) status('페이지를 읽는 중…')
-    // Page is up but its content never arrives (stalled API call) → once per
-    // ensure, drop the sockets and reload.
-    if (needContent && !contentRetried && Date.now() - start > CONTENT_STALL_MS) {
-      contentRetried = true
-      await dropConnections()
-      failed = await navigate(url, retries)
-      continue
-    }
-    // No content selector needed → done once the page has settled a little.
-    if (!needContent && Date.now() - start > 1500) break
-    if (Date.now() - start > 30000) break // content never matched selectors → scrape anyway
+    if (failed) status('연결할 수 없습니다 — 잠시 후 다시 시도해 주세요')
+  } finally {
+    // Only hide if we popped it open for a challenge AND it's now resolved
+    // (also when the task was cancelled / gave way meanwhile).
+    if (shown && (await hasClearance(url))) await MM.comicHide()
+    if (shown) onChallenge?.(false) // clear the banner (solved, or gave up)
   }
-  if (failed) status('연결할 수 없습니다 — 잠시 후 다시 시도해 주세요')
-  // Only hide if we popped it open for a challenge AND it's now resolved.
-  if (shown && (await hasClearance(url))) await MM.comicHide()
-  if (shown) onChallenge?.(false) // clear the banner (solved, or gave up)
 }
 
 async function evalPage<T>(script: string, fallback: T): Promise<T> {
@@ -527,7 +614,9 @@ const READ_SCRIPT = `(() => {
   return out
 })()`
 
-export async function comicList(base: string, src: ComicListSource, page: number): Promise<ComicListResult> {
+// `slot`: the browse screen's own list requests — a newer page / filter drops
+// an older one still loading.
+export async function comicList(base: string, src: ComicListSource, page: number, slot?: string): Promise<ComicListResult> {
   return queue(async () => {
     // URL already selects genre/sort/page; the in-page script then finds them
     // active and does nothing (its clicking stays as a fallback).
@@ -550,11 +639,11 @@ export async function comicList(base: string, src: ComicListSource, page: number
     if (src.type === 'webtoon' && r.learned) Object.assign(webtoonTags, r.learned)
     const landed = r.page && r.page > 0 ? r.page - 1 : page
     return { items: r.items ?? [], page: landed, hasNext: !!r.hasNext, genres: r.genres ?? [], platforms: r.platforms ?? [] }
-  })
+  }, { slot })
 }
 
-export async function comicChapters(seriesUrl: string): Promise<ComicChapter[]> {
-  return queue(async () => {
+export async function comicChapters(seriesUrl: string, lane: Lane = 'user'): Promise<ComicChapter[]> {
+  const task = async (): Promise<ComicChapter[]> => {
     type R = { items: ComicChapter[]; last: number }
     await ensure(seriesUrl, true)
     const first = await evalPage<R>(CHAPTERS_SCRIPT, { items: [], last: 1 })
@@ -564,6 +653,7 @@ export async function comicChapters(seriesUrl: string): Promise<ComicChapter[]> 
     // the scraped href, so a mirror-domain link can't send us elsewhere.
     const last = Math.min(first.last || 1, 200)
     for (let p = 2; p <= last; p++) {
+      checkpoint()
       status(`화 목록을 불러오는 중… (${p}/${last}쪽)`)
       const u = new URL(seriesUrl)
       u.searchParams.set('epage', String(p))
@@ -572,7 +662,8 @@ export async function comicChapters(seriesUrl: string): Promise<ComicChapter[]> 
       for (const c of r.items ?? []) if (!seen.has(c.url)) { seen.add(c.url); all.push(c) }
     }
     return all.reverse() // site lists newest-first → ascending reading order
-  })
+  }
+  return lane === 'bg' ? bgQueue(task) : queue(task)
 }
 
 // Author(s) of a series, from the "작가 … 다른 작품 검색" links on its page.
@@ -585,11 +676,12 @@ const AUTHOR_SCRIPT = `(() => {
   return out.length ? out.join(', ') : null
 })()`
 
-export async function comicSeriesAuthor(seriesUrl: string): Promise<string | null> {
-  return queue(async () => {
+export async function comicSeriesAuthor(seriesUrl: string, lane: Lane = 'user'): Promise<string | null> {
+  const task = async (): Promise<string | null> => {
     await ensure(seriesUrl, true)
     return evalPage<string | null>(AUTHOR_SCRIPT, null)
-  })
+  }
+  return lane === 'bg' ? bgQueue(task) : queue(task)
 }
 
 // Series title from its page: the main heading. Selectors change over time, so
@@ -713,7 +805,10 @@ export async function comicAuthorForTitle(base: string, title: string): Promise<
 const HAS_PAGE_IMG = `!!document.querySelector('.vw-imgs img, img.viewer-lazy-img, img.viewer-ratio-img')`
 async function waitPageImages(ms: number): Promise<void> {
   const end = Date.now() + ms
-  while (!(await evalPage<boolean>(HAS_PAGE_IMG, false)) && Date.now() < end) await delay(300)
+  while (!(await evalPage<boolean>(HAS_PAGE_IMG, false)) && Date.now() < end) {
+    checkpoint()
+    await delay(300)
+  }
 }
 
 // The viewer is a virtual list: only the pages near the scroll position are in
@@ -757,8 +852,8 @@ const COLLECT_STEP = `(async () => {
 // `onMore` (the reader): resolve as soon as the first pages are known, then
 // report the growing list through onMore(urls, state) while the rest is
 // collected: 'more' (still going), 'done' (complete) or 'cut' (stopped early —
-// another scraper task came in — so the list is partial). Without it
-// (downloads) wait for the whole list.
+// a user task came in — so the list is partial); comicCancelRead drops it.
+// Without it (downloads, lane 'bg') wait for the whole list.
 export function comicReadUrls(
   chapterUrl: string,
   fresh = false,
@@ -776,7 +871,7 @@ export function comicReadUrls(
     }
     onMore(urls, state)
   }
-  const full = queue(async () => {
+  const task = async (): Promise<string[]> => {
     await ensure(chapterUrl, true, fresh)
     status('만화 이미지를 기다리는 중…')
     await waitPageImages(20000)
@@ -789,7 +884,8 @@ export function comicReadUrls(
     // (cap: a very long webtoon; the slices keep each eval short)
     const deadline = Date.now() + 180000
     while (!done && Date.now() < deadline) {
-      if (onMore && waiting > 0) break // someone else needs the scraper
+      checkpoint() // cancelled (reader) / give way (download)
+      if (onMore && userWaiting()) break // the user wants the scraper for something else
       const r = await evalPage<{ urls: string[]; done: boolean }>(COLLECT_STEP, { urls: [], done: true })
       done = r.done
       const best = r.urls.length >= listed.length ? r.urls : listed
@@ -800,8 +896,17 @@ export function comicReadUrls(
     }
     send(urls, done ? 'done' : 'cut')
     return urls
+  }
+  if (!onMore) return bgQueue(task)
+  const ctl = new AbortController()
+  let set = readers.get(chapterUrl)
+  if (!set) readers.set(chapterUrl, (set = new Set()))
+  set.add(ctl)
+  const own = set
+  const full = queue(task, { signal: ctl.signal }).finally(() => {
+    own.delete(ctl)
+    if (!own.size && readers.get(chapterUrl) === own) readers.delete(chapterUrl)
   })
-  if (!onMore) return full
   full.catch(() => {}) // after the early answer, a late failure is only a partial list
   return Promise.race([first, full])
 }
@@ -914,7 +1019,7 @@ export async function downloadGenericChapters(
     const n = Math.floor(ch.num || i + 1)
     const chDir = join(seriesDir, safeName(chapterFolderName(title, ch.title, n)))
     if (await chapterSaved(record, ch.url, chDir)) continue
-    const urls = await queue(async () => {
+    const urls = await bgQueue(async () => {
       await ensure(ch.url, true)
       return evalPage<string[]>(GENERIC_READ_SCRIPT, [])
     })
@@ -1038,7 +1143,7 @@ export async function comicDownloadSeries(
   signal?: AbortSignal,
   record?: ChapterRecord // resumed download: chapters already saved in full
 ): Promise<string> {
-  const all = await comicChapters(seriesUrl)
+  const all = await comicChapters(seriesUrl, 'bg')
   if (!all.length) throw new Error('화 목록을 찾지 못했습니다')
   const pick = only ? new Set(only) : null
   const chapters = pick ? all.filter((c) => pick.has(c.url)) : all
@@ -1059,7 +1164,7 @@ export async function comicDownloadSeries(
     if (!urls.length) {
       // Page didn't deliver its images (slow/stalled load) → load it once more
       // from scratch before giving up on this chapter.
-      await queue(async () => {
+      await bgQueue(async () => {
         await dropConnections()
         await MM.comicLoad({ url: 'about:blank' })
       })

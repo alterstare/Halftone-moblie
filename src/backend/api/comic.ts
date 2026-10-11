@@ -11,6 +11,7 @@ import {
   comicList,
   comicChapters,
   comicReadUrls,
+  comicCancelRead,
   comicImageToFile,
   comicDownloadSeries,
   comicOpenSite,
@@ -40,7 +41,7 @@ async function importDownloaded(dir: string, artist?: string | null): Promise<Wo
   const merged = store.mergeScanPartial(scanned)
   // The artist belongs to THIS series only (mergeScanPartial returns the whole
   // library — stamping its result overwrote every work's artist).
-  if (artist) for (const w of scanned) store.update(w.id, { artist })
+  if (artist) for (const w of scanned) if (store.get(w.id)?.manualArtist == null) store.update(w.id, { artist })
   await store.flushWorks()
   return artist ? [...store.works.values()] : merged
 }
@@ -52,7 +53,7 @@ async function runComicDownload(seriesUrl: string, title: string, chapterUrls?: 
   await applyGalleryHide(store.settings)
   return runDownload(seriesUrl, title, async (signal, report) => {
     // Grab the author from the series page so downloaded chapters carry it.
-    const artist = await comicSeriesAuthor(seriesUrl).catch(() => null)
+    const artist = await comicSeriesAuthor(seriesUrl, 'bg').catch(() => null)
     const dir = await comicDownloadSeries(
       seriesUrl,
       title,
@@ -72,7 +73,7 @@ export const comicApi: Partial<Api> = {
   // ---------- browse ----------
 
   comicList: async (source: ComicListSource, page: number) => {
-    const r = await comicList(store.settings.comicBaseUrl, source, page)
+    const r = await comicList(store.settings.comicBaseUrl, source, page, 'browse')
     // Wrap card thumbs so they load through the interceptor with the site referer.
     return { ...r, items: r.items.map((it) => ({ ...it, thumb: it.thumb ? encodeComic(it.thumb) : null })) }
   },
@@ -85,6 +86,8 @@ export const comicApi: Partial<Api> = {
       )
     ).map(encodeComic),
   comicSeriesAuthor: (seriesUrl: string) => comicSeriesAuthor(seriesUrl),
+  // The reader no longer shows this chapter → stop loading it.
+  comicCancelRead: async (chapterUrl: string) => comicCancelRead(chapterUrl),
   comicSeriesTitle: (seriesUrl: string) => comicSeriesTitle(seriesUrl),
 
   // Show the scraper page (Cloudflare check / backup site browsing by hand).
@@ -124,7 +127,7 @@ export const comicApi: Partial<Api> = {
   comicFillArtist: async (workIds: string[], title: string) => {
     const artist = await comicAuthorForTitle(store.settings.comicBaseUrl, title).catch(() => null)
     if (!artist) return []
-    const out = workIds.map((id) => store.update(id, { artist })).filter(Boolean) as Work[]
+    const out = workIds.map((id) => (store.get(id)?.manualArtist != null ? store.get(id) : store.update(id, { artist }))).filter(Boolean) as Work[]
     await store.flushWorks()
     return out
   },

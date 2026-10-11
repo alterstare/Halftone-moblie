@@ -38,6 +38,32 @@ export interface Work {
   // Built by the scanner from the page-count threshold or a manual merge.
   // See settings.flattenCollectThreshold / settings.manualCollections.
   sources?: string[]
+  // Artist typed by hand ("artist:…" tag input): wins over the scanned / fetched
+  // one and survives rescans ('' = cleared by hand). autoArtist = what the scan
+  // found, restored when the manual one is removed (×).
+  manualArtist?: string | null
+  autoArtist?: string | null
+  // Merged work (sources): the gallery codes of the works folded into it, so
+  // online lists still see those galleries as downloaded.
+  codes?: string[]
+}
+
+// The favorites folder for a work at `path`: a NAS work → its connection's
+// nasFavoritesDirs entry (none → null: not moved), else favoritesDir.
+export function favoritesDirFor(path: string, s: Pick<Settings, 'favoritesDir' | 'nasFavoritesDirs'>): string | null {
+  const m = /^\/nas\/([^/]+)/.exec(path)
+  if (m) return s.nasFavoritesDirs?.[m[1]] || null
+  return s.favoritesDir
+}
+// Every favorites folder (phone + NAS ones).
+export function allFavoritesDirs(s: Pick<Settings, 'favoritesDir' | 'nasFavoritesDirs'>): string[] {
+  return [s.favoritesDir, ...Object.values(s.nasFavoritesDirs ?? {})].filter((d): d is string => !!d)
+}
+
+// Gallery codes a local work stands for: its own, or a merged work's sources'.
+export function workCodes(w: Pick<Work, 'code' | 'codes'>): string[] {
+  if (w.codes?.length) return w.codes
+  return w.code ? [w.code] : []
 }
 
 // When a general-manga chapter was last opened (store.readProgress).
@@ -103,6 +129,10 @@ export interface Settings {
   // scan is added to the favorites. The heart itself is NOT derived from the
   // location — see the favorites model in main/lib/favoriteSync.ts.
   favoritesDir: string | null
+  // A NAS connection's own favorites folder (/nas/<connId>/…), by connection
+  // id: hearting a work stored on that NAS moves it there (a NAS work never
+  // moves to the phone's favoritesDir, and a phone work never to a NAS).
+  nasFavoritesDirs?: Record<string, string>
   favoriteMoveToFolder: boolean
   downloadDir: string | null
   // Preferred image encoding when downloading doujin galleries. webp is more
@@ -283,6 +313,8 @@ export interface Settings {
   // with the home button during one opens a small picture-in-picture window.
   // undefined = not asked yet (asked at the first 일반 만화 download).
   comicDownloadPip?: boolean
+  // 온라인 (동인지) list: 격자형 / 목록형, remembered across starts.
+  browseLayout?: 'grid' | 'list'
 }
 
 // Built-in fallback patterns (used when doujinNamePatterns is empty). Bracketed

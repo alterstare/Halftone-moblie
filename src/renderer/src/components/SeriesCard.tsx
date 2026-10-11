@@ -12,6 +12,7 @@ import { useSeriesCard } from './useSeriesCard'
 import { useSel } from './libraryTools'
 import ConfirmModal from './ConfirmModal'
 import Caret from './Caret'
+import TagAddInput from './TagAddInput'
 
 // Open a folder's parent in Explorer (so we don't descend into chapter 1).
 function parentOf(p: string): string {
@@ -178,13 +179,10 @@ export function ChapterRow({
   const isFav = (favChapters ?? []).includes(work.id)
   const wasRead = useStore((s) => !!s.readProgress[work.id]) // opened before → light purple
   const [adding, setAdding] = useState(false)
-  const [tag, setTag] = useState('')
-
-  const addTag = async (): Promise<void> => {
+  const addTag = async (tag: string): Promise<void> => {
     const t = tag.trim()
-    if (t) upsertWork(await window.api.addManualTag(work.id, t))
-    setTag('')
     setAdding(false)
+    if (t) upsertWork(await window.api.addManualTag(work.id, t))
   }
   const removeTag = async (t: string): Promise<void> =>
     upsertWork(await window.api.removeManualTag(work.id, t))
@@ -215,18 +213,7 @@ export function ChapterRow({
           the chapter. Only the interactive tag controls swallow the click. */}
       <div className="chapter-tags">
         <TagList tags={work.manualTags} favoriteTags={favoriteTags} manualTags={work.manualTags} onRemove={removeTag} onAddClick={adding ? undefined : () => setAdding(true)} />
-        {adding && (
-          <input
-            autoFocus
-            className="tag-input sm"
-            value={tag}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setTag(e.target.value)}
-            onBlur={addTag}
-            onKeyDown={(e) => e.key === 'Enter' && addTag()}
-            placeholder="태그…"
-          />
-        )}
+        {adding && <TagAddInput className="tag-input sm" onCommit={(t) => void addTag(t)} />}
         {/* Rating at the bottom right (tags row) → the title line gets the room. */}
         <span className="ch-rating">
           <Stars rank={work.rank} onChange={setRank} size={13} />
