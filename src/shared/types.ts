@@ -315,6 +315,13 @@ export interface Settings {
   comicDownloadPip?: boolean
   // 온라인 (동인지) list: 격자형 / 목록형, remembered across starts.
   browseLayout?: 'grid' | 'list'
+  // Library list sort direction (per mode, like defaultSort = the last chosen sort).
+  homeSortDir?: 'asc' | 'desc'
+  // 온라인 (동인지) list as last left: language (null = 전체; unset = korean),
+  // sort, and 오름차순.
+  browseLang?: string | null
+  browseSort?: string
+  browseReverse?: boolean
 }
 
 // Built-in fallback patterns (used when doujinNamePatterns is empty). Bracketed
@@ -336,6 +343,7 @@ export const SPLIT_SETTING_KEYS = [
   'pagedFlipSide',
   'scrollTapFlip',
   'defaultSort',
+  'homeSortDir',
   'ignoreBracketTagsInSort'
 ] as const
 

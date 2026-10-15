@@ -333,7 +333,11 @@ scrollTop got clamped while the list was still laying out and that clamped
 value was saved (the opened work ended up far below the screen).
 
 Remembered view state: home 목록형/격자형 = `settings.homeLayout`, online
-(동인지) list = `settings.browseLayout`; tablet reader list open / closed =
+(동인지) list = `settings.browseLayout`; library sort = `defaultSort` (now the
+last chosen one) + `homeSortDir`, both per mode (split keys, `saveModeSetting`
+in store.ts); online 언어 / 정렬 / 오름차순 = `browseLang` (null = 전체, unset =
+korean) / `browseSort` / `browseReverse`, applied to `browseSource` at boot
+(App.tsx); tablet reader list open / closed =
 localStorage `mm-list-collapsed` (phone drawer always starts closed).
 
 Known gaps / TODO: UI still

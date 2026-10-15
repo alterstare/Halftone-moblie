@@ -100,7 +100,7 @@ export default function Browse(): JSX.Element {
   const [sort, setSort] = useState<OnlineSort>(
     activeSource.kind === 'index' ? activeSource.sort ?? 'date' : 'date'
   )
-  const [reverse, setReverse] = useState(false)
+  const [reverse, setReverse] = useState(() => !!useStore.getState().settings.browseReverse)
   const browseLayout = useStore((s) => s.settings.browseLayout ?? 'grid')
   const [items, setItems] = useState<GallerySummary[]>([])
   const [total, setTotal] = useState(0)
@@ -234,6 +234,7 @@ export default function Browse(): JSX.Element {
   // what a tag search from elsewhere keeps (store.searchOnline).
   const changeLang = (l: string): void => {
     setLang(l)
+    useStore.getState().patchSettings({ browseLang: l === 'all' ? null : l })
     setBrowsePage(0)
     setBrowseSource({ ...activeSource, language: l === 'all' ? null : l })
   }
@@ -241,6 +242,7 @@ export default function Browse(): JSX.Element {
   // Change the single sort; re-run whichever view is active (search vs browse).
   const changeSort = (s: OnlineSort): void => {
     setSort(s)
+    useStore.getState().patchSettings({ browseSort: s })
     setBrowsePage(0)
     if (query.trim()) {
       setBrowseSource({
@@ -453,7 +455,10 @@ export default function Browse(): JSX.Element {
           </button>
           <button
             className="chip layout-toggle"
-            onClick={() => setReverse((v) => !v)}
+            onClick={() => {
+              setReverse(!reverse)
+              useStore.getState().patchSettings({ browseReverse: !reverse })
+            }}
             title={reverse ? '오름차순' : '내림차순'}
           >
             <Caret up={reverse} />

@@ -651,6 +651,20 @@ function recordOnline(
   void window.api.recordOnlineView(entry).then((e) => set((st) => ({ onlineHistory: { ...st.onlineHistory, [key]: e } })))
 }
 
+// Save split (per library mode) settings into the current mode's overlay and
+// the base, like setTapFlip.
+function saveModeSetting(
+  get: () => AppState,
+  set: (p: Partial<AppState>) => void,
+  p: Partial<Settings>
+): void {
+  const cur = get().settings
+  const mode = get().libraryMode
+  const s = { ...cur, ...p, perMode: { ...(cur.perMode ?? {}), [mode]: { ...(cur.perMode?.[mode] ?? {}), ...p } } }
+  set({ settings: s })
+  void window.api.saveSettings(s)
+}
+
 export const useStore = create<AppState>((set, get) => ({
   works: [],
   settings: { ...DEFAULT_SETTINGS },
@@ -737,6 +751,7 @@ export const useStore = create<AppState>((set, get) => ({
       return {
         settings,
         sort: settings.defaultSort,
+        sortDir: settings.homeSortDir ?? 'desc',
         listWidth: settings.listPaneWidth,
         normalListWidth: settings.normalListPaneWidth,
         readerMode: settings.readerMode,
@@ -884,6 +899,7 @@ export const useStore = create<AppState>((set, get) => ({
           search: '',
           settings,
           sort: settings.defaultSort,
+          sortDir: settings.homeSortDir ?? 'desc',
           readerMode: settings.readerMode,
           homeLayout: settings.homeLayout
         }
@@ -1435,8 +1451,17 @@ export const useStore = create<AppState>((set, get) => ({
       view: 'home',
       searchSeed: { tok, nonce: (st.searchSeed?.nonce ?? 0) + 1 }
     })),
-  setSort: (sort) => set({ sort }),
-  toggleSortDir: () => set((st) => ({ sortDir: st.sortDir === 'asc' ? 'desc' : 'asc' })),
+  // The chosen sort / direction is remembered for the next start (this library
+  // mode's overlay: defaultSort / homeSortDir are split keys).
+  setSort: (sort) => {
+    set({ sort })
+    saveModeSetting(get, set, { defaultSort: sort })
+  },
+  toggleSortDir: () => {
+    const sortDir = get().sortDir === 'asc' ? 'desc' : 'asc'
+    set({ sortDir })
+    saveModeSetting(get, set, { homeSortDir: sortDir })
+  },
   setFavSort: (favSort) => set({ favSort }),
   setFilter: (filter) => set({ filter, view: 'home' }),
   reshuffle: () => set({ randomSeed: Math.random() }),

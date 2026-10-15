@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useStore, resumeDownloads } from './store'
+import type { OnlineSort } from '../../shared/ipc'
 import { isNarrow, isTouch, sidebarBtnMode } from './mobile'
 import MobileTabBar from './components/MobileTabBar'
 import { popBack, swipeSlide, useSwipeClose } from './components/libraryTools'
@@ -154,6 +155,14 @@ export default function App(): JSX.Element {
         window.api.getOnlineHistory()
       ])
       setSettings(settings)
+      // The online (동인지) list opens as last left: language / sort.
+      useStore.setState({
+        browseSource: {
+          kind: 'index',
+          language: settings.browseLang === undefined ? 'korean' : settings.browseLang,
+          ...(settings.browseSort ? { sort: settings.browseSort as OnlineSort } : {})
+        }
+      })
       setExcluded(settings.excludedImageHashes)
       setWorks(works)
       restoreSession(session)
