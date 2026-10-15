@@ -21,8 +21,7 @@ import {
   pingDoujin,
   popularRanks,
   findKorean,
-  doujinExists
-} from '../lib/doujin'
+  doujinExists, dropSearchCache } from '../lib/doujin'
 import { suggestTokens, recordSeen } from '../lib/suggest'
 import { encodeWeb, writeRawThumb } from '../lib/media'
 import { runDownload, stopDownload } from '../downloads'
@@ -92,8 +91,9 @@ export const doujinApi: Partial<Api> = {
 
   // ---------- browse / search ----------
 
-  doujinList: async (source: DoujinListSource, page: number) => {
+  doujinList: async (source: DoujinListSource, page: number, fresh?: boolean) => {
     const pageSize = store.settings.pageSize || 50
+    if (fresh) dropSearchCache()
     // A bare gallery number or a doujin link → look that gallery up directly.
     if (source.kind === 'search') {
       const q = source.query.trim()

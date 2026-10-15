@@ -13,6 +13,7 @@ import { convertWorkToWebp } from './convert'
 import { thumbTargetIds, groupSeries, titleKey, seriesRoots, isComicCode } from './util'
 import { getFavSummary } from './favSummaries'
 import { isNarrow } from './mobile'
+import type { ListAnchor } from './scrollRestore'
 
 // Tablet: the reader list docked open / closed is remembered for the next
 // start (phone: an overlay drawer, always starts closed — see App.tsx).
@@ -231,6 +232,7 @@ interface AppState {
   // Home scroll memory: last scrollTop of the library home, restored when the user
   // returns; a bumped nonce tells Home to jump to the top (홈 pressed while home).
   homeScroll: number
+  homeAnchor: ListAnchor | null // top card + offset (scrollRestore.ts)
   homePage: number
   homeTopNonce: number
   // Browser-style navigation history (mouse back/forward side buttons).
@@ -334,7 +336,7 @@ interface AppState {
   // Run `nav`, or (if in dirty Settings) stash it for the leave-confirm modal.
   guardedNav: (nav: () => void) => void
   clearPendingNav: () => void
-  setHomeScroll: (n: number) => void
+  setHomeScroll: (n: number, anchor?: ListAnchor) => void
   setHomePage: (n: number) => void
   scrollHomeTop: () => void
   scrollBrowseTop: () => void
@@ -661,6 +663,7 @@ export const useStore = create<AppState>((set, get) => ({
   settingsDirty: false,
   pendingNav: null,
   homeScroll: 0,
+  homeAnchor: null,
   homePage: 0,
   homeTopNonce: 0,
   navStack: [],
@@ -751,9 +754,10 @@ export const useStore = create<AppState>((set, get) => ({
   setSettingsDirty: (b) => set({ settingsDirty: b }),
   guardedNav: (nav) => guardLeave(get, set, nav),
   clearPendingNav: () => set({ pendingNav: null }),
-  setHomeScroll: (n) => set({ homeScroll: n }),
+  // A plain number (jump to top / page change) drops the anchor.
+  setHomeScroll: (n, anchor) => set({ homeScroll: n, homeAnchor: anchor ?? null }),
   setHomePage: (n) => set({ homePage: n }),
-  scrollHomeTop: () => set((st) => ({ homeScroll: 0, homeTopNonce: st.homeTopNonce + 1 })),
+  scrollHomeTop: () => set((st) => ({ homeScroll: 0, homeAnchor: null, homeTopNonce: st.homeTopNonce + 1 })),
   scrollBrowseTop: () => set((st) => ({ browseTopNonce: st.browseTopNonce + 1 })),
 
   recordNav: () =>

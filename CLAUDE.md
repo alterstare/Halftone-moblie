@@ -131,7 +131,10 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   selection at once with a "작품 통합을 시작했습니다" toast. A merged work carries
   `codes` (its sources' gallery codes; `workCodes(w)` in shared/types) — code
   lookups (`useLibraryCodes`, online-only favorites / 기록, favorite ↔ local,
-  dead-favorite cleanup) use it, so merged galleries count as downloaded. deleteWork on a collection removes only its `sources` (its `path`
+  dead-favorite cleanup) use it, so merged galleries count as downloaded.
+  Re-merging merged works (verified 2026-10-14): their folders join the new
+  entry and the old entries are dropped (one entry, all sources, codes
+  united); 통합 해제 then gives back the single works, not the earlier groups. deleteWork on a collection removes only its `sources` (its `path`
   is their parent). `toast.ts` showToast = small bottom pill ("코드 복사 완료").
   Folder names are capped by `backend/lib/nameFit.ts` (80 chars / 180 UTF-8
   bytes; doujin names shorten the title first, never the code) — ext4 255-byte
@@ -188,7 +191,11 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   of the tags row); rows are `flex-shrink: 0` (overflow:hidden otherwise let
   the column squeeze them). Scroll-mode
   slider follows scroll fractionally (`syncSliderRef`, DOM writes, re-applied
-  in a layout effect after each render).
+  in a layout effect after each render). Both it and the page number read the
+  position through `scrollProbe` (Reader.tsx): the probe point slides from the
+  viewport top (slider) / top third (page) to its bottom over the last
+  screenful, so the end of the scroll = the last page even when that page is
+  shorter than the screen.
   Reader chapter navigation (`chNav`: online comic siblings or local series):
   bottom bar = slider · page · ⋮, then a centered row ‹ 현재 화 (n / total) ›;
   ⋮ opens mode / fit / 넘김. Scroll mode, touch: pulling 130px past the
@@ -319,6 +326,12 @@ scans and fetched meta (reconcile / enrich / comic artist fill skip it),
 cards (`removeManualArtist`) restores it. Tag add inputs on cards = `TagAddInput`
 (local + online-index suggestions, portaled list).
 
+Home list position on return (`scrollRestore.ts`): saved as the top card
+(data-sel) + its offset (`homeAnchor`, with scrollTop as fallback) and
+re-applied for a few frames after remount, saving paused meanwhile — a plain
+scrollTop got clamped while the list was still laying out and that clamped
+value was saved (the opened work ended up far below the screen).
+
 Remembered view state: home 목록형/격자형 = `settings.homeLayout`, online
 (동인지) list = `settings.browseLayout`; tablet reader list open / closed =
 localStorage `mm-list-collapsed` (phone drawer always starts closed).
@@ -429,6 +442,12 @@ doujin mode) — local works may carry no male:… tags; a picked favorite is
 stored in the works' form ("male:sole male", no tag:/underscores). Text inputs
 that commit on Enter set `enterKeyHint` (+ a form in TagPickInput): without it
 the phone keyboard shows 다음 when another field follows, which only moves focus.
+Doujin list speed (2026-10-14): a search's matched id list is cached 10 min
+(`searchNozomi` → `cachedIds('search:…')`; pull-to-refresh passes `fresh` →
+`dropSearchCache`), gallery summaries are memoized (`summary`, ≤3000, shared
+in flight), and Browse prefetches page ±1 400ms after a page shows (+ the next
+page's covers via `new Image()`), random excluded. Emulator, a 37k-hit tag
+search: first page 5.1s, uncached next page 2.0s, prefetched page ~0ms.
 Big favorites: Browse 즐겨찾기 requests summaries only for the shown page ± 2
 pages (`favWindow`; list entries are placeholders until fetched); the reader's
 online list renders favorites in 60-item steps around the open gallery

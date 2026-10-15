@@ -124,17 +124,41 @@ export default function Browse(): JSX.Element {
   // The browse view is kept mounted (hidden) once first opened, so this effect
   // only re-runs on an actual source/page change or a forced reload (🌐 double-
   // press / reloadKey) — returning to the view does NOT refetch.
+  const lastReload = useRef(reloadKey)
+  const prefetchTimer = useRef(0)
   useEffect(() => {
     let alive = true
     setLoading(true)
     setError(null)
     setItems([]) // drop the previous page so it doesn't linger under the loader
+    // A pull-to-refresh (reloadKey changed) recomputes the search.
+    const fresh = lastReload.current !== reloadKey
+    lastReload.current = reloadKey
     window.api
-      .doujinList(activeSource, fetchPage)
+      .doujinList(activeSource, fetchPage, fresh)
       .then((r) => {
         if (!alive) return
         setItems(r.items)
         setTotal(r.total)
+        // Warm the pages around this one (their galleries are cached in the
+        // backend; the next page's covers in the image cache), so flipping
+        // pages doesn't wait for the whole fetch again. Random has no
+        // neighbours.
+        if (activeSource.kind === 'index' && activeSource.sort === 'random') return
+        const last = Math.max(0, Math.ceil(r.total / (r.pageSize || 50)) - 1)
+        prefetchTimer.current = window.setTimeout(() => {
+          if (!alive) return
+          for (const p of [fetchPage + 1, fetchPage - 1]) {
+            if (p < 0 || p > last) continue
+            window.api
+              .doujinList(activeSource, p)
+              .then((n) => {
+                if (!alive || p !== fetchPage + 1) return
+                for (const g of n.items) if (g.thumbUrl) new Image().src = g.thumbUrl
+              })
+              .catch(() => {})
+          }
+        }, 400)
       })
       .catch((e) => alive && setError(String(e?.message ?? e)))
       .finally(() => {
@@ -143,6 +167,7 @@ export default function Browse(): JSX.Element {
       })
     return () => {
       alive = false
+      window.clearTimeout(prefetchTimer.current)
     }
   }, [activeSource, fetchPage, reloadKey])
 

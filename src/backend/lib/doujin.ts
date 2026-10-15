@@ -718,6 +718,18 @@ export async function searchNozomi(
   sort: 'date' | 'popular' = 'date'
 ): Promise<NozomiPage> {
   const lang = language || 'all'
+  // The matched id list is kept 10 min: the next / previous page is a slice,
+  // not a refetch of every token's nozomi file.
+  const all = await cachedIds(`search:${lang}:${sort}:${query}`, () => searchAllIds(query, language, lang, sort))
+  return { ids: all.slice(page * pageSize, page * pageSize + pageSize), total: all.length }
+}
+
+async function searchAllIds(
+  query: string,
+  language: string | null,
+  lang: string,
+  sort: 'date' | 'popular'
+): Promise<number[]> {
   // Quote-aware split: a "quoted phrase" (incl. a namespaced tag:"big breasts")
   // stays ONE token so multi-word tags survive. Plain whitespace still ANDs.
   const raw = tokenizeQuery(query)
@@ -725,7 +737,13 @@ export async function searchNozomi(
   const negatives = raw.filter((t) => t.startsWith('-')).map((t) => t.slice(1)).filter(Boolean)
   // No positive token: nothing to anchor on — fall back to index browse (still
   // honoring the "-tag" exclusions).
-  if (!positives.length) return fetchNozomiExcluding({ kind: 'index', language }, page, pageSize, negatives)
+  if (!positives.length) {
+    // (Whole list: page 0 with a page size past the end.)
+    // (Whole index, minus the exclusions.)
+    const src = { kind: 'index' as const, language }
+    if (negatives.length) return (await fetchNozomiExcluding(src, 0, Number.MAX_SAFE_INTEGER, negatives)).ids
+    return idsFromBuf((await httpsGetFull(ltn() + nozomiPath(src))).body)
+  }
 
   let inter: number[] | null = null
   for (const tok of positives) {
@@ -764,7 +782,12 @@ export async function searchNozomi(
       .map((x) => x.id)
   }
 
-  return { ids: all.slice(page * pageSize, page * pageSize + pageSize), total: all.length }
+  return all
+}
+
+// 새로고침 (pull-to-refresh) on a search: drop its cached id list.
+export function dropSearchCache(): void {
+  for (const k of [...fullNozomiCache.keys()]) if (k.startsWith('search:')) fullNozomiCache.delete(k)
 }
 
 // Site popularity ranking (lower = more popular). Caches the full id->rank map
@@ -791,7 +814,26 @@ export async function popularRanks(codes: string[], period = 'year'): Promise<Re
   return out
 }
 
-export async function summary(code: string): Promise<{
+// Gallery summaries are kept in memory (list pages, page flips back and forth,
+// the next / previous page prefetched by the browse screen) — one fetch per
+// gallery, shared while in flight. Failures aren't kept.
+const SUMMARY_MAX = 3000
+const summaryMem = new Map<string, Promise<SummaryData>>()
+export function summary(code: string): Promise<SummaryData> {
+  const hit = summaryMem.get(code)
+  if (hit) {
+    summaryMem.delete(code) // re-insert = most recent
+    summaryMem.set(code, hit)
+    return hit
+  }
+  const p = fetchSummary(code)
+  summaryMem.set(code, p)
+  p.catch(() => summaryMem.get(code) === p && summaryMem.delete(code))
+  while (summaryMem.size > SUMMARY_MAX) summaryMem.delete(summaryMem.keys().next().value as string)
+  return p
+}
+
+interface SummaryData {
   code: string
   title: string
   artists: string[]
@@ -800,7 +842,9 @@ export async function summary(code: string): Promise<{
   type: string | null
   pageCount: number
   thumbUrl: string | null
-}> {
+}
+
+async function fetchSummary(code: string): Promise<SummaryData> {
   const raw = await fetchRawGallery(code)
   const meta = toMeta(raw)
   const first = raw.files[0]
@@ -816,7 +860,7 @@ export async function summary(code: string): Promise<{
   }
 }
 
-export type Summary = Awaited<ReturnType<typeof summary>>
+export type Summary = SummaryData
 
 async function summaryOrNull(code: string): Promise<Summary | null> {
   try {

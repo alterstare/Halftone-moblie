@@ -342,7 +342,8 @@ export interface Api {
   // seriesUrl, or "backup:<title>"). No-op if that code isn't downloading.
   downloadStop: (code: string) => Promise<boolean>
   onDoujinProgress: (cb: (p: DoujinProgress) => void) => () => void
-  doujinList: (source: DoujinListSource, page: number) => Promise<DoujinListResult>
+  // fresh: 새로고침 — recompute a search's cached id list.
+  doujinList: (source: DoujinListSource, page: number, fresh?: boolean) => Promise<DoujinListResult>
   doujinSuggest: (query: string) => Promise<string[]>
   // avif→webp conversion (Pupil compatibility). List a work's avif files, then
   // replace each with a webp (encoded by the renderer's canvas).

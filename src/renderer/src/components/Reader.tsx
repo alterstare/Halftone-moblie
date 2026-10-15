@@ -48,6 +48,18 @@ import {
 // re-render / remount of the same open work doesn't bump viewCount again.
 const counted = new Set<string>()
 
+// Scroll mode: the content y that stands for "where the reader is" — `frac`
+// of the way down the viewport, sliding to its bottom edge over the last
+// screenful of scrolling. At the very end it is the content's bottom, so a
+// last page shorter than the screen still counts as reached (the top of the
+// viewport alone never got past the page before it).
+function scrollProbe(el: HTMLElement, frac: number): number {
+  const h = el.clientHeight
+  const remaining = Math.max(0, el.scrollHeight - h - el.scrollTop)
+  const ramp = h > 0 ? Math.max(0, Math.min(1, 1 - remaining / h)) : 0
+  return el.scrollTop + h * (frac + (1 - frac) * ramp)
+}
+
 export default function Reader({
   tabId,
   side = 'left'
@@ -496,7 +508,7 @@ export default function Reader({
   const computeCurrentFromScroll = useCallback((): void => {
     const el = contentRef.current
     if (!el) return
-    const target = (el.scrollTop + el.clientHeight / 3) / vz.current.s // pinch zoom → layer px
+    const target = scrollProbe(el, 1 / 3) / vz.current.s // pinch zoom → layer px
     let acc = 0
     let idx = 0
     for (let i = 0; i < images.length; i++) {
@@ -969,7 +981,7 @@ export default function Reader({
     const el = contentRef.current
     const n = images.length
     if (!el || mode !== 'scroll' || n < 2) return
-    let y = el.scrollTop / vz.current.s
+    let y = scrollProbe(el, 0) / vz.current.s
     let pos = 0
     for (let i = 0; i < n; i++) {
       const h = heightOf(i)

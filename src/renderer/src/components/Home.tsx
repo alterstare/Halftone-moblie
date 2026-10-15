@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { workCodes } from '../../../shared/types'
+import { restoreAnchor, captureAnchor } from '../scrollRestore'
 import { useStore, useSeriesRoots } from '../store'
 import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isComicCode, sortSeries } from '../util'
 import type { SortMode, OnlineFav, Work } from '../../../shared/types'
@@ -70,8 +71,22 @@ export default function Home(): JSX.Element {
   // Restore the previous home scroll position on mount; save it continuously so
   // returning to the library lands where the user left off. 홈 pressed while
   // already home bumps homeTopNonce → jump to the top (but not on mount).
+  // (Anchor-based: the top card returns to its spot — see scrollRestore.ts;
+  // nothing is saved while the restore settles.)
+  const restoring = useRef(true)
   useLayoutEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = useStore.getState().homeScroll
+    const el = scrollRef.current
+    if (!el) return
+    const st = useStore.getState()
+    const a = st.homeAnchor ?? { top: st.homeScroll, id: null, offset: 0 }
+    // (Saving is off meanwhile, so any store change = a reset from elsewhere.)
+    const wanted = (): boolean => {
+      const now = useStore.getState()
+      return now.homeScroll === st.homeScroll && now.homeAnchor === st.homeAnchor
+    }
+    return restoreAnchor(el, a, wanted, () => {
+      restoring.current = false
+    })
   }, [])
   useEffect(() => {
     if (homeTopNonce === mountNonce.current) return
@@ -610,7 +625,10 @@ export default function Home(): JSX.Element {
     <div
       className="home"
       ref={scrollRef}
-      onScroll={(e) => useStore.getState().setHomeScroll(e.currentTarget.scrollTop)}
+      onScroll={(e) => {
+        if (restoring.current) return
+        useStore.getState().setHomeScroll(e.currentTarget.scrollTop, captureAnchor(e.currentTarget))
+      }}
       onClickCapture={sel.capture}
       style={{ ['--mw' as string]: `${settings.marginWidth}px` }}
     >
