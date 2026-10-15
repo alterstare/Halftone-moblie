@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { useLibraryCodes, useStore } from '../store'
-import type { GallerySummary, OnlineSort, SearchSort } from '../../../shared/ipc'
+import type { DoujinListSource, GallerySummary, OnlineSort, SearchSort } from '../../../shared/ipc'
 import Pager from './Pager'
 import TagSearchInput from './TagSearchInput'
 import OnlineThumb from './OnlineThumb'
@@ -24,6 +24,8 @@ import { ArtistLinks } from './ArtistLinks'
 import TileBar, { CompactBar } from './TileBar'
 import CardMore from './CardMore'
 import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav, useBackHandler } from './libraryTools'
+import { captureAnchor, restoreAnchor, type ListAnchor } from '../scrollRestore'
+import { showCrossSearch, toLocalQuery } from '../crossToast'
 import { isNarrow } from '../mobile'
 
 const LANGS = [
@@ -126,8 +128,64 @@ export default function Browse(): JSX.Element {
   // press / reloadKey) — returning to the view does NOT refetch.
   const lastReload = useRef(reloadKey)
   const prefetchTimer = useRef(0)
+
+  // Back from a search returns to the list it was started from AS IT WAS —
+  // same page, same items (no reload), same spot. Entering a search pushes the
+  // screen being left; back pops it (up to 10 levels: search → search → …).
+  type Snap = { source: DoujinListSource; page: number; items: GallerySummary[]; total: number; anchor: ListAnchor | null }
+  const stack = useRef<Snap[]>([])
+  const onScreen = useRef<Snap | null>(null) // what is on screen (last commit)
+  const restoreSnap = useRef<Snap | null>(null) // a popped screen to show as-is
+  const popping = useRef(false)
+  const restoredKey = useRef('')
+  const [anchorReq, setAnchorReq] = useState<ListAnchor | null>(null)
+  useEffect(() => {
+    onScreen.current = { source: activeSource, page, items, total, anchor: null }
+  })
+  const firstSource = useRef(true)
+  useLayoutEffect(() => {
+    if (firstSource.current) {
+      firstSource.current = false
+      return
+    }
+    if (popping.current) {
+      popping.current = false
+      return
+    }
+    // A search just ran here → offer it in the library for a moment.
+    if (activeSource.kind === 'search') {
+      const q = toLocalQuery(activeSource.query)
+      if (q) showCrossSearch('로컬에서 검색', () => useStore.getState().searchLocal(q))
+    }
+    const prev = onScreen.current
+    if (activeSource.kind !== 'search' || favMode || !prev || !prev.items.length) return
+    // (Layout effect: the DOM still shows the list being left.)
+    const anchor = rootRef.current ? captureAnchor(rootRef.current) : null
+    stack.current.push({ ...prev, anchor })
+    if (stack.current.length > 10) stack.current.shift()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSource])
+
   useEffect(() => {
     let alive = true
+    // A popped screen: show its items as they were, no fetch.
+    const snap = restoreSnap.current
+    const viewKey = `${JSON.stringify(activeSource)}|${page}|${reloadKey}`
+    // Re-run for the restored screen itself (its total changes the reversed
+    // page mirror) → keep it, no fetch.
+    if (restoredKey.current === viewKey) return
+    restoredKey.current = ''
+    if (snap && lastReload.current === reloadKey && snap.page === page && JSON.stringify(snap.source) === JSON.stringify(activeSource)) {
+      restoreSnap.current = null
+      restoredKey.current = viewKey
+      setItems(snap.items)
+      setTotal(snap.total)
+      setLoading(false)
+      setError(null)
+      setAnchorReq(snap.anchor)
+      return
+    }
+    restoreSnap.current = null
     setLoading(true)
     setError(null)
     setItems([]) // drop the previous page so it doesn't linger under the loader
@@ -177,6 +235,10 @@ export default function Browse(): JSX.Element {
   const tokens = query.split(',').map((t) => t.trim()).filter(Boolean)
   const addToken = (raw: string): void => {
     const tok = raw.includes(' ') ? `"${raw.replace(/"/g, '')}"` : raw
+    // The box still holds the search that ran → the first clicked tag starts
+    // a new one (replaces it); later clicks add to it.
+    const ran = activeSource.kind === 'search' ? activeSource.query.split(',').map((t) => t.trim()).filter(Boolean) : []
+    if (ran.length && tokens.join(',') === ran.join(',')) return setQuery(tok)
     if (!tokens.includes(tok)) setQuery([...tokens, tok].join(', '))
   }
 
@@ -229,6 +291,12 @@ export default function Browse(): JSX.Element {
   useEffect(() => {
     if (rootRef.current) rootRef.current.scrollTop = 0
   }, [page])
+  // …then a popped screen goes back to its spot (after the reset above).
+  useEffect(() => {
+    const el = rootRef.current
+    if (!anchorReq || !el) return
+    return restoreAnchor(el, anchorReq, () => true, () => setAnchorReq(null))
+  }, [anchorReq])
 
   // Language applies at once to whatever is showing (list or search), and is
   // what a tag search from elsewhere keeps (store.searchOnline).
@@ -353,6 +421,16 @@ export default function Browse(): JSX.Element {
   useBackHandler(browseView && thisMode && (favPanel || favMode || searching), () => {
     if (favPanel) return setFavPanel(false)
     if (favMode) return setFavMode(false)
+    const prev = stack.current.pop()
+    if (prev) {
+      popping.current = true
+      restoreSnap.current = prev
+      setQuery(prev.source.kind === 'search' ? prev.source.query : '')
+      setLang(prev.source.language ?? 'all')
+      setBrowsePage(prev.page)
+      setBrowseSource(prev.source)
+      return
+    }
     setQuery('')
     runIndex()
   })

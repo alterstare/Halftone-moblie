@@ -144,19 +144,23 @@
 .gtile.series {
   height: auto;
 }
+/* 목록형 cover 1.2× (112 → 134px wide); its side spaces are a quarter of
+   the old ones (left 10 → 2.5px, gap 12 → 3px), the text column takes what's
+   left. */
 .tile-body {
   display: flex;
-  gap: 12px;
-  padding: 10px 10px 8px;
+  gap: 3px;
+  padding: 10px 10px 8px 2.5px;
   align-items: stretch;
 }
-/* Cover: fixed 112×160, vertically centered when the text column is taller. */
+/* Cover: fixed 134 wide (height from --thumb-ratio ≈ 190), vertically
+   centered when the text column is taller. */
 .tile-body .gtile-thumb,
 .tile-body .gcard-thumb,
 .tile-body .gcard-thumb-wrap {
-  flex: 0 0 112px;
-  width: 112px;
-  height: 160px;
+  flex: 0 0 134px;
+  width: 134px;
+  height: 190px;
   align-self: center;
   border-radius: var(--r4);
   overflow: hidden;
@@ -170,7 +174,7 @@
 .tile-info {
   flex: 1;
   min-width: 0;
-  min-height: 160px;
+  min-height: 190px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -3129,4 +3133,49 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   margin-left: 4px;
   padding: 0 6px;
   cursor: pointer;
+}
+
+/* Cross-search offer after a click search (crossToast.ts): translucent bar,
+   only 승인 is a (purple, flat) button. */
+.mm-cross {
+  position: fixed;
+  left: 50%;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  translate: -50% 8px;
+  z-index: 410;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 48px);
+  padding: 2px 4px 2px 16px;
+  border-radius: 20px;
+  background: rgba(32, 33, 40, 0.78);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.18s,
+    translate 0.18s;
+}
+.mm-cross.show {
+  opacity: 1;
+  translate: -50% 0;
+}
+.mm-cross span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mm-cross-ok {
+  pointer-events: auto;
+  border: 0;
+  background: none;
+  padding: 8px 12px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+.mm-cross:not(.show) .mm-cross-ok {
+  pointer-events: none;
 }

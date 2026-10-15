@@ -50,7 +50,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   no exit popup (`exitSaving`).
   Library cards are phone-specific (diverge from desktop — re-apply when
   porting a newer desktop renderer). 목록형 (list) = the wide tile: cover left
-  (112×160, vertically centered) / text right (full title, artist 1 line +
+  (134×190 — 1.2× since 2026-10-15, side spaces 2.5px / 3px; vertically centered) / text right (full title, artist 1 line +
   `MoreClamp`, tags ≤5 rows `TagList lines fluid`), bar = stars | 더보기 |
   즐겨찾기·다운로드(그룹) (`TileBar more`), 더보기 opens `CardMore` under the
   card (다른 언어 작품 찾기 button → `EditionsPanel`, 3×3 page preview paged by
@@ -331,6 +331,27 @@ Home list position on return (`scrollRestore.ts`): saved as the top card
 re-applied for a few frames after remount, saving paused meanwhile — a plain
 scrollTop got clamped while the list was still laying out and that clamped
 value was saved (the opened work ended up far below the screen).
+
+Back to the list you came from (2026-10-15): Home keeps page + anchor per
+list state (`listPositions` keyed by resetKey, ≤30) — leaving a list (artist /
+tag filter, search) remembers it, coming back restores it (🏠 still goes to the
+top: `toTop`). Online Browse pushes the screen being left (source, page,
+items, total, anchor; ≤10) when a search starts; back pops it and shows those
+items as-is — no fetch (`restoreSnap`, `restoredKey` stops the reversed-page
+mirror re-run from refetching) — then restores the spot.
+
+Cross-search (2026-10-15): the tag / artist long-press menu (`useTagMenu`)
+always offers 로컬에서 검색 + 온라인에서 검색 (the card's other side first). A
+search that runs here (Home: search / artist·tag filter change, not on mount;
+Browse: a new search source, not a back-pop) shows `crossToast.ts`
+`showCrossSearch` — a translucent bottom bar "<other side>에서 검색 · 승인"
+for ~2.2s, only 승인 (purple) is a button; 일반 만화 local offers the comic
+author search for artist filters only. Searches that came from the other side
+(승인 / the menu) call `suppressCross()` so no way-back offer follows. Online →
+local converts the query with `toLocalQuery` (quotes off, spaces → _).
+Tag clicks into the search box: if the box still equals the search that ran,
+the first click replaces it, later clicks append (Home searchSeed / Browse
+addToken) — tag1 searched, then tag2, tag3 → "tag2, tag3".
 
 Remembered view state: home 목록형/격자형 = `settings.homeLayout`, online
 (동인지) list = `settings.browseLayout`; library sort = `defaultSort` (now the

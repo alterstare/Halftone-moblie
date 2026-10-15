@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { workCodes } from '../../../shared/types'
-import { restoreAnchor, captureAnchor } from '../scrollRestore'
+import { restoreAnchor, captureAnchor, type ListAnchor } from '../scrollRestore'
+import { showCrossSearch } from '../crossToast'
 import { useStore, useSeriesRoots } from '../store'
-import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isComicCode, sortSeries } from '../util'
+import { selectWorks, SORT_LABELS, groupSeries, matchesSearch, tagTokens, tagToken, tokenLabel, analyzeSeries, CHAP_FAV_PREFIX, FAV_BASE, titleKey, type SeriesGroup, isComicCode, sortSeries } from '../util'
 import type { SortMode, OnlineFav, Work } from '../../../shared/types'
 import type { Filter } from '../store'
 import { langCategory, LANG_CAT_LABELS, type LangCat } from '../../../shared/lang'
@@ -23,6 +24,14 @@ import { mergeFavorites, type FavEntry } from '../favorites'
 import GroupName from './GroupName'
 import { useLock } from '../lock'
 import { getFavSummary, useFavSummaries } from '../favSummaries'
+
+// Page + position of each library list state (resetKey), most recent last.
+const listPositions = new Map<string, { page: number; anchor: ListAnchor }>()
+function rememberPosition(key: string, p: { page: number; anchor: ListAnchor }): void {
+  listPositions.delete(key)
+  listPositions.set(key, p)
+  while (listPositions.size > 30) listPositions.delete(listPositions.keys().next().value as string)
+}
 
 export default function Home(): JSX.Element {
   const works = useStore((s) => s.works)
@@ -96,6 +105,7 @@ export default function Home(): JSX.Element {
     setSearch('')
     setFilter({ kind: 'all' })
     setPage(0)
+    toTop.current = true // the list change below starts at the top, not where it was
     if (scrollRef.current) scrollRef.current.scrollTop = 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [homeTopNonce])
@@ -119,10 +129,36 @@ export default function Home(): JSX.Element {
     if (!searchSeed) return
     setQuery((cur) => {
       const toks = cur.split(',').map((s) => s.trim()).filter(Boolean)
+      // The box still holds the search that ran → the first clicked tag starts
+      // a new one (replaces it); later clicks add to it.
+      const ran = useStore.getState().search.split(',').map((s) => s.trim()).filter(Boolean)
+      if (ran.length && toks.join(',') === ran.join(',')) return searchSeed.tok + ', '
       return toks.includes(searchSeed.tok) ? cur : [...toks, searchSeed.tok].join(', ') + ', '
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchSeed?.nonce])
+  // A search / artist filter just applied → offer the same search online for
+  // a moment (crossToast.ts). Not on mount (a restored screen).
+  const crossKey = JSON.stringify([search, filter])
+  const crossSeen = useRef(crossKey)
+  useEffect(() => {
+    if (crossKey === crossSeen.current) return
+    crossSeen.current = crossKey
+    const st = useStore.getState()
+    if (libraryMode === 'normal') {
+      if (filter.kind === 'artist') showCrossSearch('온라인에서 검색', () => st.searchComicAuthor(filter.value))
+      return
+    }
+    const q = search.trim()
+      ? search.trim().replace(/,\s*$/, '')
+      : filter.kind === 'artist'
+        ? tagToken(`artist:${filter.value}`)
+        : filter.kind === 'tag'
+          ? tagToken(filter.value)
+          : ''
+    if (q) showCrossSearch('온라인에서 검색', () => st.searchOnline(q))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [crossKey])
   // Only one classification panel (작품/언어/그룹 분류) open at a time — opening
   // one collapses whichever was open.
   const [openPanel, setOpenPanel] = useState<'cat' | 'lang' | 'group' | 'fav' | null>(null)
@@ -436,17 +472,43 @@ export default function Home(): JSX.Element {
   // the scroll+page stay put. Keyed on the filter signature; a ref guards the
   // first run and StrictMode's double-invoke, both of which see an unchanged key.
   const resetKey = JSON.stringify([search, filter, sort, seed, libraryMode, history])
+  // Each list state (search / filter / sort) remembers its page + position:
+  // back from an artist / tag filter lands where that list was left, not on
+  // page 1 (listPositions, kept across remounts).
   const prevKey = useRef<string | null>(null)
+  const toTop = useRef(false)
+  const [restoreReq, setRestoreReq] = useState<ListAnchor | null>(null)
   useEffect(() => {
     if (prevKey.current === null || prevKey.current === resetKey) {
       prevKey.current = resetKey
       return
     }
+    const st = useStore.getState()
+    rememberPosition(prevKey.current, { page, anchor: st.homeAnchor ?? { top: st.homeScroll, id: null, offset: 0 } })
     prevKey.current = resetKey
+    const saved = toTop.current ? undefined : listPositions.get(resetKey)
+    toTop.current = false
+    if (saved) {
+      setPage(saved.page)
+      st.setHomeScroll(saved.anchor.top, saved.anchor)
+      setRestoreReq(saved.anchor)
+      return
+    }
     setPage(0)
-    useStore.getState().setHomeScroll(0)
+    st.setHomeScroll(0)
     if (scrollRef.current) scrollRef.current.scrollTop = 0
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey])
+  // …applied once that list (and page) has rendered.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!restoreReq || !el) return
+    restoring.current = true
+    const wanted = (): boolean => useStore.getState().homeAnchor === restoreReq
+    return restoreAnchor(el, restoreReq, wanted, () => {
+      restoring.current = false
+    })
+  }, [restoreReq])
   // Clamp a restored page that no longer exists (data shrank while away).
   useEffect(() => {
     if (page > lastPage) setPage(lastPage)
