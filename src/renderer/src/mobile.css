@@ -3149,6 +3149,8 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   max-width: calc(100vw - 48px);
   padding: 2px 4px 2px 16px;
   border-radius: 20px;
+  /* the press veil on 승인 stays inside the pill */
+  overflow: hidden;
   background: rgba(32, 33, 40, 0.78);
   color: #fff;
   font-size: 13px;
@@ -3172,6 +3174,7 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   border: 0;
   background: none;
   padding: 8px 12px;
+  border-radius: 18px;
   color: var(--accent);
   font-size: 13px;
   font-weight: 600;
