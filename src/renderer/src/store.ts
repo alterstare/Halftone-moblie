@@ -130,6 +130,12 @@ export function downloadMode(code: string): 'doujin' | 'normal' {
   return isComicCode(code) || code.startsWith('backup:') ? 'normal' : 'doujin'
 }
 
+// Alert a failed startDownload — unless the failure already shows on its 작업
+// 목록 row (startDownload marks those `inList`), which has its own retry.
+export function alertDownloadError(e: any): void {
+  if (!e?.inList) alert(String(e?.message ?? e))
+}
+
 export interface Tab {
   id: string
   workId: string // '' for online-only tabs
@@ -1603,6 +1609,7 @@ export const useStore = create<AppState>((set, get) => ({
       // Stopped by the user — not a failure; the 'stopped' progress event already
       // updated the item, so swallow it.
       if (String(e?.message ?? e).includes('DOWNLOAD_STOPPED')) return null
+      if (e && typeof e === 'object' && get().downloads.find((d) => d.code === code)?.phase === 'error') e.inList = true
       throw e
     }
   },

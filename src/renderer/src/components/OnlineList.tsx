@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useLibraryCodes, useStore } from '../store'
+import { useLibraryCodes, useStore, alertDownloadError } from '../store'
 import type { GallerySummary, DoujinListSource, OnlineSort } from '../../../shared/ipc'
 import Pager from './Pager'
 import CopyCode from './CopyCode'
@@ -164,7 +164,7 @@ export default function OnlineList(): JSX.Element {
     try {
       await startDownload({ kind: 'doujin', input: g.code, title: g.title })
     } catch (e: any) {
-      alert(String(e?.message ?? e))
+      alertDownloadError(e)
     }
   }
 

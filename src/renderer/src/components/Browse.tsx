@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useLibraryCodes, useStore } from '../store'
+import { useLibraryCodes, useStore, alertDownloadError } from '../store'
 import type { DoujinListSource, GallerySummary, OnlineSort, SearchSort } from '../../../shared/ipc'
 import Pager from './Pager'
 import TagSearchInput from './TagSearchInput'
@@ -407,7 +407,7 @@ export default function Browse(): JSX.Element {
     try {
       await startDownload({ kind: 'doujin', input: code, title })
     } catch (e: any) {
-      alert(String(e?.message ?? e))
+      alertDownloadError(e)
     }
   }
 

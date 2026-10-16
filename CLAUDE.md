@@ -473,6 +473,17 @@ Doujin list speed (2026-10-14): a search's matched id list is cached 10 min
 in flight), and Browse prefetches page ±1 400ms after a page shows (+ the next
 page's covers via `new Image()`), random excluded. Emulator, a 37k-hit tag
 search: first page 5.1s, uncached next page 2.0s, prefetched page ~0ms.
+Doujin image CDN rate limit (2026-10-16): nginx limit_req ≈ 5 req/s + small
+burst per IP, excess → instant 503, recovers < 1s (gg.js `b` rotates hourly,
+old values keep working). `downloadGallery` → `fetchPage`: one pacer for all
+downloads (`pace`: request starts ≥ `paceGap` apart, 220ms min, ×1.5 on a
+503, ×0.97 back per success); 503/429 also set a
+shared cool-down (`cdnCoolUntil`, all downloads wait) and retry ≤15×; 404
+refreshes gg.js once; pages still failing are retried after the rest, only
+then the gallery errors. Download errors already on the 작업 목록 row are not
+alerted (`alertDownloadError`, `inList`). Emulator: before the pacer, 6
+galleries unlimited parallel = 373 × 503 (all saved); with it, 3 galleries
+at 동시 2 = 747 pages, 0 × 503 (~4.5 pages/s total).
 Big favorites: Browse 즐겨찾기 requests summaries only for the shown page ± 2
 pages (`favWindow`; list entries are placeholders until fetched); the reader's
 online list renders favorites in 60-item steps around the open gallery

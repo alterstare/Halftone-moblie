@@ -9,7 +9,7 @@
 // continuous reading into the next/previous work of the left list.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
-import { useStore, useSeriesRoots } from '../store'
+import { useStore, useSeriesRoots, alertDownloadError } from '../store'
 import { getImages, getOnlineImages, reloadOnlineImages, onOnlinePages, pagesCollecting } from '../images'
 import { getComicChapters } from '../comic'
 import { analyzeSeries, seriesOf } from '../util'
@@ -1015,7 +1015,7 @@ export default function Reader({
       setDlDone(true)
       setTimeout(() => setDlDone(false), 2500) // briefly flip the button to 완료 ✓
     } catch (e: any) {
-      alert(String(e?.message ?? e))
+      alertDownloadError(e)
     } finally {
       setDownloading(false)
     }
@@ -1035,7 +1035,7 @@ export default function Reader({
       setDlDone(true)
       setTimeout(() => setDlDone(false), 2500)
     } catch (e: any) {
-      alert(String(e?.message ?? e))
+      alertDownloadError(e)
     } finally {
       setDownloading(false)
     }

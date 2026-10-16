@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import type { GallerySummary } from '../../../shared/ipc'
-import { useStore, useLibraryCodes } from '../store'
+import { useStore, useLibraryCodes, alertDownloadError } from '../store'
 import { DownloadIcon, FavoriteIcon, CheckIcon } from './icons'
 import { isNarrow } from '../mobile'
 import { favMeta } from '../util'
@@ -41,7 +41,7 @@ export default function EditionsPanel({
     try {
       await startDownload({ kind: 'doujin', input: code })
     } catch (e: any) {
-      alert(String(e?.message ?? e))
+      alertDownloadError(e)
     } finally {
       setDownloading(null)
     }

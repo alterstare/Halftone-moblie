@@ -347,15 +347,20 @@ export async function downloadGallery(
 ): Promise<DownloadResult> {
   const raw = await fetchRawGallery(code)
   const meta = toMeta(raw)
-  const ctx = await getImageContext()
   const dir = join(destRoot, folderName(meta, pattern))
   await fs.mkdir(dir, { recursive: true })
 
   const total = raw.files.length
   const pad = String(total).length
+  const pathOf = (i: number, ext: string): string =>
+    join(dir, `${String(i + 1).padStart(Math.max(pad, 3), '0')}.${ext}`)
   // Three pages at a time; each written natively (no bytes through the bridge).
+  // A page that still fails after its retries is set aside and tried again
+  // once the rest are done, so one bad page doesn't end the whole gallery.
   let next = 0
   let done = 0
+  const failed: number[] = []
+  let lastErr: unknown = null
   const worker = async (): Promise<void> => {
     for (;;) {
       signal?.throwIfAborted()
@@ -363,33 +368,115 @@ export async function downloadGallery(
       if (i >= total) return
       const f = raw.files[i]
       const ext = pickExt(f, format)
-      const fpath = join(dir, `${String(i + 1).padStart(Math.max(pad, 3), '0')}.${ext}`)
+      const fpath = pathOf(i, ext)
       // Resume support: a stopped download leaves partial pages on disk. Skip any
       // page already written so a restart continues from where it stopped.
       const st = await fs.stat(fpath).catch(() => null)
       if (!st || st.size === 0) {
-        const url = imageUrl(f.hash, ext, ctx)
-        await retry(() => MM.httpDownload({ url, kind: 'doujin', path: fpath }), 3)
+        try {
+          await fetchPage(f.hash, ext, fpath, signal)
+        } catch (e) {
+          signal?.throwIfAborted()
+          failed.push(i)
+          lastErr = e
+          continue
+        }
       }
       onProgress(++done, total, meta.title)
     }
   }
   await Promise.all(Array.from({ length: Math.min(3, total) }, worker))
+  // Second pass for the set-aside pages, one at a time after a pause.
+  if (failed.length) {
+    await abortableSleep(3000, signal)
+    for (const i of failed.sort((a, b) => a - b)) {
+      const f = raw.files[i]
+      const ext = pickExt(f, format)
+      try {
+        await fetchPage(f.hash, ext, pathOf(i, ext), signal)
+        onProgress(++done, total, meta.title)
+      } catch (e) {
+        signal?.throwIfAborted()
+        lastErr = e
+      }
+    }
+    if (done < total) {
+      const why = String((lastErr as Error)?.message ?? lastErr)
+      throw new Error(`${total - done}페이지를 받지 못했습니다 (${why})`)
+    }
+  }
   await writeSidecar(dir, meta)
   return { dir, meta }
 }
 
-async function retry<T>(fn: () => Promise<T>, times: number): Promise<T> {
-  let lastErr: unknown
-  for (let i = 0; i < times; i++) {
+// The image CDN rate-limits per IP (nginx limit_req: ~5 requests/s plus a
+// short burst; the rest get 503 and it recovers within a second). Every
+// download's page requests share one pacer: request starts are spaced
+// `paceGap` apart (all downloads together), the gap widens on a 503 and
+// narrows back slowly on success — so the limit is rarely hit at all. A 503
+// also pauses everyone for a moment (`cdnCoolUntil`) instead of each worker
+// burning its retries in the same overloaded second.
+const PACE_MIN = 220 // ms ≈ 4.5 requests/s
+const PACE_MAX = 1500
+let paceGap = PACE_MIN
+let paceNext = 0
+let cdnCoolUntil = 0
+
+async function pace(signal?: AbortSignal): Promise<void> {
+  const now = Date.now()
+  const at = Math.max(now, paceNext, cdnCoolUntil)
+  paceNext = at + paceGap
+  if (at > now) await abortableSleep(at - now, signal)
+}
+
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason)
+    const t = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = (): void => {
+      clearTimeout(t)
+      reject(signal!.reason)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+// Status code of a failed native request ("GET <url> -> 503"), 0 = network error.
+const failStatus = (e: unknown): number =>
+  Number(/-> (\d{3})\b/.exec(String((e as Error)?.message ?? e))?.[1] ?? 0)
+
+// Download one page image to `path`. 503 / 429 (rate limit) retry for ~half a
+// minute behind the shared cool-down; other errors a few times. A 404 refreshes
+// gg.js once (it rotates every hour; the subdomain mapping can move with it).
+async function fetchPage(hash: string, ext: 'avif' | 'webp', path: string, signal?: AbortSignal): Promise<void> {
+  let ctx = await getImageContext()
+  let refreshed = false
+  for (let attempt = 0; ; attempt++) {
+    await pace(signal)
+    signal?.throwIfAborted()
     try {
-      return await fn()
+      await MM.httpDownload({ url: imageUrl(hash, ext, ctx), kind: 'doujin', path })
+      paceGap = Math.max(PACE_MIN, paceGap * 0.97)
+      return
     } catch (e) {
-      lastErr = e
-      await new Promise((r) => setTimeout(r, 400 * (i + 1)))
+      signal?.throwIfAborted()
+      const status = failStatus(e)
+      const busy = status === 503 || status === 429
+      if (attempt >= (busy ? 15 : 4)) throw e
+      if (busy) {
+        paceGap = Math.min(PACE_MAX, paceGap * 1.5)
+        cdnCoolUntil = Math.max(cdnCoolUntil, Date.now() + 800 + Math.random() * 700 * Math.min(attempt + 1, 4))
+      } else if (status === 404 && !refreshed) {
+        refreshed = true
+        ctx = await getImageContext(true)
+      } else {
+        await abortableSleep(600 * (attempt + 1), signal)
+      }
     }
   }
-  throw lastErr
 }
 
 // Extract a doujin code from a raw code or any doujin url the user pastes.
