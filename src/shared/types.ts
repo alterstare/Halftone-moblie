@@ -134,6 +134,10 @@ export interface Settings {
   // moves to the phone's favoritesDir, and a phone work never to a NAS).
   nasFavoritesDirs?: Record<string, string>
   favoriteMoveToFolder: boolean
+  // Joining / leaving a group moves the work folder into / out of the group
+  // folder. Off: membership only — folders stay, and a rescan keeps the stored
+  // groups instead of reading them from the folder location.
+  groupMoveToFolder: boolean
   downloadDir: string | null
   // Preferred image encoding when downloading doujin galleries. webp is more
   // widely supported by other viewers; avif is smaller. Falls back per-page when
@@ -295,7 +299,8 @@ export interface Settings {
   // setting dropped (main/lib/favoriteSync.ts migrateFavorites).
   favoritesUnified: boolean
   // User-defined doujin folder-name patterns for locating the gallery id. Tokens:
-  //   -id-     gallery id (digits) — REQUIRED; a pattern without it is ignored
+  //   -id-     gallery id (digits); a pattern without it never gives a code —
+  //            it only splits a 번호 없는 folder name (title + group/artist tags)
   //   -title-  work title   -artist- artist   -group- circle/group
   // A folder is a doujin work only if it matches one of these AND the -id- slot
   // holds digits — so an incidental 7-digit number in the title no longer looks
@@ -383,12 +388,15 @@ export interface ParsedName {
   artist: string | null
   code: string | null
   title: string
+  // Pattern without -id-: its -group- / -artist- parts as tags.
+  tags?: string[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   libraryRoots: [],
   favoritesDir: null,
   favoriteMoveToFolder: true,
+  groupMoveToFolder: true,
   downloadDir: null,
   downloadImageFormat: 'avif',
   normalRoots: [],

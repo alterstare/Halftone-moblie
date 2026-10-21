@@ -27,6 +27,7 @@ import { useComicStatus } from './useComicStatus'
 import { isTouch, sidebarBtnMode } from '../mobile'
 import { comboFromEvent, shortcutCombos } from '../../../shared/shortcuts'
 import { showToast } from '../toast'
+import { isNasPath } from '../nas'
 import {
   DownloadIcon,
   ScrollModeIcon,
@@ -405,6 +406,53 @@ export default function Reader({
     return () => window.clearTimeout(h)
   }, [zoom, tabId, side, setTabReader, setLastZoom, libMode])
 
+  // NAS works: each page is a request to the NAS. Fetch them in reading order
+  // from the current page, NAS_PAR at a time, and in scroll mode give a page
+  // its <img> only once fetched — mounting every image at once queued hundreds
+  // of requests and the page on screen waited behind them. Pages show as they
+  // arrive (like online works); a page move re-aims the queue at the new spot.
+  const remote = !online && isNasPath(work?.path)
+  const NAS_PAR = 3
+  const nas = useRef({ srcs: [] as string[], ready: new Set<number>(), busy: new Set<number>(), keep: [] as HTMLImageElement[] })
+  const [nasReady, setNasReady] = useState(0)
+  const nasRaf = useRef(0)
+  const nasPump = useCallback((): void => {
+    const st = nas.current
+    const n = st.srcs.length
+    const pick = (): number => {
+      const s = Math.min(Math.max(0, pageIdxRef.current), n - 1)
+      for (let i = s; i < n; i++) if (!st.ready.has(i) && !st.busy.has(i)) return i
+      for (let i = s - 1; i >= 0; i--) if (!st.ready.has(i) && !st.busy.has(i)) return i
+      return -1
+    }
+    while (st.busy.size < NAS_PAR) {
+      const i = pick()
+      if (i < 0) return
+      st.busy.add(i)
+      const im = new Image()
+      im.decoding = 'async'
+      im.src = st.srcs[i]
+      const done = (): void => {
+        if (nas.current !== st) return // another work since
+        st.busy.delete(i)
+        st.ready.add(i)
+        st.keep.push(im) // keep the decoded page alive
+        if (im.naturalWidth > 0) onDims(i, im.naturalWidth, im.naturalHeight)
+        cancelAnimationFrame(nasRaf.current)
+        nasRaf.current = requestAnimationFrame(() => setNasReady((x) => x + 1))
+        nasPump()
+      }
+      im.decode().then(done, done)
+    }
+  }, [onDims])
+  useEffect(() => {
+    nas.current = { srcs: remote ? images : [], ready: new Set(), busy: new Set(), keep: [] }
+    if (remote && images.length) nasPump()
+  }, [remote, images, nasPump])
+  useEffect(() => {
+    if (remote) nasPump()
+  }, [remote, pageIdx, nasPump])
+
   // Scroll mode: which pages are mounted. Works up to MOUNT_ALL pages mount
   // every page (kept loaded); longer ones a window of ±WIN around the current
   // page, moved in steps of 10 so it doesn't re-render on every page.
@@ -425,12 +473,12 @@ export default function Reader({
     for (let i = scrollWin.start; i < scrollWin.end; i++)
       out.push(
         <PageSlot key={i} index={i} onMeasure={measure} estH={heightOf(i)}>
-          <PageImage src={images[i]} style={pageStyle} />
+          <PageImage src={remote && !nas.current.ready.has(i) ? '' : images[i]} style={pageStyle} />
         </PageSlot>
       )
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, images, scrollWin, fit, sw, sh, measure, tick])
+  }, [mode, images, scrollWin, fit, sw, sh, measure, tick, remote, nasReady])
 
   // Online galleries stream over the network. Prefetch the WHOLE gallery once,
   // but in reading order from the opened page and at low concurrency, so the
@@ -450,17 +498,18 @@ export default function Reader({
 
   // Local works: decode the WHOLE work once (from the opened page forward, then
   // backward), kept for the life of the reader — paging / slider jumps never
-  // wait on a decode, and nothing is re-fetched while moving around.
+  // wait on a decode, and nothing is re-fetched while moving around. (NAS
+  // works: the queue above.)
   const warmRef = useRef<HTMLImageElement[]>([])
   useEffect(() => {
     warmRef.current = []
-    if (online || images.length === 0) return
+    if (online || remote || images.length === 0) return
     const s = pageIdxRef.current
     const order: number[] = []
     for (let i = s; i < images.length; i++) order.push(i)
     for (let i = s - 1; i >= 0; i--) order.push(i)
     return prefetchOrdered(images, order, 6, warmRef.current, onDims)
-  }, [online, images, onDims])
+  }, [online, remote, images, onDims])
 
   // Continuous reading: warm the neighbouring works in the reading queue so that
   // crossing a work boundary is instant (the folder listing is cached and the
@@ -784,20 +833,69 @@ export default function Reader({
   }, [mode, images.length])
 
   // Two-finger pinch zoom (phone) — a purely visual zoom on top of the fit:
-  // the page layer (.zoom-layer) is CSS-scaled from its top-left corner and the
-  // pane's own scroll pans it, so nothing re-lays out (no jump on release). The
-  // content point under the fingers stays under them while pinching / moving.
-  // Zooming out past the fit rubber-bands, then springs back to the fit on
-  // release. vz.s is that scale (1 = fit); scroll-mode page math divides by it.
+  // the page layer (.zoom-layer) is CSS-scaled from its top-left corner, so
+  // nothing re-lays out (no jump on release). The content point under the
+  // fingers stays under them while pinching / moving. Zooming out past the fit
+  // rubber-bands, then springs back to the fit on release. vz.s is that scale
+  // (1 = fit); scroll-mode page math divides by it.
+  // Scroll mode pans the zoomed column with the pane's own scroll. Paged /
+  // spread never touch the scroll: the layer is translated (one finger drags
+  // it, vzPan) and kept covering the pane — scroll writes made during a real
+  // two-finger gesture were dropped on devices, so the zoom grew from the
+  // top-left corner.
   const vz = useRef({ s: 1, tx: 0, ty: 0 })
   const vzAnim = useRef(0)
   const layerOf = (): HTMLElement | null => contentRef.current?.querySelector<HTMLElement>('.zoom-layer') ?? null
+  // Paged / spread: the shown page(s) as a box in unscaled layer px.
+  const pageBox = (layer: HTMLElement): { x: number; y: number; w: number; h: number } | null => {
+    const lr = layer.getBoundingClientRect()
+    const s = vz.current.s
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+    layer.querySelectorAll('img').forEach((img) => {
+      if (img.closest('.paged-off')) return
+      const r = img.getBoundingClientRect()
+      if (!r.width) return
+      x0 = Math.min(x0, r.left)
+      y0 = Math.min(y0, r.top)
+      x1 = Math.max(x1, r.right)
+      y1 = Math.max(y1, r.bottom)
+    })
+    if (x0 === Infinity) return null
+    return { x: (x0 - lr.left) / s, y: (y0 - lr.top) / s, w: (x1 - x0) / s, h: (y1 - y0) / s }
+  }
+  // Paged / spread: apply scale + translate, the page kept covering the pane
+  // (centered on an axis where it is smaller).
+  const vzPut = (el: HTMLElement, layer: HTMLElement, sc: number, tx: number, ty: number): void => {
+    const b = pageBox(layer)
+    const sl = el.scrollLeft
+    const st = el.scrollTop
+    if (b) {
+      const fit = (t: number, at: number, size: number, view: number, scroll: number): number => {
+        const w = size * sc
+        if (w <= view) return (view - w) / 2 - at * sc + scroll
+        return Math.min(-at * sc + scroll, Math.max(view - w - at * sc + scroll, t))
+      }
+      tx = fit(tx, b.x, b.w, el.clientWidth, sl)
+      ty = fit(ty, b.y, b.h, el.clientHeight, st)
+    }
+    const plain = Math.abs(sc - 1) < 0.001 && Math.abs(tx) < 0.5 && Math.abs(ty) < 0.5
+    vz.current = plain ? { s: 1, tx: 0, ty: 0 } : { s: sc, tx, ty }
+    layer.style.transformOrigin = '0 0'
+    layer.style.transform = plain ? '' : `translate(${tx}px, ${ty}px) scale(${sc})`
+    // Zoomed: our drag pans, not the pane's scroll.
+    el.style.overflow = sc > 1.001 ? 'hidden' : ''
+  }
   // Put content point (X, Y) (unscaled layer px) under pane point (cx, cy) at
-  // scale s: scroll as far as the range allows, the remainder as a translate.
+  // scale s. Scroll mode: scroll as far as the range allows, the remainder as
+  // a translate (`settle` eases that remainder away). Paged: translate only.
   const vzSet = useCallback((sc: number, X: number, Y: number, cx: number, cy: number, settle = 1): void => {
     const el = contentRef.current
     const layer = el?.querySelector<HTMLElement>('.zoom-layer')
     if (!el || !layer) return
+    if (!el.classList.contains('scroll')) {
+      vzPut(el, layer, sc, cx + el.scrollLeft - X * sc, cy + el.scrollTop - Y * sc)
+      return
+    }
     const offX = X * sc - cx
     const offY = Y * sc - cy
     const maxX = Math.max(0, layer.offsetWidth * sc - el.clientWidth)
@@ -817,18 +915,29 @@ export default function Reader({
     cancelAnimationFrame(vzAnim.current)
     const layer = layerOf()
     if (layer) layer.style.transform = ''
+    if (contentRef.current) contentRef.current.style.overflow = ''
     vz.current = { s: 1, tx: 0, ty: 0 }
   }, [])
   useEffect(() => {
     const el = contentRef.current
     if (!el) return
     let p: { d0: number; s0: number; X: number; Y: number; cx: number; cy: number } | null = null
+    // Paged / spread while zoomed: one finger drags the page.
+    let pan: { x: number; y: number; tx: number; ty: number } | null = null
+    const paged = !el.classList.contains('scroll')
     const dist = (t: TouchList): number => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
     const mid = (t: TouchList): [number, number] => {
       const r = el.getBoundingClientRect()
       return [(t[0].clientX + t[1].clientX) / 2 - r.left, (t[0].clientY + t[1].clientY) / 2 - r.top]
     }
     const onStart = (e: TouchEvent): void => {
+      if (e.touches.length === 1 && paged && vz.current.s > 1.01) {
+        cancelAnimationFrame(vzAnim.current)
+        const { tx, ty } = vz.current
+        pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx, ty }
+        return
+      }
+      pan = null
       if (e.touches.length !== 2) return
       cancelAnimationFrame(vzAnim.current)
       const [cx, cy] = mid(e.touches)
@@ -843,6 +952,13 @@ export default function Reader({
       }
     }
     const onMove = (e: TouchEvent): void => {
+      if (pan && e.touches.length === 1) {
+        if (e.cancelable) e.preventDefault()
+        const layer = layerOf()
+        if (layer)
+          vzPut(el, layer, vz.current.s, pan.tx + e.touches[0].clientX - pan.x, pan.ty + e.touches[0].clientY - pan.y)
+        return
+      }
       if (!p || e.touches.length !== 2) return
       if (e.cancelable) e.preventDefault()
       const raw = (p.s0 * dist(e.touches)) / p.d0
@@ -854,6 +970,7 @@ export default function Reader({
       vzSet(sc, p.X, p.Y, cx, cy)
     }
     const onEnd = (e: TouchEvent): void => {
+      if (e.touches.length === 0) pan = null
       if (!p || e.touches.length >= 2) return
       const { X, Y, cx, cy } = p
       p = null
@@ -955,11 +1072,11 @@ export default function Reader({
     return () => window.removeEventListener('keydown', onKey)
   }, [pageIdx, goToPage, mode])
 
-  // Online: which pages are already downloaded (decoded by the prefetcher or
-  // shown) — runs of them become light-purple bands on the page slider.
+  // Online / NAS: which pages are already downloaded (decoded by the prefetcher
+  // or shown) — runs of them become light-purple bands on the page slider.
   const loadedTrack = (() => {
     const n = images.length
-    if (!online || !n) return 'transparent'
+    if ((!online && !remote) || !n) return 'transparent'
     const stops: string[] = []
     let i = 0
     while (i < n) {
@@ -1104,22 +1221,27 @@ export default function Reader({
     })
   // Double tap: at the fit → zoom in until the page under the finger fills the
   // pane (2× when it already fills one side, e.g. width-fit scroll); zoomed in
-  // → back to the fit. Animated, anchored at the tap (same visual zoom as the
-  // pinch).
+  // → back to the fit. Animated, around the page's center (scroll mode: its
+  // horizontal center at the middle of the screen) — same visual zoom as the
+  // pinch.
   const toggleZoomAt = (t: Tap): void => {
     const el = contentRef.current
-    if (!el) return
+    const layer = layerOf()
+    if (!el || !layer) return
     cancelAnimationFrame(vzAnim.current)
     const { s: from, tx, ty } = vz.current
-    const cx = t.x - t.rect.left
-    const cy = t.y - t.rect.top
-    const X = (cx + el.scrollLeft - tx) / from
-    const Y = (cy + el.scrollTop - ty) / from
+    const hit = document.elementFromPoint(t.x, t.y) as HTMLElement | null
+    const img = hit?.closest('img') ?? el.querySelector<HTMLElement>('.paged-cur img, .zoom-layer img')
+    const r = img?.getBoundingClientRect()
+    const lr = layer.getBoundingClientRect()
+    const cx = el.clientWidth / 2
+    const cy = el.clientHeight / 2
+    const scroll = el.classList.contains('scroll')
+    const box = scroll ? null : pageBox(layer)
+    const X = box ? box.x + box.w / 2 : r && r.width ? (r.left + r.width / 2 - lr.left) / from : (cx + el.scrollLeft - tx) / from
+    const Y = box ? box.y + box.h / 2 : (cy + el.scrollTop - ty) / from
     let to = 1
     if (from <= 1.01) {
-      const hit = document.elementFromPoint(t.x, t.y) as HTMLElement | null
-      const img = hit?.closest('img') ?? el.querySelector<HTMLElement>('.paged-cur img, .zoom-layer img')
-      const r = img?.getBoundingClientRect()
       to = r && r.width && r.height ? Math.max(el.clientWidth / r.width, el.clientHeight / r.height) : 2
       if (to < 1.2) to = 2
       to = Math.min(5, to)

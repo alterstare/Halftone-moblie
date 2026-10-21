@@ -14,7 +14,8 @@ export default function PageImage({
 }): JSX.Element {
   return (
     <span className={className ? `timg ${className}` : 'timg'}>
-      <img src={src} style={style} onClick={onClick} alt="" decoding="async" />
+      {/* No src yet (a NAS page still on its way) → empty slot. */}
+      {src && <img src={src} style={style} onClick={onClick} alt="" decoding="async" />}
     </span>
   )
 }

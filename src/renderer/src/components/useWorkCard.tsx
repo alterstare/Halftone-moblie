@@ -2,7 +2,6 @@ import { useState } from 'react'
 import type { JSX, MouseEvent } from 'react'
 import type { Work } from '../../../shared/types'
 import { useStore } from '../store'
-import { invalidate } from '../images'
 import ContextMenu from './ContextMenu'
 import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { useTagMenu } from './useTagMenu'
@@ -83,13 +82,12 @@ export function useWorkCard(work: Work): {
   }
 
   // The heart is the unified favorite: coded doujin works share it with the
-  // online side (main moves the folder per settings). Cached page urls are
-  // dropped because a move changes the work's path.
+  // online side (main moves the folder per settings, in the background —
+  // folderOps.ts drops the cached page urls once the folder has moved).
   const isFav = work.favorite || onlineFav
   const toggleFav = async (e: MouseEvent): Promise<void> => {
     e.stopPropagation()
     await setWorkFavorite(work, !isFav)
-    invalidate(work.id)
   }
 
   const setRank = async (rank: number): Promise<void> => {

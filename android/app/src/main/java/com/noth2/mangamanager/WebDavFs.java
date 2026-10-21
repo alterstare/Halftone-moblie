@@ -93,7 +93,11 @@ final class WebDavFs implements RemoteFs {
             + "<d:resourcetype/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>";
 
     private List<Entry> propfind(String rel, int depth) throws IOException {
-        Request req = new Request.Builder().url(url(rel, depth > 0))
+        return propfind(rel, depth, depth > 0);
+    }
+
+    private List<Entry> propfind(String rel, int depth, boolean dir) throws IOException {
+        Request req = new Request.Builder().url(url(rel, dir))
             .method("PROPFIND", RequestBody.create(PROPFIND_BODY, XML))
             .header("Depth", String.valueOf(depth)).build();
         try (Response r = http.newCall(req).execute()) {
@@ -156,6 +160,8 @@ final class WebDavFs implements RemoteFs {
     @Override
     public Entry stat(String rel) throws IOException {
         List<Entry> l = propfind(rel, 0);
+        // Some servers 404 a collection asked for without the trailing slash.
+        if ((l == null || l.isEmpty()) && !rel.isEmpty()) l = propfind(rel, 0, true);
         if (l == null || l.isEmpty()) {
             Entry e = new Entry();
             e.exists = false;

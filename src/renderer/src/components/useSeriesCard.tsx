@@ -8,6 +8,7 @@ import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { useTagMenu } from './useTagMenu'
 import { isNarrow } from '../mobile'
 import TagAddInput from './TagAddInput'
+import { setWorkGroups } from '../folderOps'
 
 // Stable empty fallback — never return a fresh array from a zustand selector
 // (useSyncExternalStore would see a new reference every read → infinite loop).
@@ -162,20 +163,14 @@ export function useSeriesCard(series: SeriesGroup): {
 
   // Groups (general-manga ones only): every chapter joins the chosen group.
   const normalGroups = allGroups.filter((g) => (g.mode ?? 'doujin') === 'normal')
-  const addToGroup = async (gid: string): Promise<void> => {
-    try {
-      for (const c of chapters) upsertWork(await window.api.setWorkGroups(c.id, [gid]))
-    } catch (e: any) {
-      alert(String(e?.message ?? e))
-    }
-  }
+  const addToGroup = (gid: string): void => setWorkGroups(chapters, [gid])
   const createAndAssign = async (): Promise<void> => {
     const name = grpName.trim()
     setGrpName('')
     setNewGrp(false)
     if (!name) return
     const id = await createGroup(name)
-    if (id) await addToGroup(id)
+    if (id) addToGroup(id)
   }
 
   const seriesMenu = (

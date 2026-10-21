@@ -183,14 +183,15 @@ export class Store {
   // found inside the favorites folder with favorite=true; favoriteRule turns
   // that into the real heart (the favorites list is the truth, a newly
   // dragged-in work is added). Group membership still follows the folder
-  // location when a favorites dir is configured.
+  // location when a favorites dir is configured (and groups move folders).
   private reconcile(w: Work, prev: Work | undefined): Work {
     const inFavDir = w.favorite
     const favorite = this.favoriteRule ? this.favoriteRule(w, prev, inFavDir) : (prev?.favorite ?? inFavDir)
     const favoritedAt = favorite ? (prev?.favoritedAt ?? Date.now()) : prev?.favoritedAt
     if (!prev) return { ...w, favorite, favoritedAt }
     const favDirs = allFavoritesDirs(this.settings)
-    const locAuth = (w.library ?? 'doujin') === 'doujin' && favDirs.length > 0
+    const locAuth =
+      (w.library ?? 'doujin') === 'doujin' && favDirs.length > 0 && this.settings.groupMoveToFolder !== false
     return {
       ...w,
       tags: w.tags,

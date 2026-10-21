@@ -77,14 +77,16 @@ export async function moveToFavorites(
 //   <base>/<group name>/<work folder>
 // Switching groups pops out of the old group folder first; leaving a group
 // moves the folder back up to the base. Returns the metadata + path patch.
+// `move` false (settings.groupMoveToFolder off) = membership only.
 export async function setGroupFolder(
   work: Work,
   newGroupIds: string[],
-  groups: WorkGroup[]
+  groups: WorkGroup[],
+  move = true
 ): Promise<Partial<Work>> {
   const oldId = (work.groups ?? [])[0] ?? null
   const newId = newGroupIds[0] ?? null
-  if (oldId === newId) return { groups: newId ? [newId] : [] }
+  if (oldId === newId || !move) return { groups: newId ? [newId] : [] }
 
   const oldFolder = dirname(work.path) // may be the old group folder
   // Base = the parent without any current group nesting.

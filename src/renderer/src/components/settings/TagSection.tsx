@@ -264,6 +264,15 @@ function Favorites(): JSX.Element {
           onChange={(v) => patch({ favoriteMoveToFolder: v })}
         />
       </SettingRow>
+      <SettingRow
+        title="그룹에 추가하면 폴더로 이동"
+        desc="그룹에 넣으면 작품 폴더를 그룹 이름의 폴더로 옮기고, 빼면 원래 위치로 되돌립니다. 끄면 폴더는 그대로 두고 그룹만 바뀝니다."
+      >
+        <Toggle
+          checked={draft.groupMoveToFolder !== false}
+          onChange={(v) => patch({ groupMoveToFolder: v })}
+        />
+      </SettingRow>
 
       <div className="set-block">
         <SettingRow

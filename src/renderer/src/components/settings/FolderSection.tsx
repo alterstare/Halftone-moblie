@@ -61,7 +61,7 @@ function NamePatterns(): JSX.Element {
     <div className="set-block">
       <SettingRow
         title="폴더명 패턴"
-        desc="지원되는 변수는 [-id-, -title-, -artist-, -group-, -language-] 입니다. 체크된 형식으로 다운로드합니다."
+        desc="지원되는 변수는 [-id-, -title-, -artist-, -group-, -language-] 입니다. 체크된 형식으로 다운로드합니다. -id- 없는 형식은 번호 없는 폴더의 제목을 나누고 그룹 · 작가를 태그로 붙입니다."
       >
         <button className="mini" onClick={() => patch({ doujinNamePatterns: [...patterns, ''] })}>
           + 형식 추가

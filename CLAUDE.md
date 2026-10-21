@@ -91,11 +91,15 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   (online = globe icon; local works get a favorite heart instead of 폴더 열기; the heart = that work / chapter); bottom bar = slider + ⋮, which (or a swipe up) expands
   mode · fit · 넘김 (paged: `pagedFlipSide`, scroll: `scrollTapFlip` 하단/OFF).
   Pinch zoom = visual only (`vz` ref in Reader): `.zoom-layer` (scroll: the page
-  column; paged/spread: a wrapper) is CSS-scaled from 0,0 and the pane's scroll
-  pans it, anchored under the fingers; below fit rubber-bands then springs back
-  to 1. Layout `zoom` (fit button / Ctrl+wheel) is separate; scroll-mode page
+  column; paged/spread: a wrapper) is CSS-scaled from 0,0, anchored under the
+  fingers; below fit rubber-bands then springs back to 1. Scroll mode pans it
+  with the pane's scroll; paged/spread use translate only (`vzPut`, page kept
+  covering the pane, one-finger drag = `pan`, pane overflow hidden while
+  zoomed) — scroll writes during a real pinch were dropped on devices (zoom
+  grew from the top-left). Layout `zoom` (fit button / Ctrl+wheel) is separate; scroll-mode page
   math divides scrollTop by `vz.s`. Double tap (taps wait 260ms for a second
-  one) toggles fit ⇄ fill (`toggleZoomAt`, same vz). Page slider = custom
+  one) toggles fit ⇄ fill (`toggleZoomAt`, same vz) around the page center
+  (scroll: its horizontal center at mid-screen). Page slider = custom
   track (`.page-slider-wrap`): online pages already decoded (ratioRef) show as
   light-purple bands (`--page-loaded`), progress purple, native range = thumb.
   Reader list drawer: toggle rides the drawer edge (`--pane-w`), `.list-scrim`
@@ -152,6 +156,10 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `.chips-extra-row` under the toolbar (phone). Theme: `localStorage['mm-theme']`
   is applied by index.html before render and `MM.setTheme` stores it natively
   (MainActivity paints the WebView background) — no light flash at start.
+  NAS works in the reader (`remote`): pages are fetched in reading order from
+  the current page, 3 at a time (`nasPump`, re-aimed on page moves); scroll
+  mode gives a page its <img> only once fetched (all at once queued hundreds
+  of NAS requests); the slider shows fetched pages like online ones.
   Reader scroll mode keeps the whole work mounted (≤ 400 pages, else a ±30
   window in steps of 10; `scrollWin` / memoized `scrollPages`, PageSlot holds
   the estimated height until its image loads) and local works prefetch every
@@ -319,6 +327,17 @@ in batches of 200. 2000 works × 40 pages on the emulator: 44–50s → ~2.8s.
 Pull-to-refresh / + 새로고침 on Home no longer scans (reloads the list only —
 folders change only through in-app downloads, which register themselves);
 the full scan is 설정 › 라이브러리 갱신.
+
+Heart / group folder moves (2026-10-22, `folderOps.ts`): the UI flips at
+once; `setFavoriteByCode` / `setFavorite` / `setWorkGroups` run in a serial
+background queue (activity-bar job after 600ms); results adopted only by the
+newest op per work / code, failure → earlier state back + toast. Go through
+`favoriteByCode` / `favoriteWork` / `setWorkGroups` there, not window.api.
+`settings.groupMoveToFolder` (설정 › 태그·검색, under 즐겨찾기 폴더 이동): off =
+group membership only, no folder move; reconcile then keeps the stored groups.
+Folder-name patterns without -id- (parser.ts) never give a code; they split a
+번호 없는 folder name into title + `group:` / `artist:` tags (coded patterns
+are tried first).
 
 Hand-typed artist ("artist:…" in a tag input): `work.manualArtist` wins over
 scans and fetched meta (reconcile / enrich / comic artist fill skip it),

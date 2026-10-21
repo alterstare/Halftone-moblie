@@ -161,7 +161,7 @@ export const libraryApi: Partial<Api> = {
   setWorkGroups: async (workId: string, groupIds: string[]) => {
     const w = store.get(workId)
     if (!w) throw new Error('no work')
-    const updated = store.update(workId, await setGroupFolder(w, groupIds, store.settings.groups))
+    const updated = store.update(workId, await setGroupFolder(w, groupIds, store.settings.groups, store.settings.groupMoveToFolder !== false))
     await store.flushWorks()
     return updated
   },
@@ -210,7 +210,7 @@ export const libraryApi: Partial<Api> = {
     for (const w of allWorks()) {
       if (!(w.groups ?? []).includes(groupId)) continue
       try {
-        store.update(w.id, await setGroupFolder(w, [], store.settings.groups))
+        store.update(w.id, await setGroupFolder(w, [], store.settings.groups, store.settings.groupMoveToFolder !== false))
       } catch {
         store.update(w.id, { groups: (w.groups ?? []).filter((g) => g !== groupId) })
       }

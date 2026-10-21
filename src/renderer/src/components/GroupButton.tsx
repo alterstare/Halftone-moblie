@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { Work } from '../../../shared/types'
 import { useStore } from '../store'
 import ConfirmModal from './ConfirmModal'
+import { setWorkGroups } from '../folderOps'
 
 // "+" button next to the favorite heart: assign the work to a single group, or
 // create a new one. A work belongs to at most one group; switching groups asks
@@ -13,7 +14,6 @@ export default function GroupButton({ work, applyTo }: { work: Work; applyTo?: W
   const libraryMode = useStore((s) => s.libraryMode)
   const groups = allGroups.filter((g) => (g.mode ?? 'doujin') === libraryMode)
   const createGroup = useStore((s) => s.createGroup)
-  const upsertWork = useStore((s) => s.upsertWork)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [moveTo, setMoveTo] = useState<{ id: string; name: string } | null>(null)
@@ -62,13 +62,7 @@ export default function GroupButton({ work, applyTo }: { work: Work; applyTo?: W
   }, [open])
 
   // Apply to a set of works when given (series-level), else just this work.
-  const apply = async (ids: string[]): Promise<void> => {
-    try {
-      for (const t of applyTo ?? [work]) upsertWork(await window.api.setWorkGroups(t.id, ids))
-    } catch (e: any) {
-      alert(String(e?.message ?? e))
-    }
-  }
+  const apply = (ids: string[]): void => setWorkGroups(applyTo ?? [work], ids)
 
   // Clicking a group: leave it if current, join if none, else confirm the move.
   const pick = (g: { id: string; name: string }): void => {
@@ -128,7 +122,7 @@ export default function GroupButton({ work, applyTo }: { work: Work; applyTo?: W
           title="그룹을 옮기시겠습니까?"
           desc={
             <>
-              이 작품을 <b>{moveTo.name}</b> 그룹으로 옮깁니다. 폴더도 함께 이동합니다.
+              이 작품을 <b>{moveTo.name}</b> 그룹으로 옮깁니다.{useStore.getState().settings.groupMoveToFolder !== false && ' 폴더도 함께 이동합니다.'}
             </>
           }
           confirmLabel="옮김"

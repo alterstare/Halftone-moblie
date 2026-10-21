@@ -8,6 +8,7 @@ import Stars from './Stars'
 import { AutoStoriesIcon, FavoriteIcon, SortIcon } from './icons'
 import FavGroup from './FavGroup'
 import TileBar from './TileBar'
+import { setWorkGroups } from '../folderOps'
 import GroupButton from './GroupButton'
 import Dropdown from './Dropdown'
 import { ChapterRow } from './SeriesCard'
@@ -152,8 +153,10 @@ export default function LibraryList(): JSX.Element {
   const toggleFav = (w: Work): Promise<void> => setWorkFavorite(w, !w.favorite)
   const setRank = async (w: Work, r: number): Promise<void> =>
     upsertWork(await window.api.setRank(w.id, r))
-  const applyGroup = async (id: string, ids: string[]): Promise<void> =>
-    upsertWork(await window.api.setWorkGroups(id, ids))
+  const applyGroup = (id: string, ids: string[]): void => {
+    const w = works.find((x) => x.id === id)
+    if (w) setWorkGroups([w], ids)
+  }
 
   // Single-group semantics: switching groups asks first (folder moves).
   const pickGroup = (w: Work, gid: string, name: string): void => {
@@ -352,7 +355,7 @@ export default function LibraryList(): JSX.Element {
           title="그룹을 옮기시겠습니까?"
           desc={
             <>
-              이 작품을 <b>{moveTo.name}</b> 그룹으로 옮깁니다. 폴더도 함께 이동합니다.
+              이 작품을 <b>{moveTo.name}</b> 그룹으로 옮깁니다.{useStore.getState().settings.groupMoveToFolder !== false && ' 폴더도 함께 이동합니다.'}
             </>
           }
           confirmLabel="옮김"

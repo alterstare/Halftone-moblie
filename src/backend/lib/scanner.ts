@@ -1,6 +1,6 @@
 import * as fs from '../node/fs'
 import { join, basename, dirname, extname, resolve, sep } from '../node/path'
-import type { Work, Settings, DoujinMeta } from '../../shared/types'
+import type { Work, Settings, DoujinMeta, ParsedName } from '../../shared/types'
 import { IMAGE_EXTS, workCodes, allFavoritesDirs } from '../../shared/types'
 import { parseName } from './parser'
 import { deriveId } from './store'
@@ -344,11 +344,11 @@ function workOf(
   const folderName = basename(dir)
   // Only doujin folders carry gallery ids; skip id detection for normal manga so
   // chapter numbers never look like codes.
-  const parsed = library === 'doujin' ? parseName(folderName, settings.doujinNamePatterns) : { artist: null, code: null, title: folderName.replace(/\s+/g, ' ').trim() }
+  const parsed: ParsedName = library === 'doujin' ? parseName(folderName, settings.doujinNamePatterns) : { artist: null, code: null, title: folderName.replace(/\s+/g, ' ').trim() }
   // General-manga chapter folders reuse names across series, so key their id on
   // the full path to avoid id collisions (which drop chapters).
   const id = deriveId(folderName, parsed.code, library === 'normal' ? resolve(dir) : undefined)
-  const tags = [...new Set([...applyGenreRules(dir, settings), ...(meta?.tags ?? [])])]
+  const tags = [...new Set([...applyGenreRules(dir, settings), ...(meta?.tags ?? []), ...(parsed.tags ?? [])])]
 
   return {
     id,

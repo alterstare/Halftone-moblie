@@ -13,6 +13,7 @@ import { convertWorkToWebp } from './convert'
 import { thumbTargetIds, groupSeries, titleKey, seriesRoots, isComicCode } from './util'
 import { getFavSummary } from './favSummaries'
 import { isNarrow } from './mobile'
+import { favoriteByCode, favoriteWork } from './folderOps'
 import type { ListAnchor } from './scrollRestore'
 
 // Tablet: the reader list docked open / closed is remembered for the next
@@ -501,7 +502,7 @@ interface AppState {
   setOnlineRank: (code: string, rank: number, meta?: Partial<OnlineFav>) => Promise<void>
 }
 
-function applyFav(favs: Record<string, OnlineFav>, fav: OnlineFav): Record<string, OnlineFav> {
+export function applyFav(favs: Record<string, OnlineFav>, fav: OnlineFav): Record<string, OnlineFav> {
   const n = { ...favs }
   if (!fav.favorite && fav.rank === 0) delete n[fav.code]
   else n[fav.code] = fav
@@ -1865,23 +1866,19 @@ export const useStore = create<AppState>((set, get) => ({
     const st = get()
     const on = !!st.onlineFavs[code]?.favorite || st.works.some((w) => w.code === code && w.favorite)
     // Main updates the favorites list AND every local copy (folder move per
-    // settings); adopt both results.
-    const r = await window.api.setFavoriteByCode(code, !on, meta)
-    set((s) => ({ onlineFavs: applyFav(s.onlineFavs, r.fav) }))
-    for (const w of r.works) get().upsertWork(w)
+    // settings) in the background; the heart flips now (folderOps.ts).
+    favoriteByCode(code, !on, meta)
   },
   setWorkFavorite: async (work, fav) => {
     if (work.code && /^\d+$/.test(work.code) && (work.library ?? 'doujin') === 'doujin') {
-      const r = await window.api.setFavoriteByCode(work.code, fav, {
+      favoriteByCode(work.code, fav, {
         title: work.title,
         artist: work.artist,
         language: work.language,
         pageCount: work.pageCount
       })
-      set((s) => ({ onlineFavs: applyFav(s.onlineFavs, r.fav) }))
-      for (const w of r.works) get().upsertWork(w)
     } else {
-      get().upsertWork(await window.api.setFavorite(work.id, fav))
+      favoriteWork(work, fav)
     }
   },
   toggleNormalUnifiedFav: async ({ title, localKey, url, meta }) => {
