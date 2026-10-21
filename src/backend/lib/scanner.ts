@@ -82,6 +82,7 @@ interface Found {
   artist: string | null
   mtime: number
   sidecar: string | null
+  cover?: string
 }
 
 async function loadTrees(roots: string[]): Promise<Map<string, ScanNode | null>> {
@@ -114,7 +115,7 @@ function collect(
   }
   if (node.images) {
     const sidecar = library === 'doujin' && node.metas?.length ? pickSidecar(node.metas) : null
-    out.push({ dir, pageCount: node.images, library, artist, mtime: node.mtime, sidecar })
+    out.push({ dir, pageCount: node.images, library, artist, mtime: node.mtime, sidecar, cover: node.cover })
   }
   // Recurse into subdirectories (language folders, nested collections). The
   // artist override, if any, carries down to every work beneath.
@@ -141,7 +142,7 @@ async function buildWorks(found: Found[], settings: Settings, cb: ScanCallbacks)
     })
   }
   return found.map((f, i) => {
-    const work = workOf(f.dir, f.pageCount, settings, f.library, f.artist, f.mtime, metas.get(f.dir) ?? null)
+    const work = workOf(f.dir, f.pageCount, settings, f.library, f.artist, f.mtime, metas.get(f.dir) ?? null, f.cover)
     cb.onProgress?.(i + 1, work.title)
     return work
   })
@@ -179,7 +180,7 @@ export async function scanDirs(dirs: string[], settings: Settings): Promise<Work
     const library = nRoots.some((r) => rp === r || rp.startsWith(r + sep)) ? 'normal' : 'doujin'
     const af = artistFolderOf(rp, fRoots)
     const sidecar = library === 'doujin' && node.metas?.length ? pickSidecar(node.metas) : null
-    found.push({ dir, pageCount: node.images, library, artist: af ? basename(af) : null, mtime: node.mtime, sidecar })
+    found.push({ dir, pageCount: node.images, library, artist: af ? basename(af) : null, mtime: node.mtime, sidecar, cover: node.cover })
   }
   return applyCollections(await buildWorks(found, settings, {}), settings)
 }
@@ -311,7 +312,8 @@ export async function scanOne(
   }
   const images = entries.filter((e) => e.isFile() && isImage(e.name))
   if (!images.length) return null
-  return makeWork(dir, images.length, settings, library)
+  const cover = images.map((e) => e.name).sort(naturalCompare)[0]
+  return makeWork(dir, images.length, settings, library, null, cover)
 }
 
 async function makeWork(
@@ -319,7 +321,8 @@ async function makeWork(
   pageCount: number,
   settings: Settings,
   library: 'doujin' | 'normal' = 'doujin',
-  artistOverride: string | null = null
+  artistOverride: string | null = null,
+  cover?: string
 ): Promise<Work> {
   let mtime = Date.now()
   try {
@@ -329,7 +332,7 @@ async function makeWork(
   }
   // Sidecar (meta.doujin.json or the older site-named one) carries doujin metadata so it survives rescans.
   const meta = library === 'doujin' ? await readSidecar(dir) : null
-  return workOf(dir, pageCount, settings, library, artistOverride, mtime, meta)
+  return workOf(dir, pageCount, settings, library, artistOverride, mtime, meta, cover)
 }
 
 function workOf(
@@ -339,7 +342,8 @@ function workOf(
   library: 'doujin' | 'normal',
   artistOverride: string | null,
   mtime: number,
-  meta: DoujinMeta | null
+  meta: DoujinMeta | null,
+  cover?: string
 ): Work {
   const folderName = basename(dir)
   // Only doujin folders carry gallery ids; skip id detection for normal manga so
@@ -374,7 +378,8 @@ function workOf(
     addedAt: Date.now(),
     mtime,
     source: 'local',
-    library
+    library,
+    coverFile: cover ?? null
   }
 }
 

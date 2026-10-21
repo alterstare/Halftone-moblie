@@ -1,4 +1,5 @@
 import { getCover } from './images'
+import { hasExclusions } from './exclude'
 
 // Thumbnail pipeline: each work gets a small webp generated once (Chromium
 // decodes webp/avif via canvas) and saved to disk by main. Afterwards the
@@ -7,29 +8,59 @@ import { getCover } from './images'
 const mem = new Map<string, string | null>() // workId -> thumb url (null = no cover)
 const pending = new Map<string, Promise<string | null>>()
 
+// Two queues: thumbs a mounted card asks for go first, newest first (the card
+// that just scrolled into view), before the background warm-up of the whole
+// library (oldest first). A card asking for a thumb still waiting in the
+// background queue moves it over.
 const MAX_CONCURRENT = 4
 let active = 0
-const queue: (() => void)[] = []
+interface Job {
+  run: () => void
+  key?: string
+}
+const urgentQ: Job[] = []
+const bgQ: Job[] = []
+const waitingBg = new Map<string, Job>()
 
 function pump(): void {
-  while (active < MAX_CONCURRENT && queue.length) {
+  while (active < MAX_CONCURRENT && (urgentQ.length || bgQ.length)) {
+    const j = urgentQ.pop() ?? bgQ.shift()!
+    if (j.key) waitingBg.delete(j.key)
     active++
-    queue.shift()!()
+    j.run()
   }
 }
 
-function schedule<T>(fn: () => Promise<T>): Promise<T> {
+function schedule<T>(fn: () => Promise<T>, urgent = true, key?: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    queue.push(() => {
-      fn()
-        .then(resolve, reject)
-        .finally(() => {
-          active--
-          pump()
-        })
-    })
+    const job: Job = {
+      key: urgent ? undefined : key,
+      run: () => {
+        fn()
+          .then(resolve, reject)
+          .finally(() => {
+            active--
+            pump()
+          })
+      }
+    }
+    if (urgent) urgentQ.push(job)
+    else {
+      bgQ.push(job)
+      if (key) waitingBg.set(key, job)
+    }
     pump()
   })
+}
+
+function promote(key: string): void {
+  const j = waitingBg.get(key)
+  if (!j) return
+  waitingBg.delete(key)
+  const i = bgQ.indexOf(j)
+  if (i >= 0) bgQ.splice(i, 1)
+  urgentQ.push(j)
+  pump()
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -42,10 +73,18 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+// Made natively (window.api.makeThumb: subsampled decode + webp in Java, the
+// page read straight from disk / the NAS). With page exclusions on, the UI
+// picks the cover page itself. A page Java can't decode goes through the
+// canvas path below.
 async function generate(workId: string): Promise<string | null> {
-  const cover = await getCover(workId)
-  if (!cover) return null
-  return encodeFrom(workId, cover, true)
+  const picked = hasExclusions() ? await getCover(workId) : undefined
+  if (picked === null) return null
+  const r = await window.api.makeThumb(workId, picked).catch(() => null)
+  if (r?.url) return r.url
+  if (r && !r.src) return null // no image
+  const src = r?.src ?? picked ?? (await getCover(workId))
+  return src ? encodeFrom(workId, src, true) : null
 }
 
 // Downscale `src` to the ≤480px webp thumb and save it for `workId`.
@@ -80,15 +119,15 @@ async function encodeFrom(workId: string, src: string, cropTall = false): Promis
   return window.api.saveThumb(workId, dataUrl)
 }
 
-async function resolve(workId: string): Promise<string | null> {
+async function resolve(workId: string, urgent: boolean): Promise<string | null> {
   const existing = await window.api.getThumb(workId)
   // Raw full-size cover (online cover regen) → shrink once; keep it if that fails.
   if (existing?.endsWith('#raw')) {
     const url = existing.slice(0, -4)
-    return schedule(() => encodeFrom(workId, url)).then((u) => u ?? url, () => url)
+    return schedule(() => encodeFrom(workId, url), urgent, workId).then((u) => u ?? url, () => url)
   }
   if (existing) return existing
-  return schedule(() => generate(workId))
+  return schedule(() => generate(workId), urgent, workId)
 }
 
 // Mounted <Thumb>s listen for their work's thumb resolving later (e.g. a download
@@ -104,11 +143,13 @@ export function onThumb(workId: string, fn: (url: string | null) => void): () =>
   }
 }
 
-export async function loadThumb(workId: string): Promise<string | null> {
+// `urgent` = a card on screen wants it (false = background warm-up).
+export async function loadThumb(workId: string, urgent = true): Promise<string | null> {
   if (mem.has(workId)) return mem.get(workId)!
   let p = pending.get(workId)
+  if (p && urgent) promote(workId)
   if (!p) {
-    p = resolve(workId).then((url) => {
+    p = resolve(workId, urgent).then((url) => {
       mem.set(workId, url)
       pending.delete(workId)
       listeners.get(workId)?.forEach((fn) => fn(url))
@@ -130,7 +171,7 @@ export async function warmThumbs(
     workIds.map((id) =>
       // One failing thumb must not reject the whole batch (which would leave the
       // job stuck), so swallow per-work errors and still count progress.
-      loadThumb(id)
+      loadThumb(id, false)
         .catch(() => null)
         .then(() => {
           done++

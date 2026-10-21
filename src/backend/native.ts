@@ -18,6 +18,7 @@ export interface ScanNode {
   name?: string
   mtime: number
   images?: number
+  cover?: string // first image name (natural order)
   metas?: string[]
   kids?: ScanNode[]
 }
@@ -53,6 +54,7 @@ export interface MMPlugin {
   fsStat(o: { path: string }): Promise<Omit<FsEntry, 'name'>>
   // Library scan: each root's folder tree in one call (null = unreadable).
   scanTree(o: { roots: string[]; exts: string[] }): Promise<{ roots: (ScanNode | null)[] }>
+  makeThumb(o: { src: string; out: string; cropTall?: boolean; max?: number }): Promise<{ w: number; h: number }>
   // Several small text files (null = missing / unreadable).
   readTexts(o: { paths: string[] }): Promise<{ texts: (string | null)[] }>
   fsReaddir(o: { path: string }): Promise<{ entries: FsEntry[] }>

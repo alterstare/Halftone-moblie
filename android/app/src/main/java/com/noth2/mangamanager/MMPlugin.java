@@ -443,6 +443,7 @@ public class MMPlugin extends Plugin {
     private static JSObject scanNode(String path, java.util.Set<String> ext, int depth, long mtime) {
         if (depth > 32) return null;
         int images = 0;
+        String cover = null; // first image in natural order (the thumbnail source)
         JSArray metas = new JSArray();
         java.util.List<String[]> kids = new java.util.ArrayList<>(); // name, mtime
         if (Vfs.isRemote(path)) {
@@ -455,8 +456,10 @@ public class MMPlugin extends Plugin {
             }
             for (RemoteFs.Entry e : list) {
                 if (e.dir) kids.add(new String[] { e.name, String.valueOf(e.mtime) });
-                else if (hasExt(e.name, ext)) images++;
-                else if (META_NAME.matcher(e.name).matches()) metas.put(e.name);
+                else if (hasExt(e.name, ext)) {
+                    images++;
+                    if (cover == null || natCompare(e.name, cover) < 0) cover = e.name;
+                } else if (META_NAME.matcher(e.name).matches()) metas.put(e.name);
             }
         } else {
             File d = new File(path);
@@ -466,6 +469,7 @@ public class MMPlugin extends Plugin {
             for (String name : names) {
                 if (hasExt(name, ext)) {
                     images++;
+                    if (cover == null || natCompare(name, cover) < 0) cover = name;
                     continue;
                 }
                 if (META_NAME.matcher(name).matches()) {
@@ -479,6 +483,7 @@ public class MMPlugin extends Plugin {
         JSObject o = new JSObject();
         o.put("mtime", mtime);
         if (images > 0) o.put("images", images);
+        if (cover != null) o.put("cover", cover);
         if (metas.length() > 0) o.put("metas", metas);
         if (!kids.isEmpty()) {
             JSArray arr = new JSArray();
@@ -495,6 +500,96 @@ public class MMPlugin extends Plugin {
             if (arr.length() > 0) o.put("kids", arr);
         }
         return o;
+    }
+
+    // Natural order like the JS side (localeCompare numeric, case-insensitive):
+    // digit runs compare as numbers, "2" < "10".
+    static int natCompare(String a, String b) {
+        int i = 0, j = 0, na = a.length(), nb = b.length();
+        while (i < na && j < nb) {
+            char ca = a.charAt(i), cb = b.charAt(j);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                int si = i, sj = j;
+                while (i < na && Character.isDigit(a.charAt(i))) i++;
+                while (j < nb && Character.isDigit(b.charAt(j))) j++;
+                java.math.BigInteger x = new java.math.BigInteger(a.substring(si, i));
+                java.math.BigInteger y = new java.math.BigInteger(b.substring(sj, j));
+                int c = x.compareTo(y);
+                if (c != 0) return c;
+            } else {
+                int c = Character.compare(Character.toLowerCase(ca), Character.toLowerCase(cb));
+                if (c != 0) return c;
+                i++;
+                j++;
+            }
+        }
+        return Integer.compare(na - i, nb - j);
+    }
+
+    // Thumbnail straight from a page image (local file or NAS path — read
+    // directly, not through the image cache): decoded subsampled, scaled to
+    // ≤ max px, webp → out. Keeps the WebView (decode + main-thread encode +
+    // base64 over the bridge) out of it. cropTall: a very tall page (webtoon
+    // strip) uses only its top part.
+    @PluginMethod
+    public void makeThumb(PluginCall call) {
+        String src = call.getString("src");
+        String out = call.getString("out");
+        boolean cropTall = Boolean.TRUE.equals(call.getBoolean("cropTall", false));
+        int max = call.getInt("max", 480);
+        bg(call, () -> {
+            if (src == null || out == null) throw new IllegalArgumentException("missing src / out");
+            byte[] data = Vfs.read(src);
+            android.graphics.BitmapFactory.Options b = new android.graphics.BitmapFactory.Options();
+            b.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, b);
+            int sw = b.outWidth, sh = b.outHeight;
+            if (sw <= 0 || sh <= 0) throw new IOException("decode failed");
+            int srcH = cropTall && sh > sw * 1.6f ? Math.min(sh, Math.round(sw * 1.4f)) : sh;
+            float scale = Math.min(1f, (float) max / Math.max(sw, srcH));
+            int w = Math.max(1, Math.round(sw * scale));
+            int h = Math.max(1, Math.round(srcH * scale));
+            int sample = 1;
+            while (sw / (sample * 2) >= w && srcH / (sample * 2) >= h) sample *= 2;
+            android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
+            o.inSampleSize = sample;
+            android.graphics.Bitmap bmp = null;
+            if (srcH < sh) {
+                // Decode only the top region (a whole strip can be huge).
+                try {
+                    @SuppressWarnings("deprecation")
+                    android.graphics.BitmapRegionDecoder rd = android.graphics.BitmapRegionDecoder.newInstance(data, 0, data.length, false);
+                    try {
+                        bmp = rd.decodeRegion(new android.graphics.Rect(0, 0, sw, srcH), o);
+                    } finally {
+                        rd.recycle();
+                    }
+                } catch (Exception ignored) {
+                    bmp = null;
+                }
+            }
+            if (bmp == null) {
+                android.graphics.Bitmap full = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, o);
+                if (full == null) throw new IOException("decode failed");
+                int ch = Math.min(full.getHeight(), Math.max(1, Math.round(srcH / (float) sample)));
+                bmp = ch < full.getHeight() ? android.graphics.Bitmap.createBitmap(full, 0, 0, full.getWidth(), ch) : full;
+                if (bmp != full) full.recycle();
+            }
+            android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true);
+            if (scaled != bmp) bmp.recycle();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            @SuppressWarnings("deprecation")
+            android.graphics.Bitmap.CompressFormat fmt = android.os.Build.VERSION.SDK_INT >= 30
+                ? android.graphics.Bitmap.CompressFormat.WEBP_LOSSY
+                : android.graphics.Bitmap.CompressFormat.WEBP;
+            scaled.compress(fmt, 72, bo);
+            scaled.recycle();
+            Vfs.write(out, bo.toByteArray());
+            JSObject res = new JSObject();
+            res.put("w", w);
+            res.put("h", h);
+            call.resolve(res);
+        });
     }
 
     // Several small text files at once (scan: the works' sidecars). Missing /

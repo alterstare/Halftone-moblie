@@ -15,10 +15,19 @@ import { setGroupFolder, mergeSeries, moveWorkToFolder, renameGroupFolders, safe
 import { setWorkFavorite } from '../lib/favoriteSync'
 import { organizeByLanguage } from '../lib/organize'
 import { applyNetwork } from '../network'
-import { encodeImg, thumbFile, isRawThumb, rawMarker } from '../lib/media'
+import { encodeImg, decodeMM, thumbFile, isRawThumb, rawMarker } from '../lib/media'
 import { ensureStorage } from '../storage'
 import { applyGalleryHide } from '../gallery'
 import { fitName } from '../lib/nameFit'
+
+// A work's page files in reading order (collections: each source folder's,
+// concatenated), leading pages excluded per settings.
+async function workImagePaths(w: Work): Promise<string[]> {
+  if (!w.sources?.length) return listImages(w.path, store.settings.excludeLeadingPages)
+  const files: string[] = []
+  for (const s of w.sources) files.push(...(await listImages(s)))
+  return files.slice(store.settings.excludeLeadingPages)
+}
 
 const allWorks = (): Work[] => [...store.works.values()]
 
@@ -125,17 +134,7 @@ export const libraryApi: Partial<Api> = {
 
   getWorkImages: async (workId: string) => {
     const w = store.get(workId)
-    if (!w) return []
-    let files: string[]
-    if (w.sources?.length) {
-      // Collection work: concatenate each source folder's images, then trim.
-      files = []
-      for (const s of w.sources) files.push(...(await listImages(s)))
-      files = files.slice(store.settings.excludeLeadingPages)
-    } else {
-      files = await listImages(w.path, store.settings.excludeLeadingPages)
-    }
-    return files.map(encodeImg)
+    return w ? (await workImagePaths(w)).map(encodeImg) : []
   },
 
   setFavorite: (workId: string, fav: boolean) => setWorkFavorite(workId, fav),
@@ -385,6 +384,35 @@ export const libraryApi: Partial<Api> = {
     await fs.writeFileB64(file, dataUrl.slice(dataUrl.indexOf(',') + 1))
     await fs.rm(rawMarker(file), { force: true })
     return encodeImg(file) + '?v=' + Date.now()
+  },
+
+  // Native thumb (MM.makeThumb). Source: `src` when the UI picked the page
+  // (page exclusions), else the cover the scan recorded (no folder listing —
+  // one read on a NAS), else the first listed page.
+  makeThumb: async (workId: string, src?: string) => {
+    const w = store.get(workId)
+    if (!w) return {}
+    const file = thumbFile(workId)
+    const make = async (p: string): Promise<string> => {
+      await MM.makeThumb({ src: p, out: file, cropTall: true, max: 480 })
+      await fs.rm(rawMarker(file), { force: true })
+      return encodeImg(file) + '?v=' + Date.now()
+    }
+    let path = src ? (decodeMM(src)?.target ?? null) : null
+    if (!path && w.coverFile && !w.sources?.length && !(store.settings.excludeLeadingPages > 0)) {
+      try {
+        return { url: await make(join(w.path, w.coverFile)) }
+      } catch {
+        /* renamed / gone since the scan → list the folder */
+      }
+    }
+    path = path ?? (await workImagePaths(w))[0] ?? null
+    if (!path) return {}
+    try {
+      return { url: await make(path) }
+    } catch {
+      return { src: encodeImg(path) }
+    }
   },
 
   // Url of a work's cached thumb, or null. Versioned by mtime (?v=…); "#raw"

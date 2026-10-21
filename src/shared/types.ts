@@ -16,6 +16,9 @@ export interface Work {
   pageCount: number
   tags: string[] // tags parsed from metadata (doujin / rules)
   manualTags: string[] // tags the user added by hand
+  // First image file name (natural order) as the scan saw it — the thumbnail
+  // source without listing the folder again (one read on a NAS).
+  coverFile?: string | null
   favorite: boolean
   homePath: string | null // original location, set when moved into favorites dir
   rank: number // 0 = unranked, 1-5

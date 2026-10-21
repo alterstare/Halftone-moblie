@@ -339,6 +339,16 @@ Folder-name patterns without -id- (parser.ts) never give a code; they split a
 번호 없는 folder name into title + `group:` / `artist:` tags (coded patterns
 are tried first).
 
+Thumbnails (2026-10-22): made natively — `MM.makeThumb` (Java: page read via
+Vfs, not the image cache; bounds → inSampleSize decode, tall strips decode only
+the top region; ≤480px WEBP 72 → thumb file) via `window.api.makeThumb`. Source
+= `work.coverFile` (first image name in natural order, recorded by
+`scanTree` / `scanOne` — no folder listing, one NAS read), else the first
+listed page; a page Java can't decode comes back as `{ src }` for the old
+canvas path (thumbs.ts `encodeFrom`). Queue (thumbs.ts): cards on screen
+first, newest first (`urgentQ`, a pending warm-up job is promoted), then the
+background warm-up (`bgQ`); 4 at once.
+
 Hand-typed artist ("artist:…" in a tag input): `work.manualArtist` wins over
 scans and fetched meta (reconcile / enrich / comic artist fill skip it),
 `autoArtist` keeps the scanned one; the × after the artist on work / series

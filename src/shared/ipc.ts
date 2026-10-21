@@ -138,6 +138,7 @@ export const IPC = {
   comicPages: 'comic:pages', // main -> renderer: a chapter's page list grew (progressive comicReadUrls)
   saveThumb: 'thumb:save',
   getThumb: 'thumb:get',
+  makeThumb: 'thumb:make',
   pickImage: 'dialog:pickImage',
   doujinPing: 'doujin:ping',
   doujinPopularRanks: 'doujin:popularRanks',
@@ -387,6 +388,9 @@ export interface Api {
   comicOpenSite: (url?: string) => Promise<void>
   saveThumb: (workId: string, dataUrl: string) => Promise<string>
   getThumb: (workId: string) => Promise<string | null>
+  // Native thumb: { url } done; { src } = not decodable natively (the UI's
+  // canvas path takes that page); {} = the work has no image.
+  makeThumb: (workId: string, src?: string) => Promise<{ url?: string; src?: string }>
   pickImage: () => Promise<string | null> // returns a mangaimg:// url for the chosen image
   doujinPing: () => Promise<{ dohIp: string | null; ltnOk: boolean; error: string | null }>
   doujinPopularRanks: (codes: string[]) => Promise<Record<string, number>>
