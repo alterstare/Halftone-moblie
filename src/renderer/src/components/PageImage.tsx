@@ -14,8 +14,11 @@ export default function PageImage({
 }): JSX.Element {
   return (
     <span className={className ? `timg ${className}` : 'timg'}>
-      {/* No src yet (a NAS page still on its way) → empty slot. */}
-      {src && <img src={src} style={style} onClick={onClick} alt="" decoding="async" />}
+      {/* No src yet (a page still on its way) → empty slot.
+          decoding="sync": the browser drops the decoded pixels of pages far
+          off screen; with "async" a page scrolled back into view was painted
+          blank (black) until decoded again. Sync paints it only decoded. */}
+      {src && <img src={src} style={style} onClick={onClick} alt="" decoding="sync" />}
     </span>
   )
 }

@@ -561,7 +561,7 @@ const CHAPTERS_SCRIPT = `(() => {
   for (const l of document.querySelectorAll('.episode-pager a[href*="epage="], a.pager-num[href*="epage="], a.pager-edge[href*="epage="]')) {
     try { const n = parseInt(new URL(abs(l.getAttribute('href'))).searchParams.get('epage') || '1'); if (n > last) last = n } catch {}
   }
-  return { items: out, last }
+  return { items: out, last, href: location.href }
 })()`
 
 // Chapter viewer → image urls. Verified (2026-07): page images are
@@ -644,11 +644,25 @@ export async function comicList(base: string, src: ComicListSource, page: number
 
 export async function comicChapters(seriesUrl: string, lane: Lane = 'user'): Promise<ComicChapter[]> {
   const task = async (): Promise<ComicChapter[]> => {
-    type R = { items: ComicChapter[]; last: number }
-    await ensure(seriesUrl, true)
-    const first = await evalPage<R>(CHAPTERS_SCRIPT, { items: [], last: 1 })
-    const all = [...(first.items ?? [])]
-    const seen = new Set(all.map((c) => c.url))
+    type R = { items: ComicChapter[]; last: number; href?: string }
+    // One episode page. The scraper must be showing THAT page: a read of the
+    // page before it (stale load state) dropped whole pages of the list →
+    // reload once when the address doesn't match or nothing new came back.
+    const seen = new Set<string>()
+    const read = async (url: string): Promise<R & { added: ComicChapter[] }> => {
+      let r: R = { items: [], last: 1 }
+      let added: ComicChapter[] = []
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await ensure(url, true, attempt > 0)
+        r = await evalPage<R>(CHAPTERS_SCRIPT, { items: [], last: 1 })
+        added = (r.items ?? []).filter((c) => !seen.has(c.url))
+        if (r.href && sameUrl(r.href, url) && added.length) break
+      }
+      for (const c of added) seen.add(c.url)
+      return { ...r, added }
+    }
+    const first = await read(seriesUrl)
+    const all = [...first.added]
     // Walk every other episode page (?epage=2..last). Built from seriesUrl, not
     // the scraped href, so a mirror-domain link can't send us elsewhere.
     const last = Math.min(first.last || 1, 200)
@@ -657,9 +671,7 @@ export async function comicChapters(seriesUrl: string, lane: Lane = 'user'): Pro
       status(`화 목록을 불러오는 중… (${p}/${last}쪽)`)
       const u = new URL(seriesUrl)
       u.searchParams.set('epage', String(p))
-      await ensure(u.href, true)
-      const r = await evalPage<R>(CHAPTERS_SCRIPT, { items: [], last: 1 })
-      for (const c of r.items ?? []) if (!seen.has(c.url)) { seen.add(c.url); all.push(c) }
+      all.push(...(await read(u.href)).added)
     }
     return all.reverse() // site lists newest-first → ascending reading order
   }

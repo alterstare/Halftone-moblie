@@ -406,38 +406,54 @@ export default function Reader({
     return () => window.clearTimeout(h)
   }, [zoom, tabId, side, setTabReader, setLastZoom, libMode])
 
-  // NAS works: each page is a request to the NAS. Fetch them in reading order
-  // from the current page, NAS_PAR at a time, and in scroll mode give a page
-  // its <img> only once fetched — mounting every image at once queued hundreds
-  // of requests and the page on screen waited behind them. Pages show as they
-  // arrive (like online works); a page move re-aims the queue at the new spot.
+  // Library works (phone storage and NAS): load the pages nearest-first around
+  // the current page (two ahead per one behind), PAGE_PAR at a time, and in
+  // scroll mode give a page its <img> only once loaded — mounting every image
+  // at once made the browser load them in page order from page 1, so the page
+  // on screen (and its neighbours) waited behind all earlier ones (hundreds of
+  // NAS requests). Pages show as they arrive and every loaded page stays
+  // decoded (and mounted, scroll mode) for as long as the work is open; a page
+  // move re-aims the queue at the new spot. Keyed by url, so a changed page
+  // list of the same work keeps what's loaded.
   const remote = !online && isNasPath(work?.path)
-  const NAS_PAR = 3
-  const nas = useRef({ srcs: [] as string[], ready: new Set<number>(), busy: new Set<number>(), keep: [] as HTMLImageElement[] })
+  const pumped = !online
+  const PAGE_PAR = remote ? 4 : 6
+  const newNas = (workId?: string, par = 0) => ({ workId, par, srcs: [] as string[], ready: new Set<string>(), busy: new Set<string>(), keep: [] as HTMLImageElement[] })
+  const nas = useRef(newNas())
   const [nasReady, setNasReady] = useState(0)
   const nasRaf = useRef(0)
   const nasPump = useCallback((): void => {
     const st = nas.current
     const n = st.srcs.length
+    const free = (i: number): boolean => !st.ready.has(st.srcs[i]) && !st.busy.has(st.srcs[i])
     const pick = (): number => {
       const s = Math.min(Math.max(0, pageIdxRef.current), n - 1)
-      for (let i = s; i < n; i++) if (!st.ready.has(i) && !st.busy.has(i)) return i
-      for (let i = s - 1; i >= 0; i--) if (!st.ready.has(i) && !st.busy.has(i)) return i
+      let a = s
+      let b = s - 1
+      while (a < n || b >= 0) {
+        for (let k = 0; k < 2 && a < n; k++, a++) if (free(a)) return a
+        if (b >= 0) {
+          if (free(b)) return b
+          b--
+        }
+      }
       return -1
     }
-    while (st.busy.size < NAS_PAR) {
+    while (st.busy.size < st.par) {
       const i = pick()
       if (i < 0) return
-      st.busy.add(i)
+      const src = st.srcs[i]
+      st.busy.add(src)
       const im = new Image()
       im.decoding = 'async'
-      im.src = st.srcs[i]
+      im.src = src
       const done = (): void => {
         if (nas.current !== st) return // another work since
-        st.busy.delete(i)
-        st.ready.add(i)
+        st.busy.delete(src)
+        st.ready.add(src)
         st.keep.push(im) // keep the decoded page alive
-        if (im.naturalWidth > 0) onDims(i, im.naturalWidth, im.naturalHeight)
+        const at = st.srcs.indexOf(src)
+        if (at >= 0 && im.naturalWidth > 0) onDims(at, im.naturalWidth, im.naturalHeight)
         cancelAnimationFrame(nasRaf.current)
         nasRaf.current = requestAnimationFrame(() => setNasReady((x) => x + 1))
         nasPump()
@@ -446,24 +462,32 @@ export default function Reader({
     }
   }, [onDims])
   useEffect(() => {
-    nas.current = { srcs: remote ? images : [], ready: new Set(), busy: new Set(), keep: [] }
-    if (remote && images.length) nasPump()
-  }, [remote, images, nasPump])
+    if (!pumped) {
+      nas.current = newNas()
+      return
+    }
+    if (nas.current.workId !== work?.id) nas.current = newNas(work?.id, PAGE_PAR)
+    nas.current.srcs = images
+    if (images.length) nasPump()
+  }, [pumped, work?.id, images, nasPump])
   useEffect(() => {
-    if (remote) nasPump()
-  }, [remote, pageIdx, nasPump])
+    if (pumped) nasPump()
+  }, [pumped, pageIdx, nasPump])
 
-  // Scroll mode: which pages are mounted. Works up to MOUNT_ALL pages mount
-  // every page (kept loaded); longer ones a window of ±WIN around the current
-  // page, moved in steps of 10 so it doesn't re-render on every page.
+  // Scroll mode: which pages are mounted. Library works (their pages stay
+  // loaded) and online ones up to MOUNT_ALL pages mount every page; longer
+  // online ones a window of ±WIN around the current page, moved in steps of 10
+  // so it doesn't re-render on every page.
   const MOUNT_ALL = 400
+  const mountAll = pumped || images.length <= MOUNT_ALL
+  const winAt = mountAll ? -1 : pageIdx
   const scrollWin = useMemo(() => {
-    if (images.length <= MOUNT_ALL) return { start: 0, end: images.length }
+    if (winAt < 0) return { start: 0, end: images.length }
     const WIN = 30
-    const start = Math.max(0, Math.floor((pageIdx - WIN) / 10) * 10)
-    const end = Math.min(images.length, Math.ceil((pageIdx + WIN + 1) / 10) * 10)
+    const start = Math.max(0, Math.floor((winAt - WIN) / 10) * 10)
+    const end = Math.min(images.length, Math.ceil((winAt + WIN + 1) / 10) * 10)
     return { start, end }
-  }, [images.length, pageIdx])
+  }, [images.length, winAt])
   // The mounted page elements, rebuilt only when the pages / fit / sizes or the
   // height model change — not on a page-index step (smooth slider drags).
   const scrollPages = useMemo(() => {
@@ -473,12 +497,12 @@ export default function Reader({
     for (let i = scrollWin.start; i < scrollWin.end; i++)
       out.push(
         <PageSlot key={i} index={i} onMeasure={measure} estH={heightOf(i)}>
-          <PageImage src={remote && !nas.current.ready.has(i) ? '' : images[i]} style={pageStyle} />
+          <PageImage src={pumped && !nas.current.ready.has(images[i]) ? '' : images[i]} style={pageStyle} />
         </PageSlot>
       )
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, images, scrollWin, fit, sw, sh, measure, tick, remote, nasReady])
+  }, [mode, images, scrollWin, fit, sw, sh, measure, tick, pumped, nasReady])
 
   // Online galleries stream over the network. Prefetch the WHOLE gallery once,
   // but in reading order from the opened page and at low concurrency, so the
@@ -495,21 +519,6 @@ export default function Reader({
     for (let i = s - 1; i >= 0; i--) order.push(i)
     return prefetchOrdered(images, order, 4, sinkRef.current, onDims)
   }, [online?.code, images, onDims])
-
-  // Local works: decode the WHOLE work once (from the opened page forward, then
-  // backward), kept for the life of the reader — paging / slider jumps never
-  // wait on a decode, and nothing is re-fetched while moving around. (NAS
-  // works: the queue above.)
-  const warmRef = useRef<HTMLImageElement[]>([])
-  useEffect(() => {
-    warmRef.current = []
-    if (online || remote || images.length === 0) return
-    const s = pageIdxRef.current
-    const order: number[] = []
-    for (let i = s; i < images.length; i++) order.push(i)
-    for (let i = s - 1; i >= 0; i--) order.push(i)
-    return prefetchOrdered(images, order, 6, warmRef.current, onDims)
-  }, [online, remote, images, onDims])
 
   // Continuous reading: warm the neighbouring works in the reading queue so that
   // crossing a work boundary is instant (the folder listing is cached and the
@@ -1072,11 +1081,11 @@ export default function Reader({
     return () => window.removeEventListener('keydown', onKey)
   }, [pageIdx, goToPage, mode])
 
-  // Online / NAS: which pages are already downloaded (decoded by the prefetcher
-  // or shown) — runs of them become light-purple bands on the page slider.
+  // Which pages are already loaded (decoded by the prefetcher / page queue, or
+  // shown) — runs of them become light-purple bands on the page slider.
   const loadedTrack = (() => {
     const n = images.length
-    if ((!online && !remote) || !n) return 'transparent'
+    if (!n) return 'transparent'
     const stops: string[] = []
     let i = 0
     while (i < n) {

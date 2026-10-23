@@ -156,14 +156,20 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `.chips-extra-row` under the toolbar (phone). Theme: `localStorage['mm-theme']`
   is applied by index.html before render and `MM.setTheme` stores it natively
   (MainActivity paints the WebView background) — no light flash at start.
-  NAS works in the reader (`remote`): pages are fetched in reading order from
-  the current page, 3 at a time (`nasPump`, re-aimed on page moves); scroll
-  mode gives a page its <img> only once fetched (all at once queued hundreds
-  of NAS requests); the slider shows fetched pages like online ones.
-  Reader scroll mode keeps the whole work mounted (≤ 400 pages, else a ±30
-  window in steps of 10; `scrollWin` / memoized `scrollPages`, PageSlot holds
-  the estimated height until its image loads) and local works prefetch every
-  page once — slider drags never wait for reloads. Pull past the ends shows a
+  Library works in the reader (phone storage + NAS, `pumped`): pages load
+  nearest-first around the current page (2 ahead : 1 behind), 6 at a time (NAS
+  4) (`nasPump`, re-aimed on page moves, keyed by url, kept decoded for the
+  whole time the work is open); scroll mode gives a page its <img> only once
+  loaded — all <img>s at once made the browser load from page 1 in order, so
+  the page on screen waited behind every earlier page — and mounts every page
+  (no ±30 window); the slider shows loaded pages as bands.
+  Reader page <img>s use decoding="sync" (PageImage): the WebView drops the
+  decoded pixels of pages far off screen, and with "async" a page scrolled
+  back into view was painted black until decoded again.
+  Reader scroll mode keeps the whole work mounted (online: ≤ 400 pages, else a
+  ±30 window in steps of 10; `scrollWin` / memoized `scrollPages`, PageSlot
+  holds the estimated height until its image loads) — slider drags never wait
+  for reloads. Pull past the ends shows a
   round arrow button whose ring fills purple (`.edge-pull`, --p 0..1).
   Toolbar rows (home / online `.chips`, filter buttons, reader ⋮ row) never
   wrap: fixed controls keep size + place (site-tools ⌄ pinned right), only the
@@ -446,7 +452,10 @@ Two library modes:
   the desktop scrapes it with a hidden Chromium window (its comic-site lib).
   List state is in the URL: `/manhwa|/ing ?g=<genre>&sort=<fresh|hot|views|rating|episodes>&page=N`,
   search `/search?q=&field=title|author&match=contains|exact&page=N`, chapter
-  list paged by `?epage=N`, viewer images = `img.viewer-lazy-img[data-src]`.
+  list paged by `?epage=N` (100 per page; `comicChapters` checks the page's
+  address and re-reads a page that added nothing — ComicWeb ignores a late
+  onPageFinished of the previous page, which made whole pages go missing),
+  viewer images = `img.viewer-lazy-img[data-src]`.
   (2026-10: the viewer is a VIRTUAL list of `img.viewer-ratio-img alt="page N"`
   fed by POST /api/manhwa-images — only pages near the scroll position are in
   the DOM, so `comicReadUrls` scrolls the hidden page top→bottom collecting

@@ -57,6 +57,12 @@ final class ComicWeb {
     // Navigation state, read by JS through state().
     private volatile int navSeq;
     private volatile boolean committed;
+    // The load() whose loadUrl ran last / whose page has started. A late
+    // onPageFinished of the previous page (it can land after load() reset
+    // `committed`) must not mark the new load committed: JS would then read
+    // the old page (paged chapter lists lost whole pages that way).
+    private volatile int loadingSeq;
+    private volatile int startedSeq;
     private volatile int errorCode;
     private volatile String errorDesc = "";
     private volatile String currentUrl = "";
@@ -155,17 +161,20 @@ final class ComicWeb {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                startedSeq = loadingSeq;
                 currentUrl = url;
             }
 
             @Override
             public void onPageCommitVisible(WebView view, String url) {
+                if (startedSeq != navSeq) return; // the page before the current load()
                 committed = true;
                 currentUrl = url;
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (startedSeq != navSeq) return;
                 committed = true;
                 currentUrl = url;
             }
@@ -225,6 +234,7 @@ final class ComicWeb {
         errorDesc = "";
         ui.post(() -> {
             ensure();
+            loadingSeq = seq;
             web.loadUrl(url);
         });
         return seq;
