@@ -90,13 +90,23 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   on a drag / tap-flip, a tap toggles them in the center (paged: middle third × middle 40%; scroll: anywhere with 넘김 OFF, the middle third band with 하단 넘김 — bottom third scrolls, top third idle); bars also come back on a drag starting in the top / bottom 32px of the pages moving inward (`edgeSwipe`), on the last page (paged/spread), and on reaching the bottom in scroll mode (a drag there doesn't re-hide them); no artist in the title bar
   (online = globe icon; local works get a favorite heart instead of 폴더 열기; the heart = that work / chapter); bottom bar = slider + ⋮, which (or a swipe up) expands
   mode · fit · 넘김 (paged: `pagedFlipSide`, scroll: `scrollTapFlip` 하단/OFF).
+  Scroll-mode fits: 폭 맞춤 → 여백 맞춤 (`fit: 'margin'`, page width = pane ×
+  (1 − 2·`settings.scrollMargin`), global; fit button steps 10% → 25%
+  (`MARGIN_STEPS`) then 길이 맞춤; label "여백 N%") → 길이 맞춤. In 여백 맞춤 a
+  pinch ending with the page no wider than the pane becomes the new margin
+  (0–40%, `pendingMargin` + layout effect on `margin` swap the visual zoom for
+  the relayout, anchor kept); wider = normal visual zoom.
   Pinch zoom = visual only (`vz` ref in Reader): `.zoom-layer` (scroll: the page
-  column; paged/spread: a wrapper) is CSS-scaled from 0,0, anchored under the
-  fingers; below fit rubber-bands then springs back to 1. Scroll mode pans it
-  with the pane's scroll; paged/spread use translate only (`vzPut`, page kept
-  covering the pane, one-finger drag = `pan`, pane overflow hidden while
-  zoomed) — scroll writes during a real pinch were dropped on devices (zoom
-  grew from the top-left). Layout `zoom` (fit button / Ctrl+wheel) is separate; scroll-mode page
+  column; paged/spread: a wrapper) is CSS-scaled from 0,0, anchored at the
+  content point mid-pane (= page center at fit), NOT under the fingers; moving
+  both fingers drags that anchor (2026-10-25). Below fit rubber-bands then
+  springs back to 1. While fingers are down only the transform changes
+  (`vzSet(..., live)`) — scroll writes during a real pinch were dropped on
+  devices (page slid right / zoom grew from the top-left); scroll mode turns
+  the translate into scroll on release, then pans with the pane's scroll;
+  paged/spread use translate only (`vzPut`, page kept covering the pane,
+  one-finger drag = `pan`, pane overflow hidden while zoomed). Layer offset
+  (padding / centering) comes from rects (`layerBase` / `vzPoint`). Layout `zoom` (fit button / Ctrl+wheel) is separate; scroll-mode page
   math divides scrollTop by `vz.s`. Double tap (taps wait 260ms for a second
   one) toggles fit ⇄ fill (`toggleZoomAt`, same vz) around the page center
   (scroll: its horizontal center at mid-screen). Page slider = custom

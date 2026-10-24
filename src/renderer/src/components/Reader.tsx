@@ -20,7 +20,7 @@ import PageImage from './PageImage'
 import Caret from './Caret'
 import ContextMenu from './ContextMenu'
 import type { MenuItem } from './ContextMenu'
-import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, fitStyle, fitHeight } from './reader/fit'
+import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, MARGIN_STEPS, MARGIN_MAX, fitStyle, fitHeight } from './reader/fit'
 import { prefetchOrdered } from './reader/prefetch'
 import PageSlot from './reader/PageSlot'
 import { useComicStatus } from './useComicStatus'
@@ -131,8 +131,17 @@ export default function Reader({
       ? storedFit === 'cover'
         ? 'width'
         : 'height'
-      : storedFit
+      : mode !== 'scroll' && storedFit === 'margin'
+        ? 'contain'
+        : storedFit
   const fitOrder = mode === 'scroll' ? SCROLL_FIT_ORDER : FIT_ORDER
+  // 여백 맞춤 (scroll): empty space on each side, fraction of the pane width.
+  const margin = useStore((s) => s.settings.scrollMargin) ?? MARGIN_STEPS[0]
+  const marginRef = useRef(margin)
+  marginRef.current = margin
+  // A pinch in 여백 맞춤 that ended as the new margin: the content point to keep
+  // at pane y `cy` (layer px before) and the page-size ratio.
+  const pendingMargin = useRef<{ Y: number; cy: number; k: number } | null>(null)
   // Spread + cover: natural aspect (h/w) of the shown pages, to size them by hand.
   const [spreadRatios, setSpreadRatios] = useState<Record<string, number>>({})
   const onlineProgress = useStore((s) => s.onlineProgress)
@@ -325,8 +334,8 @@ export default function Reader({
   const heightOf = useCallback(
     (i: number): number =>
       heightsRef.current[i] ||
-      (ratioRef.current[i] ? Math.round(fitHeight(fit, ratioRef.current[i], sw, sh)) : estH),
-    [fit, sw, sh, estH]
+      (ratioRef.current[i] ? Math.round(fitHeight(fit, ratioRef.current[i], sw, sh, margin)) : estH),
+    [fit, sw, sh, estH, margin]
   )
 
   // The prefetcher reports each decoded page's natural size; store the aspect
@@ -492,7 +501,7 @@ export default function Reader({
   // height model change — not on a page-index step (smooth slider drags).
   const scrollPages = useMemo(() => {
     if (mode !== 'scroll') return null
-    const pageStyle = fitStyle(fit, sw, sh)
+    const pageStyle = fitStyle(fit, sw, sh, margin)
     const out: JSX.Element[] = []
     for (let i = scrollWin.start; i < scrollWin.end; i++)
       out.push(
@@ -502,7 +511,7 @@ export default function Reader({
       )
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, images, scrollWin, fit, sw, sh, measure, tick, pumped, nasReady])
+  }, [mode, images, scrollWin, fit, sw, sh, margin, measure, tick, pumped, nasReady])
 
   // Online galleries stream over the network. Prefetch the WHOLE gallery once,
   // but in reading order from the opened page and at low concurrency, so the
@@ -751,6 +760,31 @@ export default function Reader({
     fitRef.current = fit
     if (mode === 'scroll') goToPageRef.current(pageIdxRef.current)
   }, [fit, mode])
+  // A new margin resizes every page too. From a pinch: page sizes scale by k,
+  // so keep the pinch's anchor where it was and drop the visual zoom in the
+  // same frame; from the button: back to the page the reader was on.
+  const marginPrev = useRef(margin)
+  useLayoutEffect(() => {
+    if (marginPrev.current === margin) return
+    marginPrev.current = margin
+    const pm = pendingMargin.current
+    pendingMargin.current = null
+    if (mode !== 'scroll' || fit !== 'margin') return
+    if (!pm) {
+      goToPageRef.current(pageIdxRef.current)
+      return
+    }
+    heightsRef.current = heightsRef.current.map((h) => (h ? h * pm.k : 0))
+    vzReset()
+    const el = contentRef.current
+    const layer = layerOf()
+    if (!el || !layer) return
+    const pt = parseFloat(getComputedStyle(layer).paddingTop) || 0
+    const oy = layerBase(el, layer).y + el.scrollTop
+    el.scrollLeft = 0
+    el.scrollTop = oy + pt + (pm.Y - pt) * pm.k - pm.cy
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [margin])
 
   // Overlay bar heights → scroll-mode padding so the first / last page can be
   // scrolled clear of the bars.
@@ -843,15 +877,17 @@ export default function Reader({
 
   // Two-finger pinch zoom (phone) — a purely visual zoom on top of the fit:
   // the page layer (.zoom-layer) is CSS-scaled from its top-left corner, so
-  // nothing re-lays out (no jump on release). The content point under the
-  // fingers stays under them while pinching / moving. Zooming out past the fit
-  // rubber-bands, then springs back to the fit on release. vz.s is that scale
-  // (1 = fit); scroll-mode page math divides by it.
-  // Scroll mode pans the zoomed column with the pane's own scroll. Paged /
-  // spread never touch the scroll: the layer is translated (one finger drags
-  // it, vzPan) and kept covering the pane — scroll writes made during a real
-  // two-finger gesture were dropped on devices, so the zoom grew from the
-  // top-left corner.
+  // nothing re-lays out (no jump on release). The zoom is anchored at the
+  // content point in the middle of the pane (the page's center at the fit),
+  // not under the fingers; moving both fingers drags that anchor along.
+  // Zooming out past the fit rubber-bands, then springs back to the fit on
+  // release. vz.s is that scale (1 = fit); scroll-mode page math divides by it.
+  // During the gesture only the transform changes — scroll writes made while
+  // two fingers were down were dropped on devices, so the page slid sideways.
+  // Scroll mode turns the translate into the pane's scroll on release (one
+  // finger then pans with the normal scroll). Paged / spread never touch the
+  // scroll: the layer is translated (one finger drags it) and kept covering
+  // the pane.
   const vz = useRef({ s: 1, tx: 0, ty: 0 })
   const vzAnim = useRef(0)
   const layerOf = (): HTMLElement | null => contentRef.current?.querySelector<HTMLElement>('.zoom-layer') ?? null
@@ -872,20 +908,35 @@ export default function Reader({
     if (x0 === Infinity) return null
     return { x: (x0 - lr.left) / s, y: (y0 - lr.top) / s, w: (x1 - x0) / s, h: (y1 - y0) / s }
   }
+  // Where the layer's top-left corner sits in the pane (pane px, current
+  // scroll) without its transform — padding / centering included.
+  const layerBase = (el: HTMLElement, layer: HTMLElement): { x: number; y: number } => {
+    const er = el.getBoundingClientRect()
+    const lr = layer.getBoundingClientRect()
+    const t = getComputedStyle(layer).transform
+    const m = t && t !== 'none' ? new DOMMatrixReadOnly(t) : null
+    return { x: lr.left - (m?.m41 ?? 0) - er.left - el.clientLeft, y: lr.top - (m?.m42 ?? 0) - er.top - el.clientTop }
+  }
+  // Content point (unscaled layer px) at pane point (px, py).
+  const vzPoint = (el: HTMLElement, layer: HTMLElement, px: number, py: number): [number, number] => {
+    const er = el.getBoundingClientRect()
+    const lr = layer.getBoundingClientRect()
+    const s = vz.current.s
+    return [(er.left + el.clientLeft + px - lr.left) / s, (er.top + el.clientTop + py - lr.top) / s]
+  }
   // Paged / spread: apply scale + translate, the page kept covering the pane
   // (centered on an axis where it is smaller).
   const vzPut = (el: HTMLElement, layer: HTMLElement, sc: number, tx: number, ty: number): void => {
     const b = pageBox(layer)
-    const sl = el.scrollLeft
-    const st = el.scrollTop
     if (b) {
-      const fit = (t: number, at: number, size: number, view: number, scroll: number): number => {
+      const base = layerBase(el, layer)
+      const fit = (t: number, at: number, size: number, view: number, o: number): number => {
         const w = size * sc
-        if (w <= view) return (view - w) / 2 - at * sc + scroll
-        return Math.min(-at * sc + scroll, Math.max(view - w - at * sc + scroll, t))
+        if (w <= view) return (view - w) / 2 - at * sc - o
+        return Math.min(-at * sc - o, Math.max(view - w - at * sc - o, t))
       }
-      tx = fit(tx, b.x, b.w, el.clientWidth, sl)
-      ty = fit(ty, b.y, b.h, el.clientHeight, st)
+      tx = fit(tx, b.x, b.w, el.clientWidth, base.x)
+      ty = fit(ty, b.y, b.h, el.clientHeight, base.y)
     }
     const plain = Math.abs(sc - 1) < 0.001 && Math.abs(tx) < 0.5 && Math.abs(ty) < 0.5
     vz.current = plain ? { s: 1, tx: 0, ty: 0 } : { s: sc, tx, ty }
@@ -896,26 +947,37 @@ export default function Reader({
   }
   // Put content point (X, Y) (unscaled layer px) under pane point (cx, cy) at
   // scale s. Scroll mode: scroll as far as the range allows, the remainder as
-  // a translate (`settle` eases that remainder away). Paged: translate only.
-  const vzSet = useCallback((sc: number, X: number, Y: number, cx: number, cy: number, settle = 1): void => {
+  // a translate (`settle` eases that remainder away); `live` (fingers down) =
+  // translate only, the scroll left as it is. Paged: translate only.
+  const vzSet = useCallback((sc: number, X: number, Y: number, cx: number, cy: number, settle = 1, live = false): void => {
     const el = contentRef.current
     const layer = el?.querySelector<HTMLElement>('.zoom-layer')
     if (!el || !layer) return
+    const base = layerBase(el, layer)
     if (!el.classList.contains('scroll')) {
-      vzPut(el, layer, sc, cx + el.scrollLeft - X * sc, cy + el.scrollTop - Y * sc)
+      vzPut(el, layer, sc, cx - base.x - X * sc, cy - base.y - Y * sc)
       return
     }
-    const offX = X * sc - cx
-    const offY = Y * sc - cy
-    const maxX = Math.max(0, layer.offsetWidth * sc - el.clientWidth)
-    const maxY = Math.max(0, layer.scrollHeight * sc - el.clientHeight)
+    const apply = (tx: number, ty: number): void => {
+      vz.current = { s: sc, tx, ty }
+      layer.style.transformOrigin = '0 0'
+      layer.style.transform = sc === 1 && !tx && !ty ? '' : `translate(${tx}px, ${ty}px) scale(${sc})`
+    }
+    if (live) {
+      apply(cx - base.x - X * sc, cy - base.y - Y * sc)
+      return
+    }
+    // Layer corner in scroll-content px, then the scroll that puts the point
+    // at (cx, cy) with no translate.
+    const ox = base.x + el.scrollLeft
+    const oy = base.y + el.scrollTop
+    const offX = ox + X * sc - cx
+    const offY = oy + Y * sc - cy
+    const maxX = Math.max(0, ox + layer.offsetWidth * sc - el.clientWidth)
+    const maxY = Math.max(0, oy + layer.scrollHeight * sc - el.clientHeight)
     const sl = Math.max(0, Math.min(maxX, offX))
     const st = Math.max(0, Math.min(maxY, offY))
-    const tx = (sl - offX) * settle
-    const ty = (st - offY) * settle
-    vz.current = { s: sc, tx, ty }
-    layer.style.transformOrigin = '0 0'
-    layer.style.transform = sc === 1 && !tx && !ty ? '' : `translate(${tx}px, ${ty}px) scale(${sc})`
+    apply((sl - offX) * settle, (st - offY) * settle)
     el.scrollLeft = sl
     el.scrollTop = st
   }, [])
@@ -930,10 +992,13 @@ export default function Reader({
   useEffect(() => {
     const el = contentRef.current
     if (!el) return
-    let p: { d0: number; s0: number; X: number; Y: number; cx: number; cy: number } | null = null
+    // Pinch: anchor (X, Y) = the content point that was mid-pane, (mx, my) =
+    // the fingers' midpoint at the start, (cx, cy) = where the anchor is now.
+    let p: { d0: number; s0: number; X: number; Y: number; mx: number; my: number; cx: number; cy: number } | null = null
     // Paged / spread while zoomed: one finger drags the page.
     let pan: { x: number; y: number; tx: number; ty: number } | null = null
     const paged = !el.classList.contains('scroll')
+    const marginPinch = (): boolean => !paged && fitRef.current === 'margin'
     const dist = (t: TouchList): number => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
     const mid = (t: TouchList): [number, number] => {
       const r = el.getBoundingClientRect()
@@ -949,16 +1014,13 @@ export default function Reader({
       pan = null
       if (e.touches.length !== 2) return
       cancelAnimationFrame(vzAnim.current)
-      const [cx, cy] = mid(e.touches)
-      const { s: s0, tx, ty } = vz.current
-      p = {
-        d0: dist(e.touches) || 1,
-        s0,
-        X: (cx + el.scrollLeft - tx) / s0,
-        Y: (cy + el.scrollTop - ty) / s0,
-        cx,
-        cy
-      }
+      const layer = layerOf()
+      if (!layer) return
+      const [mx, my] = mid(e.touches)
+      const cx = el.clientWidth / 2
+      const cy = el.clientHeight / 2
+      const [X, Y] = vzPoint(el, layer, cx, cy)
+      p = { d0: dist(e.touches) || 1, s0: vz.current.s, X, Y, mx, my, cx, cy }
     }
     const onMove = (e: TouchEvent): void => {
       if (pan && e.touches.length === 1) {
@@ -971,12 +1033,15 @@ export default function Reader({
       if (!p || e.touches.length !== 2) return
       if (e.cancelable) e.preventDefault()
       const raw = (p.s0 * dist(e.touches)) / p.d0
-      // Below the fit: resist (rubber band), never under 60 %.
-      const sc = raw >= 1 ? Math.min(5, raw) : Math.max(0.6, 1 - (1 - raw) * 0.45)
-      const [cx, cy] = mid(e.touches)
-      p.cx = cx
-      p.cy = cy
-      vzSet(sc, p.X, p.Y, cx, cy)
+      // Below the fit: resist (rubber band), never under 60 % of it. 여백 맞춤
+      // (scroll): free down to the narrowest margin page (that's the new margin
+      // on release).
+      const lo = marginPinch() ? (1 - 2 * MARGIN_MAX) / (1 - 2 * marginRef.current) : 1
+      const sc = raw >= lo ? Math.min(5, raw) : Math.max(0.6 * lo, lo - (lo - raw) * 0.45)
+      const [mx, my] = mid(e.touches)
+      p.cx = el.clientWidth / 2 + mx - p.mx
+      p.cy = el.clientHeight / 2 + my - p.my
+      vzSet(sc, p.X, p.Y, p.cx, p.cy, 1, true)
     }
     const onEnd = (e: TouchEvent): void => {
       if (e.touches.length === 0) pan = null
@@ -984,8 +1049,21 @@ export default function Reader({
       const { X, Y, cx, cy } = p
       p = null
       pinchEndAt.current = Date.now()
-      // Spring back: under the fit → the fit; any edge overshoot → flush.
       const from = vz.current.s
+      // 여백 맞춤: a page no wider than the pane becomes the new margin (the
+      // layout effect on `margin` swaps the visual zoom for it).
+      if (marginPinch()) {
+        const m0 = marginRef.current
+        const w = (1 - 2 * m0) * from
+        const m = Math.round(Math.min(MARGIN_MAX, Math.max(0, (1 - w) / 2)) * 1000) / 1000
+        if (w <= 1.001 && Math.abs(m - m0) > 0.002) {
+          cancelAnimationFrame(vzAnim.current)
+          pendingMargin.current = { Y, cy, k: (1 - 2 * m) / (1 - 2 * m0) }
+          patchSettings({ scrollMargin: m })
+          return
+        }
+      }
+      // Spring back: under the fit → the fit; any edge overshoot → flush.
       const to = Math.max(1, from)
       if (from === to && !vz.current.tx && !vz.current.ty) return
       const t0 = performance.now()
@@ -1040,9 +1118,23 @@ export default function Reader({
     setLastFit(libMode, f)
     setLastZoom(libMode, 1)
   }
+  const applyMargin = (m: number): void => {
+    heightsRef.current = []
+    vzReset()
+    patchSettings({ scrollMargin: m })
+  }
+  // 여백 맞춤 steps through MARGIN_STEPS (a pinched margin goes to the next
+  // wider one) before the next fit mode; entering it starts at the first step.
   const onZoomButton = (): void => {
-    if (atFit) applyFit(fitOrder[(fitOrder.indexOf(fit) + 1) % fitOrder.length])
-    else {
+    if (atFit && fit === 'margin') {
+      const next = MARGIN_STEPS.find((m) => m > margin + 0.005)
+      if (next !== undefined) applyMargin(next)
+      else applyFit(fitOrder[(fitOrder.indexOf(fit) + 1) % fitOrder.length])
+    } else if (atFit) {
+      const f = fitOrder[(fitOrder.indexOf(fit) + 1) % fitOrder.length]
+      if (f === 'margin' && Math.abs(margin - MARGIN_STEPS[0]) > 0.001) patchSettings({ scrollMargin: MARGIN_STEPS[0] })
+      applyFit(f)
+    } else {
       heightsRef.current = []
       setZoom(1) // custom → back to the fit mode
     }
@@ -1238,7 +1330,7 @@ export default function Reader({
     const layer = layerOf()
     if (!el || !layer) return
     cancelAnimationFrame(vzAnim.current)
-    const { s: from, tx, ty } = vz.current
+    const from = vz.current.s
     const hit = document.elementFromPoint(t.x, t.y) as HTMLElement | null
     const img = hit?.closest('img') ?? el.querySelector<HTMLElement>('.paged-cur img, .zoom-layer img')
     const r = img?.getBoundingClientRect()
@@ -1247,8 +1339,9 @@ export default function Reader({
     const cy = el.clientHeight / 2
     const scroll = el.classList.contains('scroll')
     const box = scroll ? null : pageBox(layer)
-    const X = box ? box.x + box.w / 2 : r && r.width ? (r.left + r.width / 2 - lr.left) / from : (cx + el.scrollLeft - tx) / from
-    const Y = box ? box.y + box.h / 2 : (cy + el.scrollTop - ty) / from
+    const [px, py] = vzPoint(el, layer, cx, cy)
+    const X = box ? box.x + box.w / 2 : r && r.width ? (r.left + r.width / 2 - lr.left) / from : px
+    const Y = box ? box.y + box.h / 2 : py
     let to = 1
     if (from <= 1.01) {
       to = r && r.width && r.height ? Math.max(el.clientWidth / r.width, el.clientHeight / r.height) : 2
@@ -1754,7 +1847,7 @@ export default function Reader({
                   {atFit ? (
                     <>
                       {FIT_ICON[fit]}
-                      <span className="btn-label">{FIT_TEXT[fit]}</span>
+                      <span className="btn-label">{fit === 'margin' ? `여백 ${Math.round(margin * 100)}%` : FIT_TEXT[fit]}</span>
                     </>
                   ) : (
                     <span className="btn-label">{Math.round(zoom * 100)}%</span>
