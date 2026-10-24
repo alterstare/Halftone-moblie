@@ -140,6 +140,8 @@ export const ArrowRangeIcon = mkIcon(
 export const HeightIcon = mkIcon(
   'm12 21l-4-4l1.4-1.4l1.6 1.575V6.825L9.4 8.4L8 7l4-4l4 4l-1.4 1.425l-1.6-1.6v10.35l1.6-1.575L16 17z'
 )
+// Page between two side bars — scroll mode 여백 맞춤.
+export const SideMarginIcon = mkIcon('M3 5h2v14H3zm16 0h2v14h-2zM8 3h8v18H8z')
 export const FullscreenIcon = mkIcon('M3 21v-5h2v3h3v2zm13 0v-2h3v-3h2v5zM3 8V3h5v2H5v3zm16 0V5h-3V3h5v5z')
 export const FullscreenExitIcon = mkIcon('M6 21v-3H3v-2h5v5zm10 0v-5h5v2h-3v3zM3 8V6h3V3h2v5zm13 0V3h2v3h3v2z')
 // Material Symbols "auto_stories" (outlined) — series marker in the reader list.

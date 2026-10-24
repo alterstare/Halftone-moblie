@@ -3,8 +3,9 @@
 export type SortMode = 'random' | 'recent' | 'viewed' | 'rank' | 'views' | 'title' | 'artist' | 'popular'
 
 // How a page is sized in the reader: fit width / fit height / fit whole page
-// (contain) / fill the pane (cover, cropping overflow).
-export type FitMode = 'width' | 'height' | 'contain' | 'cover'
+// (contain) / fill the pane (cover, cropping overflow) / scroll mode only:
+// width minus a side margin (margin, `scrollMargin`).
+export type FitMode = 'width' | 'height' | 'contain' | 'cover' | 'margin'
 
 export interface Work {
   id: string // stable id derived from folder path
@@ -188,6 +189,7 @@ export interface Settings {
   listPaneWidth: number // px width of the left list pane in reader view
   normalListPaneWidth: number // px width of the left list pane in general-manga mode
   readerPageGap: boolean // scroll mode: leave a gap between pages
+  scrollMargin: number // scroll mode 여백 맞춤: empty space each side, fraction of the pane width
   pagedWheelFlip: boolean // click-paging mode: allow the wheel to flip pages
   // How chapter numbers are read from general-manga folder names:
   //  'auto'  = per series, prefer the X화 token if every chapter has one, else
@@ -424,6 +426,7 @@ export const DEFAULT_SETTINGS: Settings = {
   listPaneWidth: 340,
   normalListPaneWidth: 320,
   readerPageGap: false,
+  scrollMargin: 0.1,
   pagedWheelFlip: true,
   normalChapterScheme: 'auto',
   seriesTags: {},
