@@ -19,12 +19,16 @@ android {
     // Release signing: the key lives OUTSIDE the repo (~/.halftone/keystore.properties
     // + the keystore next to it). Updates only install over a build signed with
     // the same key, so keep that folder backed up.
+    // With `lineage` set (2026-10-25 key rotation) the release APK is built
+    // unsigned and signed by the signRelease task below instead.
     def ksDir = new File(System.getProperty("user.home"), ".halftone")
     def ksProps = new File(ksDir, "keystore.properties")
+    def ks = new Properties()
+    if (ksProps.exists()) ksProps.withInputStream { ks.load(it) }
+    def rotated = ks['lineage'] != null
     signingConfigs {
-        if (ksProps.exists()) {
-            def p = new Properties()
-            ksProps.withInputStream { p.load(it) }
+        if (ksProps.exists() && !rotated) {
+            def p = ks
             release {
                 storeFile new File(ksDir, p['storeFile'])
                 storePassword p['storePassword']
@@ -40,11 +44,45 @@ android {
     }
     buildTypes {
         release {
-            if (ksProps.exists()) signingConfig signingConfigs.release
+            if (ksProps.exists() && !rotated) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+}
+
+// Release signing with the rotated key: APK Signature Scheme v3 only (minSdk
+// 28), new key + the lineage proof signed by the old one (= the debug key
+// earlier releases used), so installed apps accept the update. v1/v2 are off:
+// they could only carry the old key.
+def halftoneKs = new File(System.getProperty("user.home"), ".halftone")
+tasks.register('signRelease', Exec) {
+    def p = new Properties()
+    def f = new File(halftoneKs, "keystore.properties")
+    if (f.exists()) f.withInputStream { p.load(it) }
+    onlyIf { p['lineage'] != null }
+    def out = layout.buildDirectory.dir("outputs/apk/release").get().asFile
+    def tool = "${android.sdkDirectory}/build-tools/${android.buildToolsVersion}/apksigner" +
+        (System.getProperty("os.name").toLowerCase().contains("windows") ? ".bat" : "")
+    workingDir halftoneKs
+    environment 'OLD_PASS', p['storePassword'] ?: ''
+    environment 'OLD_KEY_PASS', p['keyPassword'] ?: ''
+    environment 'NEW_PASS', p['newStorePassword'] ?: ''
+    environment 'NEW_KEY_PASS', p['newKeyPassword'] ?: ''
+    commandLine tool, 'sign',
+        '--v1-signing-enabled', 'false', '--v2-signing-enabled', 'false', '--v3-signing-enabled', 'true', '--v4-signing-enabled', 'false',
+        '--rotation-min-sdk-version', '28',
+        '--ks', p['storeFile'] ?: '', '--ks-key-alias', p['keyAlias'] ?: '',
+        '--ks-pass', 'env:OLD_PASS', '--key-pass', 'env:OLD_KEY_PASS',
+        '--next-signer',
+        '--ks', p['newStoreFile'] ?: '', '--ks-key-alias', p['newKeyAlias'] ?: '',
+        '--ks-pass', 'env:NEW_PASS', '--key-pass', 'env:NEW_KEY_PASS',
+        '--lineage', p['lineage'] ?: '',
+        '--out', new File(out, "app-release.apk").path,
+        new File(out, "app-release-unsigned.apk").path
+}
+afterEvaluate {
+    tasks.named('assembleRelease').configure { finalizedBy 'signRelease' }
 }
 
 repositories {

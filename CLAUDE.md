@@ -560,9 +560,17 @@ natural format for desktop ⇄ mobile sync.
   Git identity: `alterstare <alterstare03@gmail.com>`.
 - Release flow (mobile): bump `version` in package.json + `versionCode` /
   `versionName` in android/app/build.gradle → `npm run sync` → `gradlew
-  assembleRelease` (signed with `~/.halftone/keystore.properties` + keystore —
-  a copy of this PC's debug keystore, so it updates over earlier debug installs;
-  keep `~/.halftone` backed up, a different key can't update installed apps) →
+  assembleRelease` (signing from `~/.halftone/keystore.properties`. Since
+  v0.6.13 (2026-10-25, Play Protect "harmful app" on the debug-key builds) the
+  key is rotated: the build is unsigned, then the `signRelease` task (app
+  build.gradle) runs apksigner — v3 only (minSdk 28), new key
+  `halftone-2026.jks` (CN=Halftone, SHA-256 18c4cafa…605e) + `halftone.lineage`
+  signed by the old key (`halftone-release.keystore` = a copy of this PC's
+  debug keystore, still needed for the lineage). Installed debug-key builds
+  update over it (verified on the emulator, data kept). A local
+  `assembleDebug` build is debug-key signed and won't install over a
+  release-key app (uninstall first). Keep `~/.halftone` backed up — losing
+  the new key = no more updates) →
   copy to `Halftone-vX.Y.Z.apk` (repo root, git-ignored) → commit → push → tag
   `vX.Y.Z` → GitHub release with the APK attached (no `gh` here: REST API with
   the git credential token). The app's auto-update (`src/backend/update.ts`)
