@@ -56,16 +56,34 @@ final class NasStore {
 
     private static SharedPreferences prefs;
 
+    // A reinstall can bring the "nas" file back from a device backup while its
+    // keystore key is gone; it can't be decrypted then, and the exception used
+    // to fail the whole MM plugin ("MM" plugin is not implemented). Such a file
+    // is dropped (saved NAS connections are lost) and the store starts empty.
     static synchronized void init(Context ctx) {
         if (prefs != null) return;
         try {
-            MasterKey key = new MasterKey.Builder(ctx).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
-            prefs = EncryptedSharedPreferences.create(ctx, "nas", key,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+            prefs = open(ctx);
         } catch (Exception e) {
-            throw new RuntimeException("NAS store unavailable: " + e.getMessage(), e);
+            ctx.deleteSharedPreferences("nas");
+            try {
+                prefs = open(ctx);
+            } catch (Exception e2) {
+                prefs = ctx.getSharedPreferences("nas-unavailable", Context.MODE_PRIVATE); // empty; NAS saves fail below
+                broken = "NAS store unavailable: " + e2.getMessage();
+            }
         }
+    }
+
+    private static String broken;
+
+    private static SharedPreferences open(Context ctx) throws Exception {
+        MasterKey key = new MasterKey.Builder(ctx).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
+        SharedPreferences p = EncryptedSharedPreferences.create(ctx, "nas", key,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
+        p.getAll(); // decrypts every entry: a stale file fails here, not later
+        return p;
     }
 
     static synchronized List<Conn> list() {
@@ -89,6 +107,7 @@ final class NasStore {
 
     // Insert or replace; password == null keeps the stored one.
     static synchronized void save(Conn c, String password) throws JSONException {
+        if (broken != null) throw new IllegalStateException(broken); // never store a password unencrypted
         JSONArray a = new JSONArray();
         boolean found = false;
         for (Conn x : list()) {

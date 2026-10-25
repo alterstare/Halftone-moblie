@@ -268,7 +268,11 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
     goes through `Vfs.java`, which sends those to `WebDavFs` (OkHttp,
     PROPFIND/GET/PUT/MKCOL/DELETE/MOVE, Basic auth, optional trust-all TLS) or
     `SmbFs` (smbj). Connections + passwords live in `NasStore`
-    (EncryptedSharedPreferences); JS sees them without passwords
+    (EncryptedSharedPreferences; excluded from device backup — res/xml
+    backup_rules / data_extraction_rules — because a reinstall restored the
+    file without its keystore key and the init exception failed the whole MM
+    plugin: '"MM" plugin is not implemented on android', 2026-10-25; init now
+    drops an undecryptable file); JS sees them without passwords
     (`nasList/nasTest/nasSave/nasRemove`, `listDirs`). Remote reads are cached
     in the 400MB image cache (`Net.cachedNas`); downloads to a NAS go to a
     local temp file, then upload. Settings: 폴더 · NAS 연결 list; "+ 폴더 추가"

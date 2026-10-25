@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android ≤ 11 backup. The NAS store is encrypted with a keystore key that a
+     restore can't bring back, so it is never backed up (NasStore.java). -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="nas.xml" />
+</full-backup-content>
