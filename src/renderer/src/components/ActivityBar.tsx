@@ -118,7 +118,7 @@ export default function ActivityBar(): JSX.Element | null {
   const updateLabel = !update
     ? ''
     : update.state === 'downloading'
-      ? `⬆ 업데이트 다운로드 중 · ${update.percent ?? 0}%`
+      ? `⬆ 업데이트 다운로드 중${update.percent ? ` · ${update.percent}%` : ""}`
       : update.state === 'downloaded'
         ? `⬆ 업데이트 준비됨${update.version ? ` · v${update.version}` : ''} — 설치`
         : `⬆ 새 버전 발견${update.version ? ` · v${update.version}` : ''}`
@@ -191,19 +191,19 @@ export default function ActivityBar(): JSX.Element | null {
                     {update.state === 'downloaded'
                       ? '설치를 누르면 새 버전으로 업데이트합니다.'
                       : update.state === 'downloading'
-                        ? `${update.percent ?? 0}%`
-                        : '자동으로 다운로드를 시작합니다…'}
+                        ? update.percent ? `${update.percent}%` : '받는 중…'
+                        : '업데이트를 누르면 다운로드 후 설치합니다.'}
                   </div>
                   {(update.state === 'downloading' || update.state === 'downloaded') && (
                     <div className="activity-bar-track">
                       <div
-                        className="activity-bar-fill"
+                        className={`activity-bar-fill ${update.state === 'downloading' && !update.percent ? 'indet' : ''}`}
                         style={{ width: update.state === 'downloaded' ? '100%' : `${update.percent ?? 0}%` }}
                       />
                     </div>
                   )}
                 </div>
-                {update.state === 'downloaded' && (
+                {(update.state === 'downloaded' || update.state === 'available') && (
                   <div className="activity-row-actions flat-group">
                     <button
                       className="mini"
@@ -212,7 +212,7 @@ export default function ActivityBar(): JSX.Element | null {
                         installUpdate()
                       }}
                     >
-                      설치
+                      {update.state === 'available' ? '업데이트' : '설치'}
                     </button>
                   </div>
                 )}
@@ -288,9 +288,9 @@ export default function ActivityBar(): JSX.Element | null {
         <span className="activity-bar-summary">{summary}</span>
         {running.length > 0 && <span className="activity-bar-count">{running.length}개 진행</span>}
         <span className="activity-bar-btns flat-group" onClick={(e) => e.stopPropagation()}>
-          {update?.state === 'downloaded' && (
+          {(update?.state === 'downloaded' || update?.state === 'available') && (
             <button className="mini" title="업데이트 설치" onClick={() => installUpdate()}>
-              설치
+              {update.state === 'available' ? '업데이트' : '설치'}
             </button>
           )}
         </span>

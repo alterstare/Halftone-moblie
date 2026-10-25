@@ -325,7 +325,11 @@ app.png's dark dots re-screened coarse, clipped to a circle like the
 launcher icon (vector; a plain downscale of the fine dots blurs; the system
 download icon animates).
 Android 15 caps dataSync at ~6h/day (`onTimeout` stops it).
-Auto-update = `src/backend/update.ts` (GitHub releases/latest).
+Auto-update = `src/backend/update.ts` (GitHub releases/latest). Startup only
+checks; the APK is downloaded when the user taps 업데이트 in the activity bar,
+then the installer opens. (v0.6.11 got "유해한 앱 차단됨" from Play Protect —
+the silent APK download at launch looks like a dropper; 2026-10-25. If it
+persists: new signing key + data export/import, see the release notes there.)
 
 일반 만화 PIP downloads confirmed working on a device (2026-10-10). Resumed
 일반 만화 downloads skip chapters saved in full: `downloads.ts` `chapterRecord`
@@ -521,6 +525,10 @@ Doujin list speed (2026-10-14): a search's matched id list is cached 10 min
 in flight), and Browse prefetches page ±1 400ms after a page shows (+ the next
 page's covers via `new Image()`), random excluded. Emulator, a 37k-hit tag
 search: first page 5.1s, uncached next page 2.0s, prefetched page ~0ms.
+Reader / thumbnail images (Net.cachedImage, 2026-10-25): a 503 / 429 is
+retried ≤5× and sets a shared cool-down, then doujin requests start 200ms
+apart for 10s (no pacing otherwise) — before, a 503 left a broken page that
+collapsed to 0 height (black gap, page number off).
 Doujin image CDN rate limit (2026-10-16): nginx limit_req ≈ 5 req/s + small
 burst per IP, excess → instant 503, recovers < 1s (gg.js `b` rotates hourly,
 old values keep working). `downloadGallery` → `fetchPage`: one pacer for all

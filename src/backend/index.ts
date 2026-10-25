@@ -56,7 +56,7 @@ const events: Partial<Api> = {
   onComicPages: (cb) => on<{ code: string; urls: string[]; state: 'more' | 'done' | 'cut' }>(IPC.comicPages, cb),
   onNavBack: (cb) => on(IPC.navBack, cb),
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => on<UpdateStatus>(IPC.updateStatus, cb),
-  installUpdate: () => installUpdate(),
+  installUpdate: () => void installUpdate(),
   doujinCancelEnrich: doujinApi.doujinCancelEnrich
 }
 

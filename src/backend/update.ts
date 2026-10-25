@@ -1,8 +1,9 @@
 // Auto-update (sideloaded APK): on start, ask GitHub for the latest release of
-// this app's repo; when its tag is newer than the installed version, download
-// the release's .apk into the app cache and report progress to the activity
-// bar (available → downloading → downloaded). "설치" hands the APK to the
-// system installer (the user confirms there).
+// this app's repo; when its tag is newer than the installed version, show it in
+// the activity bar (available). Nothing is downloaded until the user taps
+// "업데이트" — a silent APK download at launch made Play Protect flag the app as
+// harmful (dropper) — then the .apk goes to the app cache (downloading) and is
+// handed to the system installer (the user confirms there).
 import type { UpdateStatus } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import { MM } from './native'
@@ -10,7 +11,9 @@ import { join } from './node/path'
 import { paths, sendToRenderer, store } from './context'
 
 const REPO = 'alterstare/Halftone-moblie'
-let pending: string | null = null
+let pending: string | null = null // downloaded APK
+let offer: { version: string; url: string } | null = null // found, not downloaded
+let busy = false
 
 const status = (s: UpdateStatus): void => sendToRenderer(IPC.updateStatus, s)
 
@@ -44,17 +47,29 @@ export async function checkForUpdate(): Promise<void> {
     if (!latest || rel.draft || !newer(latest, version)) return
     const asset = rel.assets?.find((a) => a.name.toLowerCase().endsWith('.apk'))
     if (!asset) return
+    offer = { version: latest, url: asset.browser_download_url }
     status({ state: 'available', version: latest })
-    status({ state: 'downloading', version: latest, percent: 0 })
-    const path = join(paths.cache, `Halftone-${latest}.apk`)
-    await MM.httpDownload({ url: asset.browser_download_url, kind: 'plain', path })
-    pending = path
-    status({ state: 'downloaded', version: latest, percent: 100 })
   } catch (e: any) {
     status({ state: 'error', error: String(e?.message ?? e) })
   }
 }
 
-export function installUpdate(): void {
-  if (pending) void MM.installApk({ path: pending })
+// "업데이트" / "설치": download the offered APK on the first tap, then install.
+export async function installUpdate(): Promise<void> {
+  if (pending) return void MM.installApk({ path: pending })
+  if (!offer || busy) return
+  busy = true
+  const { version, url } = offer
+  try {
+    status({ state: 'downloading', version, percent: 0 })
+    const path = join(paths.cache, `Halftone-${version}.apk`)
+    await MM.httpDownload({ url, kind: 'plain', path })
+    pending = path
+    status({ state: 'downloaded', version, percent: 100 })
+    void MM.installApk({ path })
+  } catch {
+    status({ state: 'available', version }) // failed: keep the button for a retry
+  } finally {
+    busy = false
+  }
 }

@@ -303,9 +303,21 @@ final class Net {
             return Files.readAllBytes(f.toPath());
         }
         IOException last = null;
-        for (int attempt = 0; attempt < 3; attempt++) {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            if ("doujin".equals(kind)) pace();
             try (Response res = client(kind).newCall(new Request.Builder().url(url).build()).execute()) {
-                if (!res.isSuccessful()) throw new HttpError(res.code());
+                if (!res.isSuccessful()) {
+                    int code = res.code();
+                    // The doujin CDN rate-limits (~5 req/s per IP → instant 503,
+                    // gone within a second): back off and retry instead of
+                    // leaving a broken page in the reader.
+                    if ((code == 503 || code == 429) && attempt < 5) {
+                        coolDown(700L * (attempt + 1));
+                        last = new HttpError(code);
+                        continue;
+                    }
+                    throw new HttpError(code);
+                }
                 ResponseBody body = res.body();
                 byte[] bytes = body == null ? new byte[0] : body.bytes();
                 store(f, bytes);
@@ -323,6 +335,39 @@ final class Net {
             }
         }
         throw last != null ? last : new IOException("image fetch failed");
+    }
+
+    // After a 503 / 429 every doujin image request (reader pages, prefetch,
+    // thumbnails) waits out a shared cool-down, then they start PACE_MS apart
+    // until it's been quiet for a while. No pacing otherwise (list covers).
+    private static final long PACE_MS = 200;
+    private static final long PACE_FOR_MS = 10_000;
+    private static final Object paceLock = new Object();
+    private static long nextStart = 0;
+    private static long coolUntil = 0;
+
+    private static void pace() throws IOException {
+        long wait;
+        synchronized (paceLock) {
+            long now = System.currentTimeMillis();
+            if (now > coolUntil + PACE_FOR_MS) return;
+            long at = Math.max(now, Math.max(nextStart, coolUntil));
+            nextStart = at + PACE_MS;
+            wait = at - now;
+        }
+        if (wait <= 0) return;
+        try {
+            Thread.sleep(wait);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new java.io.InterruptedIOException("interrupted");
+        }
+    }
+
+    private static void coolDown(long ms) {
+        synchronized (paceLock) {
+            coolUntil = Math.max(coolUntil, System.currentTimeMillis() + ms);
+        }
     }
 
     static final class HttpError extends IOException {

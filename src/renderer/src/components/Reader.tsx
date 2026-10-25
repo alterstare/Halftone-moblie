@@ -61,6 +61,15 @@ function scrollProbe(el: HTMLElement, frac: number): number {
   return el.scrollTop + h * (frac + (1 - frac) * ramp)
 }
 
+// Scroll mode: scroll offset of the page column (the pane's own padding — the
+// focus-mode tab bar). The page-height model counts from there; without it
+// the number / slider ran behind the page shown in focus mode. (The column's
+// bar padding is left in: a page at "its" spot sits just below the title bar.)
+function pagesTop(el: HTMLElement): number {
+  const col = el.querySelector<HTMLElement>('.reader-pages-col')
+  return col ? col.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop : 0
+}
+
 export default function Reader({
   tabId,
   side = 'left'
@@ -570,26 +579,49 @@ export default function Reader({
     window.api.incrementView(work.id).then(upsertWork)
   }, [tabId, side, work?.id])
 
-  // Current page from scroll position, computed from the cumulative page-height
-  // model (the DOM only holds a window of pages, so rects can't be used).
+  // Scroll mode: the reading position as a fractional page index (page i's top
+  // at the viewport top = i), from the cumulative page-height model (the DOM
+  // only holds a window of pages, so rects can't be used). The page number and
+  // the slider both come from it — they used different probe points (top third
+  // vs. top) and disagreed by a page.
+  const scrollPos = useCallback((el: HTMLElement): number => {
+    const n = images.length
+    let y = (scrollProbe(el, 0) - pagesTop(el)) / vz.current.s // pinch zoom → layer px
+    for (let i = 0; i < n; i++) {
+      const h = heightOf(i)
+      if (y < h || i === n - 1) return Math.min(n - 1, i + Math.max(0, Math.min(1, y / (h || 1))))
+      y -= h
+    }
+    return 0
+  }, [images.length, heightOf])
+
+  // Current page from scroll position.
   const computeCurrentFromScroll = useCallback((): void => {
     const el = contentRef.current
     if (!el) return
-    const target = scrollProbe(el, 1 / 3) / vz.current.s // pinch zoom → layer px
-    let acc = 0
-    let idx = 0
-    for (let i = 0; i < images.length; i++) {
-      const h = heightOf(i)
-      if (target < acc + h) {
-        idx = i
-        break
-      }
-      acc += h
-      idx = i
-    }
+    const idx = Math.floor(scrollPos(el))
     pageIdxRef.current = idx
     setPageIdx(idx) // React skips the re-render when idx is unchanged
-  }, [images.length, heightOf])
+  }, [scrollPos])
+
+  // Scroll mode: decode the next pages' <img>s ahead of time. The whole-gallery
+  // prefetch decodes far pages last, which pushed the near ones out of the
+  // decode cache, so a page scrolled into view from below was painted black
+  // for a moment (pages above were just shown and still decoded).
+  useEffect(() => {
+    if (mode !== 'scroll') return
+    const el = contentRef.current
+    if (!el) return
+    const t = window.setTimeout(() => {
+      const slots = el.querySelectorAll<HTMLElement>('.page-slot')
+      const first = scrollWin.start
+      for (let i = pageIdx - 1; i <= pageIdx + 4; i++) {
+        const img = slots[i - first]?.querySelector('img')
+        if (img?.complete && img.naturalWidth > 0) img.decode().catch(() => {})
+      }
+    }, 80)
+    return () => window.clearTimeout(t)
+  }, [mode, pageIdx, scrollWin.start, scrollPages])
 
   // Manga-site chapter: the page list grows while the rest is collected — append
   // without resetting the view (growRef tells the restore effect it's growth).
@@ -731,7 +763,7 @@ export default function Reader({
         if (el) {
           let top = 0
           for (let i = 0; i < clamped; i++) top += heightOf(i)
-          el.scrollTo({ top: top * vz.current.s, behavior: 'auto' })
+          el.scrollTo({ top: pagesTop(el) + top * vz.current.s, behavior: 'auto' })
         }
       }
       if (online) setOnlineProgress(online.code, { scrollTop: contentRef.current?.scrollTop ?? 0, pageIdx: clamped })
@@ -1199,17 +1231,7 @@ export default function Reader({
     const el = contentRef.current
     const n = images.length
     if (!el || mode !== 'scroll' || n < 2) return
-    let y = scrollProbe(el, 0) / vz.current.s
-    let pos = 0
-    for (let i = 0; i < n; i++) {
-      const h = heightOf(i)
-      if (y < h || i === n - 1) {
-        pos = i + Math.max(0, Math.min(1, y / (h || 1)))
-        break
-      }
-      y -= h
-    }
-    pos = Math.min(n - 1, pos)
+    const pos = scrollPos(el)
     if (sliderRef.current) sliderRef.current.value = String(pos)
     if (progressRef.current) progressRef.current.style.width = `calc(${pos / (n - 1)} * (100% - 22px) + 11px)`
   }
