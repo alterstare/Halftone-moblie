@@ -7,8 +7,8 @@ android {
         applicationId "com.noth2.mangamanager"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 531
-        versionName "0.6.14"
+        versionCode 532
+        versionName "0.6.15"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -38,6 +38,10 @@ android {
         }
     }
     packagingOptions {
+        // minSdk 28 would store the dex files uncompressed (8.5MB APK → 18MB).
+        dex {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += ['META-INF/versions/9/OSGI-INF/MANIFEST.MF', 'META-INF/DEPENDENCIES', 'META-INF/LICENSE*', 'META-INF/NOTICE*']
         }
