@@ -35,7 +35,7 @@ export interface MMPlugin {
   appInfo(): Promise<{ version: string; code: number }>
   // Hand a downloaded APK to the system installer (asks for "unknown apps"
   // permission first when needed).
-  installApk(o: { path: string }): Promise<{ needPermission?: boolean }>
+  openUrl(o: { url: string }): Promise<void>
   getPaths(): Promise<{ files: string; cache: string; external: string; download: string; sdk: number }>
   storageStatus(): Promise<{ granted: boolean }>
   requestStorage(): Promise<{ granted: boolean }>

@@ -505,7 +505,7 @@ export default function ManageSection(): JSX.Element {
 
       <section data-cat="manage">
         <h2>업데이트</h2>
-        <SettingRow title="자동 업데이트" desc="앱을 켤 때 새 버전이 있는지 확인하고, 있으면 미리 받아 둡니다. 설치는 작업 바의 “설치”를 눌러야 진행됩니다.">
+        <SettingRow title="업데이트 확인" desc="앱을 켤 때 새 버전이 있는지 확인합니다. 있으면 작업 바의 “업데이트”로 다운로드 페이지를 엽니다.">
           <Toggle checked={draft.autoUpdate !== false} onChange={(v) => patch({ autoUpdate: v })} />
         </SettingRow>
       </section>

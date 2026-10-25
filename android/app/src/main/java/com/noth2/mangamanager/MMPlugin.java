@@ -191,28 +191,20 @@ public class MMPlugin extends Plugin {
         call.resolve(o);
     }
 
-    // Auto-update: open the system installer for a downloaded APK (cache dir,
-    // shared through the FileProvider). Without the "install unknown apps"
-    // permission, its settings page opens first.
+    // Update notice: open a web page (the release page) in the browser. The app
+    // never downloads or installs APKs itself — that (REQUEST_INSTALL_PACKAGES +
+    // an APK fetched at launch) got the app flagged as harmful by Play Protect.
     @PluginMethod
-    public void installApk(PluginCall call) {
-        Context ctx = getContext();
-        File f = new File(need(call, "path"));
-        JSObject o = new JSObject();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !ctx.getPackageManager().canRequestPackageInstalls()) {
-            Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + ctx.getPackageName()));
-            s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(s);
-            o.put("needPermission", true);
-            call.resolve(o);
+    public void openUrl(PluginCall call) {
+        String url = need(call, "url");
+        if (!url.startsWith("https://")) {
+            call.reject("https only");
             return;
         }
-        Uri uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", f);
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(uri, "application/vnd.android.package-archive");
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(i);
-        call.resolve(o);
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().startActivity(i);
+        call.resolve();
     }
 
     @PluginMethod

@@ -329,11 +329,13 @@ app.png's dark dots re-screened coarse, clipped to a circle like the
 launcher icon (vector; a plain downscale of the fine dots blurs; the system
 download icon animates).
 Android 15 caps dataSync at ~6h/day (`onTimeout` stops it).
-Auto-update = `src/backend/update.ts` (GitHub releases/latest). Startup only
-checks; the APK is downloaded when the user taps 업데이트 in the activity bar,
-then the installer opens. (v0.6.11 got "유해한 앱 차단됨" from Play Protect —
-the silent APK download at launch looks like a dropper; 2026-10-25. If it
-persists: new signing key + data export/import, see the release notes there.)
+Update notice = `src/backend/update.ts` (GitHub releases/latest): startup
+check only; 업데이트 in the activity bar opens the release page in the browser
+(`MM.openUrl`, https only). NO in-app APK download / install: no
+REQUEST_INSTALL_PACKAGES, no FileProvider. Verified 2026-10-25: Play Protect
+blocked every new build ("유해한 앱", OPPO "risk of information collection")
+while the app could download + install APKs; the same build without it
+passed (test package .t2). Don't add it back.
 
 일반 만화 PIP downloads confirmed working on a device (2026-10-10). Resumed
 일반 만화 downloads skip chapters saved in full: `downloads.ts` `chapterRecord`
@@ -565,7 +567,7 @@ natural format for desktop ⇄ mobile sync.
 - Release flow (mobile): bump `version` in package.json + `versionCode` /
   `versionName` in android/app/build.gradle → `npm run sync` → `gradlew
   assembleRelease` (signing from `~/.halftone/keystore.properties`. Since
-  v0.6.13 (2026-10-25, Play Protect "harmful app" on the debug-key builds) the
+  v0.6.15 (2026-10-25, Play Protect "harmful app" on the debug-key builds) the
   key is rotated: the build is unsigned, then the `signRelease` task (app
   build.gradle) runs apksigner — v3 only (minSdk 28), new key
   `halftone-2026.jks` (CN=Halftone, SHA-256 18c4cafa…605e) + `halftone.lineage`
@@ -577,7 +579,7 @@ natural format for desktop ⇄ mobile sync.
   the new key = no more updates) →
   copy to `Halftone-vX.Y.Z.apk` (repo root, git-ignored) → commit → push → tag
   `vX.Y.Z` → GitHub release with the APK attached (no `gh` here: REST API with
-  the git credential token). The app's auto-update (`src/backend/update.ts`)
+  the git credential token). The app's update notice (`src/backend/update.ts`)
   reads `releases/latest` (skipped when `settings.autoUpdate` is off — 설정 · 관리 · 업데이트) and needs a published (non-draft) release with an
   `.apk` asset whose tag is newer than the installed versionName.
 - Release flow (desktop): bump version → commit → push → tag `vX.Y.Z` → CI

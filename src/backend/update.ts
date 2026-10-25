@@ -1,19 +1,16 @@
-// Auto-update (sideloaded APK): on start, ask GitHub for the latest release of
-// this app's repo; when its tag is newer than the installed version, show it in
-// the activity bar (available). Nothing is downloaded until the user taps
-// "업데이트" — a silent APK download at launch made Play Protect flag the app as
-// harmful (dropper) — then the .apk goes to the app cache (downloading) and is
-// handed to the system installer (the user confirms there).
+// Update notice (sideloaded APK): on start, ask GitHub for the latest release
+// of this app's repo; when its tag is newer than the installed version, show
+// it in the activity bar (available). "업데이트" opens the release page in the
+// browser — the user downloads and installs the APK there. The app itself
+// never downloads or installs APKs: doing that (REQUEST_INSTALL_PACKAGES + a
+// silent download at launch) got it blocked by Play Protect as harmful.
 import type { UpdateStatus } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import { MM } from './native'
-import { join } from './node/path'
-import { paths, sendToRenderer, store } from './context'
+import { sendToRenderer, store } from './context'
 
 const REPO = 'alterstare/Halftone-moblie'
-let pending: string | null = null // downloaded APK
-let offer: { version: string; url: string } | null = null // found, not downloaded
-let busy = false
+let page: string | null = null // release page of the version found
 
 const status = (s: UpdateStatus): void => sendToRenderer(IPC.updateStatus, s)
 
@@ -41,35 +38,18 @@ export async function checkForUpdate(): Promise<void> {
     const rel = JSON.parse(r.data) as {
       tag_name?: string
       draft?: boolean
-      assets?: { name: string; browser_download_url: string }[]
+      html_url?: string
     }
     const latest = String(rel.tag_name ?? '').replace(/^v/i, '')
     if (!latest || rel.draft || !newer(latest, version)) return
-    const asset = rel.assets?.find((a) => a.name.toLowerCase().endsWith('.apk'))
-    if (!asset) return
-    offer = { version: latest, url: asset.browser_download_url }
+    page = rel.html_url ?? `https://github.com/${REPO}/releases/latest`
     status({ state: 'available', version: latest })
   } catch (e: any) {
     status({ state: 'error', error: String(e?.message ?? e) })
   }
 }
 
-// "업데이트" / "설치": download the offered APK on the first tap, then install.
-export async function installUpdate(): Promise<void> {
-  if (pending) return void MM.installApk({ path: pending })
-  if (!offer || busy) return
-  busy = true
-  const { version, url } = offer
-  try {
-    status({ state: 'downloading', version, percent: 0 })
-    const path = join(paths.cache, `Halftone-${version}.apk`)
-    await MM.httpDownload({ url, kind: 'plain', path })
-    pending = path
-    status({ state: 'downloaded', version, percent: 100 })
-    void MM.installApk({ path })
-  } catch {
-    status({ state: 'available', version }) // failed: keep the button for a retry
-  } finally {
-    busy = false
-  }
+// "업데이트": the release page in the browser.
+export function installUpdate(): void {
+  if (page) void MM.openUrl({ url: page })
 }

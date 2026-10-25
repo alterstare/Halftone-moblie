@@ -192,7 +192,7 @@ export default function ActivityBar(): JSX.Element | null {
                       ? '설치를 누르면 새 버전으로 업데이트합니다.'
                       : update.state === 'downloading'
                         ? update.percent ? `${update.percent}%` : '받는 중…'
-                        : '업데이트를 누르면 다운로드 후 설치합니다.'}
+                        : '업데이트를 누르면 다운로드 페이지를 엽니다.'}
                   </div>
                   {(update.state === 'downloading' || update.state === 'downloaded') && (
                     <div className="activity-bar-track">
