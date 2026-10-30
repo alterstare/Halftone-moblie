@@ -1,3 +1,6 @@
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import type { RefObject } from 'react'
+
 // Coming back to a list (library home): put the card that was at the top of
 // the screen back at the same spot. A bare scrollTop wasn't enough — at
 // remount the list isn't fully laid out yet, so the restore got clamped to a
@@ -87,4 +90,35 @@ export function restoreAnchor(el: HTMLElement, a: ListAnchor, wanted: () => bool
   for (const c of el.children) ro.observe(c)
   apply()
   return stop
+}
+
+// Kept-alive lists (online browse, hidden with display:none while the reader
+// is open): the browser's own scroll restore on re-show landed a couple of
+// cards off (cards re-measured after it). Remember the anchor while shown,
+// put it back when the list shows again.
+export function useKeepAliveScroll(ref: RefObject<HTMLElement | null>, shown: boolean): void {
+  const anchor = useRef<ListAnchor | null>(null)
+  const restoring = useRef(false)
+  const wasShown = useRef(shown)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onScroll = (): void => {
+      if (!restoring.current && el.clientHeight > 0) anchor.current = captureAnchor(el)
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [ref])
+  useLayoutEffect(() => {
+    const was = wasShown.current
+    wasShown.current = shown
+    const el = ref.current
+    const a = anchor.current
+    if (!shown || was || !el || !a) return
+    restoring.current = true
+    return restoreAnchor(el, a, () => true, () => {
+      restoring.current = false
+      anchor.current = captureAnchor(el)
+    })
+  }, [shown, ref])
 }

@@ -32,7 +32,8 @@ interface Row {
   dl?: { code: string; phase: DoujinProgress['phase']; canStop: boolean; canRetry: boolean }
 }
 
-const KIND_ICON: Record<Job['kind'], ReactNode> = {
+// Also used by the 작업 목록 screen (Download.tsx) — same icons in both.
+export const KIND_ICON: Record<Job['kind'], ReactNode> = {
   scan: <ScanIcon />,
   meta: <EditIcon />,
   thumb: <AddPhotoIcon />,

@@ -183,6 +183,7 @@ function Duplicates(): JSX.Element {
   const [scanned, setScanned] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirmBulk, setConfirmBulk] = useState(false)
+  const [pendingDel, setPendingDel] = useState<{ id: string; title: string } | null>(null)
 
   const groups = useMemo(() => findDuplicateGroups(works), [works])
   const missing = useMemo(() => works.filter((w) => !w.coverHash).length, [works])
@@ -223,6 +224,19 @@ function Duplicates(): JSX.Element {
     }
     setSelected(new Set())
   }
+  const confirmDel = async (): Promise<void> => {
+    if (!pendingDel) return
+    const { id } = pendingDel
+    setPendingDel(null)
+    await window.api.deleteWork(id)
+    invalidate(id)
+    removeWork(id)
+    setSelected((s) => {
+      const n = new Set(s)
+      n.delete(id)
+      return n
+    })
+  }
 
   return (
     <div className="manage-body">
@@ -262,6 +276,7 @@ function Duplicates(): JSX.Element {
                   badge={w.id === keep ? '보존 추천' : undefined}
                   checked={selected.has(w.id)}
                   onCheck={() => toggle(w.id)}
+                  onDelete={() => setPendingDel({ id: w.id, title: w.title })}
                 />
               ))}
             </div>
@@ -279,6 +294,18 @@ function Duplicates(): JSX.Element {
           cancelLabel="취소"
           onConfirm={deleteSelected}
           onCancel={() => setConfirmBulk(false)}
+        />
+      )}
+      {pendingDel && (
+        <ConfirmModal
+          danger
+          icon="🗑"
+          title="작품을 삭제할까요?"
+          desc={<><b>{pendingDel.title}</b> 폴더를 영구 삭제합니다. 되돌릴 수 없습니다.</>}
+          confirmLabel="삭제"
+          cancelLabel="취소"
+          onConfirm={confirmDel}
+          onCancel={() => setPendingDel(null)}
         />
       )}
     </div>
@@ -640,12 +667,19 @@ function ManageCard({
   onDelete?: () => void
   deleteLabel?: string
 }): JSX.Element {
+  // A tap on the card selects / deselects it (열기 / 폴더 are the buttons below).
   return (
-    <div className={`manage-card ${checked ? 'sel' : ''}`}>
+    <div className={`manage-card ${checked ? 'sel' : ''}`} onClick={onCheck}>
       {onCheck && (
-        <input className="manage-check" type="checkbox" checked={!!checked} onChange={onCheck} />
+        <input
+          className="manage-check"
+          type="checkbox"
+          checked={!!checked}
+          onChange={onCheck}
+          onClick={(e) => e.stopPropagation()}
+        />
       )}
-      <div className="manage-thumb" onClick={open}>
+      <div className="manage-thumb">
         <Thumb workId={work.id} />
       </div>
       {badge && <span className="manage-badge">{badge}</span>}
@@ -657,7 +691,7 @@ function ManageCard({
         {work.language && ` · ${work.language}`}
         {work.artist && ` · ${work.artist}`}
       </div>
-      <div className="manage-card-actions flat-group">
+      <div className="manage-card-actions flat-group" onClick={(e) => e.stopPropagation()}>
         <button className="mini" onClick={open}>
           열기
         </button>

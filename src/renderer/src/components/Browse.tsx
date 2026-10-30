@@ -24,7 +24,7 @@ import { ArtistLinks } from './ArtistLinks'
 import TileBar, { CompactBar } from './TileBar'
 import CardMore from './CardMore'
 import { useSelection, SelBox, SelectBar, usePullRefresh, LibraryFab, useSwipeNav, useBackHandler } from './libraryTools'
-import { captureAnchor, restoreAnchor, type ListAnchor } from '../scrollRestore'
+import { captureAnchor, restoreAnchor, useKeepAliveScroll, type ListAnchor } from '../scrollRestore'
 import { showCrossSearch, toLocalQuery } from '../crossToast'
 import { isNarrow } from '../mobile'
 
@@ -447,6 +447,8 @@ export default function Browse(): JSX.Element {
     ? { page: favPage, lastPage: favLastPage, onPage: setFavPage }
     : { page, lastPage, onPage: setBrowsePage }
   const ptrSpinner = usePullRefresh(rootRef, refresh, browseView, pager)
+  // Back from the reader → the same card at the same spot.
+  useKeepAliveScroll(rootRef, browseView)
   // Swipe right → back to 라이브러리.
   useSwipeNav(rootRef, null, () => useStore.getState().goHome(), browseView && !sel.selecting)
   const downloadSelected = (): void => {

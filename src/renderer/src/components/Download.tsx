@@ -1,14 +1,14 @@
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useStore, downloadMode } from '../store'
-import type { Job } from '../store'
 import { useLock } from '../lock'
-import { PauseIcon, PlayIcon, DeleteIcon } from './icons'
+import { PauseIcon, PlayIcon, DeleteIcon, Download2Icon, ConvertIcon } from './icons'
+import { KIND_ICON } from './ActivityBar'
 import type { DoujinProgress } from '../../../shared/ipc'
 
 // One merged activity entry: background jobs (export/scan) + online downloads.
 interface Row {
   id: string
-  icon: string
+  icon: ReactNode
   title: string
   status: 'running' | 'done' | 'error'
   done: number
@@ -18,13 +18,6 @@ interface Row {
   // Set only for online-download rows — drives the phase label + stop/retry
   // controls. Jobs (scan/meta/…) leave it undefined.
   dl?: { code: string; phase: DoujinProgress['phase']; canRetry: boolean }
-}
-const KIND_ICON: Record<Job['kind'], string> = {
-  scan: '🔄',
-  meta: '🖋',
-  thumb: '🖼',
-  organize: '🗂',
-  convert: '♻'
 }
 const rowPct = (done: number, total: number): number =>
   total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
@@ -65,7 +58,7 @@ export default function Download(): JSX.Element {
       })),
     ...downloads.map((d) => ({
       id: `dl:${d.code}`,
-      icon: '⬇',
+      icon: <Download2Icon />,
       title: d.title || d.code,
       status: (d.phase === 'done' ? 'done' : d.phase === 'error' ? 'error' : 'running') as Row['status'],
       done: d.done,
@@ -141,7 +134,8 @@ export default function Download(): JSX.Element {
             <div key={r.id} className={`dl-item ${status.cls}`}>
               <div className="dl-item-top">
                 <span className="dl-item-title">
-                  {r.icon} {r.title}
+                  <span className="dl-item-icon">{phase === 'converting' ? <ConvertIcon /> : r.icon}</span>
+                  {r.title}
                 </span>
                 <span className={`dl-item-status ${status.cls}`}>{status.label}</span>
               </div>

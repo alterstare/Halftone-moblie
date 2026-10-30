@@ -222,8 +222,13 @@ export default function App(): JSX.Element {
   }
   // The library list (local home / online browse) last shown — where back leads.
   const lastLibView = useRef<'home' | 'browse'>('home')
+  // A work opened from 관리 (열기) → closing it with back returns to 관리.
+  const readerFromManage = useRef(false)
+  const prevLibView = useRef(view)
   useEffect(() => {
     if (view === 'home' || view === 'browse') lastLibView.current = view
+    if (view === 'reader' && prevLibView.current !== 'reader') readerFromManage.current = prevLibView.current === 'manage'
+    prevLibView.current = view
   }, [view])
   // Exit = always save the session (open tabs) and close — no exit popup.
   const exitSaving = (): void => void window.api.closeWindow('keep', snapshot())
@@ -282,8 +287,9 @@ export default function App(): JSX.Element {
           return
         }
         if (tab && st.popOnlineBack(tab.id)) return
-        // Otherwise close the tab and go to the library list.
-        toLibrary()
+        // Otherwise close the tab and go to the library list (or back to 관리).
+        if (readerFromManage.current) st.goManage(st.manageMode)
+        else toLibrary()
         if (tab) useStore.setState((s) => ({ tabs: s.tabs.filter((t) => t.id !== tab.id), activeTabId: null }))
         return
       }

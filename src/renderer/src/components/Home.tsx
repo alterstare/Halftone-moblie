@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { JSX } from 'react'
+import { createPortal } from 'react-dom'
 import { workCodes } from '../../../shared/types'
 import { restoreAnchor, captureAnchor, type ListAnchor } from '../scrollRestore'
 import { showCrossSearch } from '../crossToast'
@@ -915,7 +916,9 @@ export default function Home(): JSX.Element {
         )}
       </div>
 
-      {classOpen && (
+      {/* Portaled: inside the list its touches reached the pull-to-refresh /
+          swipe handlers (the popup stuck after one drag, the list refreshed). */}
+      {classOpen && createPortal(
         <div className="modal-overlay" onClick={() => setClassOpen(false)}>
           <div className="modal class-modal" onClick={(e) => e.stopPropagation()}>
             <div className="class-modal-head">
@@ -1028,7 +1031,8 @@ export default function Home(): JSX.Element {
               </div>
             </section>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {modeWorks.length === 0 && !loading && (

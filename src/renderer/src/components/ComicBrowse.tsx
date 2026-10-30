@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useKeepAliveScroll } from '../scrollRestore'
 import type { JSX } from 'react'
 import { useStore, useSeriesRoots, lastReadKey } from '../store'
 import type { ComicListSource, ComicSummary, ComicSort, ComicType } from '../../../shared/ipc'
@@ -12,7 +13,7 @@ import ComicDownloadModal from './ComicDownloadModal'
 import type { ComicSeriesRef } from './ComicDownloadModal'
 import ComicBackupModal from './ComicBackupModal'
 import OnlineThumb from './OnlineThumb'
-import { FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon, ArrowDownIcon } from './icons'
+import { FavoriteIcon, DownloadIcon, FilterAltIcon, SortIcon, ArrowDownIcon, AddIcon } from './icons'
 import { BypassToggle, OnlineOnlyToggle, FavSortSelect } from './FavDlToggle'
 import Pager from './Pager'
 import { groupSeries, titleKey, isComicCode } from '../util'
@@ -367,6 +368,8 @@ export default function ComicBrowse(): JSX.Element {
     })
   const pager = favMode ? undefined : { page, lastPage: -1, onPage: (p: number) => setPage(Math.max(0, p)) }
   const ptrSpinner = usePullRefresh(rootRef, refresh, browseView, pager)
+  // Back from the reader → the same card at the same spot.
+  useKeepAliveScroll(rootRef, browseView)
   // Swipe right → back to 라이브러리.
   useSwipeNav(rootRef, null, () => useStore.getState().goHome(), browseView && !sel.selecting)
   const startDownload = useStore((s) => s.startDownload)
@@ -466,7 +469,12 @@ export default function ComicBrowse(): JSX.Element {
             title="즐겨찾기"
             onClick={() => setFavMode((v) => !v)}
           >
-            <FavoriteIcon filled className="fav-ico" /> 즐겨찾기 {favGalleries.length}
+            {/* label in a span: it ellipsizes there, so the button keeps
+                overflow visible and its divider (::before) isn't clipped */}
+            <span className="fav-label">
+              <FavoriteIcon filled className="fav-ico" />
+              <span className="fav-text">즐겨찾기 {favGalleries.length}</span>
+            </span>
           </button>
           {/* 즐겨찾기 view controls: own row on a phone, inline on a tablet. */}
           {favMode && (
@@ -475,6 +483,15 @@ export default function ComicBrowse(): JSX.Element {
               <FavSortSelect value={favSort} onChange={setFavSort} />
             </span>
           )}
+          {/* Site tools (인증창 / 주소 / 비상용) fold out from this + at the
+              chips row's right end, as a row above the filter buttons. */}
+          <button
+            className={`chip layout-toggle class-btn tools-toggle ${toolsOpen ? 'open' : ''}`}
+            title={toolsOpen ? '접기' : '사이트 도구'}
+            onClick={() => setToolsOpen((v) => !v)}
+          >
+            <AddIcon />
+          </button>
         </div>
         {favMode && (
           <div className="chips chips-extra-row">
@@ -482,39 +499,6 @@ export default function ComicBrowse(): JSX.Element {
             <FavSortSelect value={favSort} onChange={setFavSort} />
           </div>
         )}
-        <div className="filter-bar">
-          {!favMode && (
-            <div className="flat-group filter-mores">
-              {(type === 'webtoon'
-                ? ([
-                    ['cat', '분류', cat ? (CATS.find(([v]) => v === cat)?.[1] ?? '') : ''],
-                    ['day', '요일', day ? `${day}요일` : ''],
-                    ['genre', '장르', genreLabel],
-                    ['plat', '플랫폼', plat ? (platforms.find((x) => x.id === plat)?.name ?? '') : '']
-                  ] as const)
-                : ([['genre', '장르', genreLabel]] as const)
-              ).map(([k, label, val]) => (
-                <button
-                  key={k}
-                  className={`genre-more ${filterOpen === k ? 'open' : ''} ${val ? 'set' : ''}`}
-                  onClick={() => setFilterOpen((o) => (o === k ? null : k))}
-                >
-                  <span>{label}</span>
-                  <ArrowDownIcon />
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Site tools (인증창 / 주소 / 비상용) fold out from this chevron, at the
-              right end of the filter row (every width). */}
-          <button
-            className={`chip layout-toggle tools-toggle ${toolsOpen ? 'open' : ''}`}
-            title={toolsOpen ? '접기' : '사이트 도구'}
-            onClick={() => setToolsOpen((v) => !v)}
-          >
-            <ArrowDownIcon />
-          </button>
-        </div>
         {toolsOpen && (
           <div className="chips comic-tools">
             <button className="chip" onClick={() => window.api.comicOpenSite()}>
@@ -557,6 +541,30 @@ export default function ComicBrowse(): JSX.Element {
           </div>
         )}
 
+        {!favMode && (
+          <div className="filter-bar">
+            <div className="flat-group filter-mores">
+              {(type === 'webtoon'
+                ? ([
+                    ['cat', '분류', cat ? (CATS.find(([v]) => v === cat)?.[1] ?? '') : ''],
+                    ['day', '요일', day ? `${day}요일` : ''],
+                    ['genre', '장르', genreLabel],
+                    ['plat', '플랫폼', plat ? (platforms.find((x) => x.id === plat)?.name ?? '') : '']
+                  ] as const)
+                : ([['genre', '장르', genreLabel]] as const)
+              ).map(([k, label, val]) => (
+                <button
+                  key={k}
+                  className={`genre-more ${filterOpen === k ? 'open' : ''} ${val ? 'set' : ''}`}
+                  onClick={() => setFilterOpen((o) => (o === k ? null : k))}
+                >
+                  <span>{label}</span>
+                  <ArrowDownIcon />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Filters fold into short buttons; one dropdown open at a time.
             만화: 장르. 웹툰: 분류 · 요일 · 장르 · 플랫폼. A set filter tints its button;
             the chosen values show as chips below. */}

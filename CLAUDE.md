@@ -61,8 +61,9 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   SeriesGridCard, OnlineFavCard (layout), Browse inline. (SeriesCard only
   provides `ChapterRow`.) Folder / 메타 채우기 / 삭제 live in the
   long-press menu (useWorkCard / useSeriesCard). ComicBrowse has no layout
-  toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out from a
-  chevron at the right end of the filter row (`.filter-bar`); filters fold into centered short buttons
+  toggle (wide tiles, no 더보기); its 인증창 / 주소 / 비상용 fold out (as a row
+  above the filter row) from a + at the right end of the chips row (× while
+  open, like Home's 분류 +); filters fold into centered short buttons
   (만화: 장르; 웹툰: 분류 · 요일 · 장르 · 플랫폼 — `cat` (all / bl / adult, none =
   the site default 일반) / `day` / `plat` URL params, platform
   list scraped from the page's 플랫폼 row, genre chips from the 장르 row).
@@ -77,9 +78,15 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   top/bottom, wider → letterboxed top/bottom) — end of mobile.css.
   Settings rows with several buttons use `SettingRow stack`.
   관리 (phone): no ← 홈, tabs = `.chips` divider row, actions / card actions =
-  `flat-group` text buttons, groups split by lines, cards 2 per row. 작업 목록
+  `flat-group` text buttons, groups split by lines, cards 2 per row; a card tap = select / deselect (열기 · 폴더 · 삭제 are
+  its buttons), back from a work opened there returns to 관리. 작업 목록
   (Download.tsx) = the list only (manual 동인지 다운로드 pane removed), head
-  icon buttons 전체 정지 · 전체 시작 · 완료 지우기, rows split by lines.
+  icon buttons 전체 정지 · 전체 시작 · 완료 지우기, rows split by lines, row icons = ActivityBar `KIND_ICON`.
+  Chips-row dividers: each button has equal room on both sides (round
+  toggles 4px to a divider, text chips 8px). Home's 분류 popup is portaled to
+  body (inside the list its touches hit pull-to-refresh). Online Browse /
+  ComicBrowse (kept alive, display:none) restore their top card on return
+  (`useKeepAliveScroll`).
   Tab bar = `MobileTabBar.tsx`: ☰ · 라이브러리 · 온라인, a one-tab-at-a-time swipe strip
   (scroll-snap, swiping never switches tabs), Chrome-style tab-count button →
   2-column tab grid (`tabSwitcherOpen`). Mode switch / 작업 목록 / 설정 are in
@@ -182,7 +189,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   for reloads. Pull past the ends shows a
   round arrow button whose ring fills purple (`.edge-pull`, --p 0..1).
   Toolbar rows (home / online `.chips`, filter buttons, reader ⋮ row) never
-  wrap: fixed controls keep size + place (site-tools ⌄ pinned right), only the
+  wrap: fixed controls keep size + place (분류 / site-tools + pinned right), only the
   즐겨찾기 chip ellipsizes, and below 400px the rows step down in zoom (to 0.9×
   at ≤340px). Online list grid columns are `minmax(min(320px, 100%), 1fr)`.
   Tablet (≥ 600px, end of mobile.css): list tiles = one full-width column,
@@ -192,8 +199,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   docked beside the pages at 78% of the drawer width (no scrim / outside-tap
   close; drag-left still closes it; list button defaults to the floating
   toggle — `sidebarBtnMode`: `settings.sidebarBtn` else phone 'bar' / tablet
-  'float'). The site-tools ⌄ stays at the right end of the filter row on
-  every width. Phone (< 600px) unchanged.
+  'float'). Phone (< 600px) unchanged.
   Focus mode in the reader (`.app.focus-reader`): the tab bar is position:
   fixed over the top (slides up when hidden) so the reader never resizes;
   the title bar sits at `--mtabbar-h`, scroll mode pads the top by it.

@@ -393,10 +393,20 @@
   z-index: 60;
 }
 
+/* Dividers sit so that every button has the same room on its left and its
+   right: the round toggles (icon already padded inside) keep 4px to a
+   divider, text chips 8px (+ their own padding). Toggle↔toggle = 4|4,
+   toggle↔chip = 4|8, chip↔chip = 8|8. */
 .chips > .layout-toggle + * {
+  margin-left: 13px;
+}
+.chips > * + .layout-toggle:not(.class-btn) {
+  margin-left: 13px;
+}
+.chips > .layout-toggle + .layout-toggle:not(.class-btn) {
   margin-left: 9px;
 }
-.chips > .layout-toggle + *::before {
+.chips > * + .layout-toggle::before {
   left: -5px;
 }
 
@@ -469,7 +479,7 @@
 .class-modal {
   overflow-y: auto;
   overscroll-behavior: contain;
-  gap: 14px;
+  gap: 10px;
 }
 .class-modal-head {
   display: flex;
@@ -478,7 +488,7 @@
   font-size: 16px;
 }
 .class-sec h3 {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
   font-size: 14px;
   color: var(--text-dim);
 }
@@ -494,7 +504,7 @@
 }
 .class-sec + .class-sec {
   border-top: 1px solid var(--line);
-  padding-top: 14px;
+  padding-top: 10px;
 }
 .class-modal-head {
   border-bottom: 1px solid var(--line);
@@ -515,8 +525,14 @@
   justify-content: center;
   cursor: pointer;
 }
+.class-modal .cat-panel {
+  gap: 0;
+}
 .class-modal .cat-panel label {
-  min-height: 36px;
+  min-height: 34px;
+}
+.class-modal .grp-create {
+  margin-top: 6px;
 }
 .class-modal .cat-panel.grp-panel {
   width: auto;
@@ -1567,9 +1583,18 @@ body:has(.activity) .fab-wrap {
 .genre-more .micon {
   transition: rotate 0.2s cubic-bezier(0.2, 0, 0, 1);
 }
-.tools-toggle.open .micon,
 .genre-more.open .micon {
   rotate: 180deg;
+}
+/* 일반 만화 온라인 chips row also holds the site-tools + → slimmer text chips
+   so 즐겨찾기 N still fits on a phone. */
+.comic-browse .browse-head > .chips > .chip:not(.layout-toggle) {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+/* site-tools + turns into × while open */
+.tools-toggle.open .micon {
+  rotate: 45deg;
 }
 .comic-tools {
   margin-top: -4px;
@@ -1775,6 +1800,18 @@ body:has(.activity) .fab-wrap {
   padding: 12px 0;
   margin: 0;
   border-top: 1px solid var(--line);
+}
+/* Same icons as the activity bar's rows (ActivityBar KIND_ICON). */
+.dl-item-icon {
+  display: inline-flex;
+  vertical-align: -3px;
+  margin-right: 6px;
+  font-size: 16px;
+  color: var(--text-dim);
+}
+.dl-item-icon :is(.micon, .seg-ico) {
+  width: 1em;
+  height: 1em;
 }
 .download .dl-item-actions {
   display: flex;
@@ -2862,10 +2899,23 @@ body.focus-hide-tabs .mtabbar {
   flex-shrink: 1;
   min-width: 0;
 }
-:is(.home-head, .browse-head) > .chips > button.chip:has(> .fav-ico) {
+:is(.home-head, .browse-head) > .chips > .chip:has(> .fav-label) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+/* the label ellipsizes, not the button (overflow on the button clipped its
+   divider ::before) */
+:is(.home-head, .browse-head) > .chips > button.chip > .fav-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0; /* the split 즐겨찾기 ⌄ chip's label padding doesn't apply here */
+}
+:is(.home-head, .browse-head) > .chips > button.chip > .fav-label > .fav-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: block;
+  white-space: nowrap;
 }
 .fav-chip .fav-label {
   min-width: 0;
@@ -3070,26 +3120,11 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
   opacity: 0;
 }
 
-/* 일반 만화 온라인 filter row: the filter buttons centered, the site-tools ⌄
-   pinned to the right end of the same row (alone there in the 즐겨찾기 view). */
+/* 일반 만화 온라인 filter row: the filter buttons centered (the site-tools +
+   sits in the chips row above). */
 .filter-bar {
   position: relative;
   min-height: 36px;
-}
-.filter-bar > .tools-toggle {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  translate: 0 -50%;
-  margin: 0;
-}
-.filter-bar > .filter-mores {
-  padding: 0 44px; /* stay clear of the ⌄ while centered */
-}
-.filter-bar > .tools-toggle {
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-dim);
 }
 
 /* showToast (toast.ts): small pill above the bottom edge. */
