@@ -303,9 +303,16 @@ export default function ManageSection(): JSX.Element {
   }
 
   const scanRow = (
-    <SettingRow title="라이브러리 스캔" desc="모든 폴더를 다시 읽어 라이브러리를 갱신하고 썸네일을 생성합니다.">
-      <button className="btn primary" onClick={() => scanLibraryJob()} disabled={scanning}>
-        {scanning ? '스캔 중…' : '스캔'}
+    <SettingRow
+      title="라이브러리 스캔"
+      stack
+      desc="새 폴더만: 라이브러리에 없는 폴더만 읽어 추가하고, 사라진 폴더는 뺍니다. 기존 작품 폴더 안의 페이지 변경은 전체 스캔에서만 반영됩니다. 전체: 모든 폴더를 다시 읽습니다."
+    >
+      <button className="mini" onClick={() => scanLibraryJob(true)} disabled={scanning}>
+        {scanning ? '스캔 중…' : '새 폴더만'}
+      </button>
+      <button className="mini" onClick={() => scanLibraryJob()} disabled={scanning}>
+        전체
       </button>
     </SettingRow>
   )

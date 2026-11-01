@@ -216,7 +216,8 @@ export interface Api {
   pickFolder: () => Promise<string | null>
   getSettings: () => Promise<Settings>
   saveSettings: (s: Settings) => Promise<Settings>
-  scanLibrary: () => Promise<Work[]>
+  // quick = 새 폴더만: folders already in the library are not re-read.
+  scanLibrary: (opts?: { quick?: boolean }) => Promise<Work[]>
   // Rescan a single folder; works get favorite/group inferred from their path.
   scanFolder: (root: string) => Promise<Work[]>
   // 작품 통합 / 해제: save settings.manualCollections and rebuild only the

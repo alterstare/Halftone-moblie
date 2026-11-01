@@ -327,7 +327,7 @@ interface AppState {
   updateJob: (id: string, patch: Partial<Job>) => void
   endJob: (id: string, patch: Partial<Job>) => void
   scanFolderJob: (path: string, mode: Job['mode']) => Promise<void>
-  scanLibraryJob: () => Promise<void>
+  scanLibraryJob: (quick?: boolean) => Promise<void>
 
   setWorks: (w: Work[]) => void
   upsertWork: (w: Work) => void
@@ -1690,21 +1690,24 @@ export const useStore = create<AppState>((set, get) => ({
   },
   // Full library scan (triggered from Settings). Rescans every root, then warms
   // thumbnails for the current library mode. Progress shows in the activity bar.
-  scanLibraryJob: async () => {
+  // quick = 새 폴더만 (folders already in the library are not re-read).
+  scanLibraryJob: async (quick) => {
     const { startJob, endJob, updateJob, libraryMode } = get()
     set({ loading: true })
-    const jobId = startJob('scan', libraryMode, '라이브러리 갱신')
+    const jobId = startJob('scan', libraryMode, quick ? '라이브러리 갱신 (새 폴더)' : '라이브러리 갱신')
+    const before = new Set(get().works.map((x) => x.id))
     let w: Work[] = []
     try {
-      w = await window.api.scanLibrary()
+      w = await window.api.scanLibrary({ quick })
       set({ works: w })
-      endJob(jobId, { status: 'done', detail: `${w.length}개` })
+      const added = w.filter((x) => !before.has(x.id)).length
+      endJob(jobId, { status: 'done', detail: quick ? `새 작품 ${added}개` : `${w.length}개` })
     } catch (e: any) {
       endJob(jobId, { status: 'error', error: String(e?.message ?? e) })
     }
     set({ loading: false })
     const s = get().settings
-    const ids = thumbTargetIds(w, libraryMode, seriesRoots(s))
+    const ids = thumbTargetIds(quick ? w.filter((x) => !before.has(x.id)) : w, libraryMode, seriesRoots(s))
     if (ids.length) {
       const thumbJob = startJob('thumb', libraryMode, '썸네일 생성')
       updateJob(thumbJob, { total: ids.length })

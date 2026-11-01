@@ -21,6 +21,7 @@ export interface ScanNode {
   cover?: string // first image name (natural order)
   metas?: string[]
   kids?: ScanNode[]
+  known?: boolean // in scanTree's skip list: not listed
 }
 
 export type NetKind = 'doujin' | 'comic' | 'plain'
@@ -53,7 +54,7 @@ export interface MMPlugin {
   }): Promise<void>
   fsStat(o: { path: string }): Promise<Omit<FsEntry, 'name'>>
   // Library scan: each root's folder tree in one call (null = unreadable).
-  scanTree(o: { roots: string[]; exts: string[] }): Promise<{ roots: (ScanNode | null)[] }>
+  scanTree(o: { roots: string[]; exts: string[]; skip?: string[] }): Promise<{ roots: (ScanNode | null)[] }>
   makeThumb(o: { src: string; out: string; cropTall?: boolean; max?: number }): Promise<{ w: number; h: number }>
   // Several small text files (null = missing / unreadable).
   readTexts(o: { paths: string[] }): Promise<{ texts: (string | null)[] }>

@@ -9,7 +9,7 @@ import { join, resolve, sep, basename, dirname } from '../node/path'
 import { MM } from '../native'
 import { store, paths, sendToRenderer } from '../context'
 import { stopAllDownloads } from '../downloads'
-import { scanLibrary, scanRoot, scanDirs, needsFullScan, listImages, normalRoots } from '../lib/scanner'
+import { scanLibrary, scanNew, scanRoot, scanDirs, needsFullScan, listImages, normalRoots } from '../lib/scanner'
 import { parseName } from '../lib/parser'
 import { setGroupFolder, mergeSeries, moveWorkToFolder, renameGroupFolders, safeName } from '../lib/favorites'
 import { setWorkFavorite } from '../lib/favoriteSync'
@@ -66,9 +66,21 @@ export const libraryApi: Partial<Api> = {
 
   // ---------- scanning / organizing ----------
 
-  scanLibrary: async () => {
+  scanLibrary: async (opts?: { quick?: boolean }) => {
     const s = store.settings
     await ensureStorage([...s.libraryRoots, ...normalRoots(s), s.downloadDir, s.normalDownloadDir])
+    if (opts?.quick) {
+      const r = await scanNew(s, allWorks())
+      if (!r.full) {
+        for (const id of r.removed) store.remove(id)
+        store.mergeScanPartial(r.added)
+        await store.flushWorks()
+        const n = store.works.size
+        sendToRenderer(IPC.scanProgress, { scanned: n, total: n, current: '', done: true })
+        if (store.settings.autoOrganizeOnScan && r.added.length) await runOrganize()
+        return allWorks()
+      }
+    }
     const scanned = await scanLibrary(store.settings, {
       onProgress: (n, current) => sendToRenderer(IPC.scanProgress, { scanned: n, total: 0, current, done: false })
     })

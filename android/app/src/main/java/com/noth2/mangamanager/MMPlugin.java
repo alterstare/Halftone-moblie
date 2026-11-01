@@ -399,18 +399,23 @@ public class MMPlugin extends Plugin {
     // sidecar read per folder over the bridge, with a full stat of every image).
     // Per folder: name, mtime, image count (by extension — no stat per image),
     // meta.<x>.json names, child folders. Depth-limited (symlink loops).
+    // skip = folders not to list (quick scan: works already in the library) —
+    // they come back as { known: true } with only the parent's mtime.
 
     @PluginMethod
     public void scanTree(PluginCall call) {
         JSArray roots = call.getArray("roots", new JSArray());
         JSArray exts = call.getArray("exts", new JSArray());
+        JSArray skips = call.getArray("skip", new JSArray());
         bg(call, () -> {
             java.util.Set<String> ext = new java.util.HashSet<>();
             for (int i = 0; i < exts.length(); i++) ext.add(exts.optString(i, "").toLowerCase());
+            java.util.Set<String> skip = new java.util.HashSet<>();
+            for (int i = 0; i < skips.length(); i++) skip.add(skips.optString(i, ""));
             JSArray out = new JSArray();
             for (int i = 0; i < roots.length(); i++) {
                 String root = roots.optString(i, "");
-                JSObject n = root.isEmpty() ? null : scanPool.submit(() -> scanNode(root, ext, 0, -1)).get();
+                JSObject n = root.isEmpty() ? null : scanPool.submit(() -> scanNode(root, ext, skip, 0, -1)).get();
                 out.put(n == null ? org.json.JSONObject.NULL : n);
             }
             JSObject res = new JSObject();
@@ -432,8 +437,14 @@ public class MMPlugin extends Plugin {
     }
 
     // mtime < 0 = not known from the parent's listing (a root).
-    private static JSObject scanNode(String path, java.util.Set<String> ext, int depth, long mtime) {
+    private static JSObject scanNode(String path, java.util.Set<String> ext, java.util.Set<String> skip, int depth, long mtime) {
         if (depth > 32) return null;
+        if (depth > 0 && skip.contains(path)) {
+            JSObject k = new JSObject();
+            k.put("mtime", mtime);
+            k.put("known", true);
+            return k;
+        }
         int images = 0;
         String cover = null; // first image in natural order (the thumbnail source)
         JSArray metas = new JSArray();
@@ -484,7 +495,7 @@ public class MMPlugin extends Plugin {
             // (NAS stays sequential: one SMB / WebDAV session per connection.)
             java.util.stream.Stream<String[]> st = Vfs.isRemote(path) ? kids.stream() : kids.parallelStream();
             java.util.List<JSObject> nodes = st.map(k -> {
-                JSObject c = scanNode(base + k[0], ext, d + 1, Long.parseLong(k[1]));
+                JSObject c = scanNode(base + k[0], ext, skip, d + 1, Long.parseLong(k[1]));
                 if (c != null) c.put("name", k[0]);
                 return c;
             }).collect(java.util.stream.Collectors.toList());

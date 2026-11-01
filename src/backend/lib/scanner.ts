@@ -56,14 +56,7 @@ export function libraryOfRoot(root: string, settings: Settings): 'doujin' | 'nor
 // The folder trees come from the native side in one call (scanTree); the walk
 // below only interprets them, then the doujin sidecars are read in batches.
 export async function scanLibrary(settings: Settings, cb: ScanCallbacks = {}): Promise<Work[]> {
-  // Normal roots first so they win library stamping on any overlap.
-  const order: [string, 'doujin' | 'normal'][] = [
-    ...normalRoots(settings).map((r) => [r, 'normal'] as [string, 'normal']),
-    // Artist-folder roots: each immediate child folder names the artist
-    // stamped onto every work beneath it.
-    ...flattenRoots(settings).map((r) => [r, 'doujin'] as [string, 'doujin']),
-    ...effectiveRoots(settings).map((r) => [r, 'doujin'] as [string, 'doujin'])
-  ]
+  const order = scanOrder(settings)
   const trees = await loadTrees(order.map(([r]) => r))
   const found: Found[] = []
   const visited = new Set<string>() // avoid re-walking nested/overlapping roots
@@ -72,6 +65,57 @@ export async function scanLibrary(settings: Settings, cb: ScanCallbacks = {}): P
     if (node) collect(root, node, library, null, settings, visited, found)
   }
   return applyCollections(await buildWorks(found, settings, cb), settings)
+}
+
+function scanOrder(settings: Settings): [string, 'doujin' | 'normal'][] {
+  // Normal roots first so they win library stamping on any overlap.
+  return [
+    ...normalRoots(settings).map((r) => [r, 'normal'] as [string, 'normal']),
+    // Artist-folder roots: each immediate child folder names the artist
+    // stamped onto every work beneath it.
+    ...flattenRoots(settings).map((r) => [r, 'doujin'] as [string, 'doujin']),
+    ...effectiveRoots(settings).map((r) => [r, 'doujin'] as [string, 'doujin'])
+  ]
+}
+
+// Quick scan (새 폴더만): folders of works already in the library are not
+// listed (the native walk skips them), so only new folders are read. Works
+// whose folder is gone from a listed parent are reported as removed. Pages
+// added to / removed from a known folder are NOT picked up — that needs the
+// full scan. `full` = the new folders fall under artist-folder auto
+// collections, which need every folder of the artist (caller runs a full scan).
+export async function scanNew(
+  settings: Settings,
+  known: Work[]
+): Promise<{ added: Work[]; removed: string[]; full: boolean }> {
+  const dirsOf = (w: Work): string[] => (w.sources?.length ? w.sources : [w.path]).map((d) => resolve(d))
+  const skip = new Set(known.flatMap(dirsOf))
+  const order = scanOrder(settings)
+  const roots = [...new Set(order.map(([r]) => r).filter(Boolean))]
+  const r = await MM.scanTree({ roots: roots.map((x) => resolve(x)), exts: IMAGE_EXTS, skip: [...skip] })
+  const trees = new Map(roots.map((root, i) => [root, r.roots[i] ?? null]))
+  const found: Found[] = []
+  const seen = new Set<string>()
+  const visited = new Set<string>()
+  for (const [root, library] of order) {
+    const node = trees.get(root)
+    if (node) collect(root, node, library, null, settings, visited, found, seen)
+  }
+  if (needsFullScan(found.map((f) => f.dir), settings)) return { added: [], removed: [], full: true }
+  // Removed = none of its folders seen, though it sits under a root that was
+  // read (an unreadable root / offline NAS keeps its works).
+  const read = roots.filter((root) => trees.get(root)).map((root) => resolve(root))
+  const under = (d: string, base: string): boolean => d === base || d.startsWith(base + sep)
+  const removed = known
+    .filter((w) => {
+      const dirs = dirsOf(w)
+      if (dirs.some((d) => seen.has(d))) return false
+      if (!dirs.every((d) => read.some((root) => under(d, root)))) return false
+      // Inside another known folder (not listed) → can't tell; keep.
+      return !dirs.some((d) => [...seen].some((s) => d.startsWith(s + sep)))
+    })
+    .map((w) => w.id)
+  return { added: applyCollections(await buildWorks(found, settings, {}), settings), removed, full: false }
 }
 
 // A work folder found by the walk (sidecar = its meta file name, doujin only).
@@ -101,16 +145,21 @@ function collect(
   artist: string | null,
   settings: Settings,
   visited: Set<string>,
-  out: Found[]
+  out: Found[],
+  seen?: Set<string> // quick scan: known (skipped) folders met
 ): void {
   const key = resolve(dir)
   if (visited.has(key)) return
   visited.add(key)
+  if (node.known) {
+    seen?.add(key)
+    return
+  }
   const kids = node.kids ?? []
   // Artist-folder root: each immediate child folder names the artist for every
   // work found beneath it.
   if (isFlattenRoot(dir, settings)) {
-    for (const k of kids) collect(join(dir, k.name!), k, library, k.name!, settings, visited, out)
+    for (const k of kids) collect(join(dir, k.name!), k, library, k.name!, settings, visited, out, seen)
     return
   }
   if (node.images) {
@@ -119,7 +168,7 @@ function collect(
   }
   // Recurse into subdirectories (language folders, nested collections). The
   // artist override, if any, carries down to every work beneath.
-  for (const k of kids) collect(join(dir, k.name!), k, library, artist, settings, visited, out)
+  for (const k of kids) collect(join(dir, k.name!), k, library, artist, settings, visited, out, seen)
 }
 
 // Read the found works' sidecars (batched — one bridge call per 200) and build
