@@ -173,9 +173,11 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   `.chips-extra-row` under the toolbar (phone). Theme: `localStorage['mm-theme']`
   is applied by index.html before render and `MM.setTheme` stores it natively
   (MainActivity paints the WebView background) — no light flash at start.
-  Library works in the reader (phone storage + NAS, `pumped`): pages load
+  Every work in the reader (phone storage, NAS, online — online since
+  2026-11-02: its <img>-per-page flood got 503'd by the doujin CDN, 100+ page
+  galleries stayed black for seconds): pages load
   nearest-first around the current page (2 ahead : 1 behind), 6 at a time (NAS
-  4) (`nasPump`, re-aimed on page moves, keyed by url, kept decoded for the
+  / online 4) (`nasPump`, `pumpKey` = work / online code + reloadNonce, re-aimed on page moves, keyed by url, kept decoded for the
   whole time the work is open); scroll mode gives a page its <img> only once
   loaded — all <img>s at once made the browser load from page 1 in order, so
   the page on screen waited behind every earlier page — and mounts every page
@@ -359,6 +361,12 @@ in batches of 200. 2000 works × 40 pages on the emulator: 44–50s → ~2.8s.
 Pull-to-refresh / + 새로고침 on Home no longer scans (reloads the list only —
 folders change only through in-app downloads, which register themselves);
 the full scan is 설정 › 라이브러리 갱신.
+Quick scan (2026-11-02, 설정 › 관리 › 라이브러리 스캔 › 새 폴더만): `scanNew`
+passes every known work folder as `scanTree` `skip` (Java returns them as
+`{known}` without listing), builds only the new folders, removes works whose
+folder vanished from a root that was read (unreadable root / NAS offline keeps
+them); pages changed inside a known folder need the full scan; new folders
+under artist-folder auto collections fall back to the full scan.
 
 Heart / group folder moves (2026-10-22, `folderOps.ts`): the UI flips at
 once; `setFavoriteByCode` / `setFavorite` / `setWorkGroups` run in a serial

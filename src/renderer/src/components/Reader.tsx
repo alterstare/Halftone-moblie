@@ -21,7 +21,6 @@ import Caret from './Caret'
 import ContextMenu from './ContextMenu'
 import type { MenuItem } from './ContextMenu'
 import { FIT_TEXT, FIT_ICON, FIT_ORDER, SCROLL_FIT_ORDER, MARGIN_STEPS, MARGIN_MAX, fitStyle, fitHeight } from './reader/fit'
-import { prefetchOrdered } from './reader/prefetch'
 import PageSlot from './reader/PageSlot'
 import { useComicStatus } from './useComicStatus'
 import { isTouch, sidebarBtnMode } from '../mobile'
@@ -424,7 +423,7 @@ export default function Reader({
     return () => window.clearTimeout(h)
   }, [zoom, tabId, side, setTabReader, setLastZoom, libMode])
 
-  // Library works (phone storage and NAS): load the pages nearest-first around
+  // Every work (phone storage, NAS, online): load the pages nearest-first around
   // the current page (two ahead per one behind), PAGE_PAR at a time, and in
   // scroll mode give a page its <img> only once loaded — mounting every image
   // at once made the browser load them in page order from page 1, so the page
@@ -432,10 +431,14 @@ export default function Reader({
   // NAS requests). Pages show as they arrive and every loaded page stays
   // decoded (and mounted, scroll mode) for as long as the work is open; a page
   // move re-aims the queue at the new spot. Keyed by url, so a changed page
-  // list of the same work keeps what's loaded.
+  // list of the same work keeps what's loaded (a 일반 만화 chapter's list grows
+  // while it's collected). Online: an <img> per page at mount sent every request
+  // at once — the doujin CDN 503'd the flood and the page on screen waited
+  // behind the paced retries (100+ pages: black for many seconds).
   const remote = !online && isNasPath(work?.path)
-  const pumped = !online
-  const PAGE_PAR = remote ? 4 : 6
+  const PAGE_PAR = online || remote ? 4 : 6
+  // (다시 불러오기 = a fresh queue: pages that failed are requested again.)
+  const pumpKey = `${online ? `online:${online.code}` : work?.id}#${reloadNonce}`
   const newNas = (workId?: string, par = 0) => ({ workId, par, srcs: [] as string[], ready: new Set<string>(), busy: new Set<string>(), keep: [] as HTMLImageElement[] })
   const nas = useRef(newNas())
   const [nasReady, setNasReady] = useState(0)
@@ -480,24 +483,20 @@ export default function Reader({
     }
   }, [onDims])
   useEffect(() => {
-    if (!pumped) {
-      nas.current = newNas()
-      return
-    }
-    if (nas.current.workId !== work?.id) nas.current = newNas(work?.id, PAGE_PAR)
+    if (nas.current.workId !== pumpKey) nas.current = newNas(pumpKey, PAGE_PAR)
     nas.current.srcs = images
     if (images.length) nasPump()
-  }, [pumped, work?.id, images, nasPump])
+  }, [pumpKey, images, nasPump])
   useEffect(() => {
-    if (pumped) nasPump()
-  }, [pumped, pageIdx, nasPump])
+    nasPump()
+  }, [pageIdx, nasPump])
 
   // Scroll mode: which pages are mounted. Library works (their pages stay
   // loaded) and online ones up to MOUNT_ALL pages mount every page; longer
   // online ones a window of ±WIN around the current page, moved in steps of 10
   // so it doesn't re-render on every page.
   const MOUNT_ALL = 400
-  const mountAll = pumped || images.length <= MOUNT_ALL
+  const mountAll = !online || images.length <= MOUNT_ALL
   const winAt = mountAll ? -1 : pageIdx
   const scrollWin = useMemo(() => {
     if (winAt < 0) return { start: 0, end: images.length }
@@ -515,28 +514,12 @@ export default function Reader({
     for (let i = scrollWin.start; i < scrollWin.end; i++)
       out.push(
         <PageSlot key={i} index={i} onMeasure={measure} estH={heightOf(i)}>
-          <PageImage src={pumped && !nas.current.ready.has(images[i]) ? '' : images[i]} style={pageStyle} />
+          <PageImage src={nas.current.ready.has(images[i]) ? images[i] : ''} style={pageStyle} />
         </PageSlot>
       )
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, images, scrollWin, fit, sw, sh, margin, measure, tick, pumped, nasReady])
-
-  // Online galleries stream over the network. Prefetch the WHOLE gallery once,
-  // but in reading order from the opened page and at low concurrency, so the
-  // first pages paint fast and the rest fill in the background (instead of
-  // firing every request at once and stalling the start). onDims feeds the
-  // virtualizer so spacers are right and scrolling doesn't jump.
-  const sinkRef = useRef<HTMLImageElement[]>([])
-  useEffect(() => {
-    sinkRef.current = []
-    if (!online || images.length === 0) return
-    const s = pageIdxRef.current
-    const order: number[] = []
-    for (let i = s; i < images.length; i++) order.push(i)
-    for (let i = s - 1; i >= 0; i--) order.push(i)
-    return prefetchOrdered(images, order, 4, sinkRef.current, onDims)
-  }, [online?.code, images, onDims])
+  }, [mode, images, scrollWin, fit, sw, sh, margin, measure, tick, nasReady])
 
   // Continuous reading: warm the neighbouring works in the reading queue so that
   // crossing a work boundary is instant (the folder listing is cached and the
