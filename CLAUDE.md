@@ -87,7 +87,7 @@ and port the same way (renderer copied, main changes hand-ported to src/backend)
   body (inside the list its touches hit pull-to-refresh). Online Browse /
   ComicBrowse (kept alive, display:none) restore their top card on return
   (`useKeepAliveScroll`).
-  Tab bar = `MobileTabBar.tsx`: ☰ · 라이브러리 · 온라인, a one-tab-at-a-time swipe strip
+  Tab bar = `MobileTabBar.tsx`: ☰ · 라이브러리 · 온라인 (pressed again while on that list = reset: `scrollHomeTop` → Home clears search / filter / 분류 (`resetCategoryFilters`), sort kept; `scrollBrowseTop` → Browse clears search + back stack (language / sort kept), ComicBrowse clears search + genre / 분류 / 요일 / 플랫폼 (type / sort kept); page 1, top), a one-tab-at-a-time swipe strip
   (scroll-snap, swiping never switches tabs), Chrome-style tab-count button →
   2-column tab grid (`tabSwitcherOpen`). Mode switch / 작업 목록 / 설정 are in
   the ☰ menu only. 기록 (menu, view `history`) = Home in history mode: local
@@ -536,7 +536,7 @@ summaries; `OnlineFavCard` also falls back to the summary. 설정 › 즐겨찾�
 초기화 (two confirms) = `resetFavorites` (all doujin hearts off; ranks / lists kept).
 404s while fetching summaries go to `<data>/deadGalleries.json` (not refetched);
 설정 › 삭제된 작품 정리 = `removeDeadFavorites` (dead + not downloaded → unheart).
-Home's 분류 modal (작품 / 언어 / 그룹) also filters the online favorite cards
+Home's 분류 modal (작품 / 언어 / 폴더 / 그룹; 폴더 = the mode's scan roots holding works, a work counted under its deepest root, store `rootFilter` (`rootFilter.ts` useLibraryRoots; the reader's doujin sidebar list follows it too), shown with ≥2 folders; narrowed → online-only favorite cards hidden) also filters the online favorite cards
 (`passesCategory`: coded, language from entry or summary, no group).
 Settings `SettingRow stack` buttons = one line of flat text buttons with dividers.
 Tag lists per library: doujin = `favoriteTags` / `onlineExcludeTags`; 일반 만화 =

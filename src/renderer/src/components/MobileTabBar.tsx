@@ -157,11 +157,11 @@ export default function MobileTabBar(): JSX.Element {
         <button className="tab menu-btn" onClick={() => st().setMenuOpen(!st().menuOpen)} title="메뉴">
           <MenuIcon />
         </button>
-        <button className={`tab home-tab ${view === 'home' ? 'active' : ''}`} onClick={() => st().goHome()} title="라이브러리">
+        <button className={`tab home-tab ${view === 'home' ? 'active' : ''}`} onClick={() => (view === 'home' ? st().scrollHomeTop() : st().goHome())} title="라이브러리">
           <HomeIcon />
         </button>
         {!decoy && (
-          <button className={`tab icon-tab ${view === 'browse' ? 'active' : ''}`} onClick={() => st().goBrowse()} title="온라인">
+          <button className={`tab icon-tab ${view === 'browse' ? 'active' : ''}`} onClick={() => (view === 'browse' ? st().scrollBrowseTop() : st().goBrowse())} title="온라인">
             <LanguageIcon />
           </button>
         )}

@@ -276,6 +276,8 @@ export default function Browse(): JSX.Element {
     if (browseTopNonce === mountNonce.current) return
     mountNonce.current = browseTopNonce
     setFavMode(false)
+    setFavPanel(false)
+    stack.current = [] // back no longer returns to the searches left behind
     setQuery('')
     setSort('date')
     setBrowsePage(0)

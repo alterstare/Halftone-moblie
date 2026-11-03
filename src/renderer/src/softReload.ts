@@ -26,6 +26,7 @@ const KEEP = [
   'langFilter',
   'groupFilter',
   'showUngrouped',
+  'rootFilter',
   'listCollapsed',
   'readerMode',
   'homeLayout',

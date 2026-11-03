@@ -25,6 +25,8 @@ import { mergeFavorites, type FavEntry } from '../favorites'
 import GroupName from './GroupName'
 import { useLock } from '../lock'
 import { getFavSummary, useFavSummaries } from '../favSummaries'
+import { useNas, displayPath } from '../nas'
+import { useLibraryRoots } from '../rootFilter'
 
 // Page + position of each library list state (resetKey), most recent last.
 const listPositions = new Map<string, { page: number; anchor: ListAnchor }>()
@@ -71,6 +73,10 @@ export default function Home(): JSX.Element {
   const showUngrouped = useStore((s) => s.showUngrouped)
   const setGroupFilter = useStore((s) => s.setGroupFilter)
   const setShowUngrouped = useStore((s) => s.setShowUngrouped)
+  const rootFilter = useStore((s) => s.rootFilter)
+  const setRootFilter = useStore((s) => s.setRootFilter)
+  const nasConns = useNas((s) => s.conns)
+  const nasLoaded = useNas((s) => s.loaded)
   const createGroup = useStore((s) => s.createGroup)
   const deleteGroup = useStore((s) => s.deleteGroup)
   const homeTopNonce = useStore((s) => s.homeTopNonce)
@@ -100,11 +106,13 @@ export default function Home(): JSX.Element {
   }, [])
   useEffect(() => {
     if (homeTopNonce === mountNonce.current) return
-    // Returning to the initial screen (홈 pressed while already home): clear the
-    // search + tag/artist filter, but KEEP the chosen sort. Then first page/top.
+    // Returning to the initial screen (라이브러리 pressed while already home):
+    // clear the search, tag/artist / favorites filter and the 분류 popup
+    // (작품 · 언어 · 폴더 · 그룹), but KEEP the chosen sort. Then first page/top.
     setQuery('')
     setSearch('')
     setFilter({ kind: 'all' })
+    useStore.getState().resetCategoryFilters()
     setPage(0)
     toTop.current = true // the list change below starts at the top, not where it was
     if (scrollRef.current) scrollRef.current.scrollTop = 0
@@ -165,6 +173,10 @@ export default function Home(): JSX.Element {
   const [openPanel, setOpenPanel] = useState<'cat' | 'lang' | 'group' | 'fav' | null>(null)
   // 분류 popup (작품 / 언어 / 그룹 분류 together), opened by the + chip.
   const [classOpen, setClassOpen] = useState(false)
+  // NAS folder names in 폴더 분류 need the connection list.
+  useEffect(() => {
+    if (classOpen && !nasLoaded) void useNas.getState().refresh()
+  }, [classOpen, nasLoaded])
   const togglePanel = (p: 'cat' | 'lang' | 'group' | 'fav'): void =>
     setOpenPanel((cur) => (cur === p ? null : p))
   // Favorite lists the user has UNchecked in the drawer (all checked by default).
@@ -228,6 +240,21 @@ export default function Home(): JSX.Element {
     [groups, libraryMode]
   )
 
+  // 폴더 분류 (rootFilter.ts).
+  const { modeRoots, rootOf } = useLibraryRoots(libraryMode)
+  const rootCounts = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const w of modeWorks) {
+      const r = rootOf(w)
+      if (r) m[r] = (m[r] ?? 0) + 1
+    }
+    return m
+  }, [modeWorks, rootOf])
+  // Only folders that hold works are offered.
+  const shownRoots = modeRoots.filter((r) => rootCounts[r]).sort((a, b) => a.localeCompare(b))
+  const allRoots = shownRoots.every((r) => rootFilter[r] !== false)
+  const rootLabel = (r: string): string => displayPath(r, nasConns).replace(/^\/storage\/emulated\/0\//, '')
+
   // Category filter: choose whether coded / uncoded works appear, and which
   // languages. Works with unknown (null) language always pass the language gate.
   const allLang = langFilter.korean && langFilter.english && langFilter.japanese && langFilter.other
@@ -241,11 +268,15 @@ export default function Home(): JSX.Element {
           const lc = langCategory(w.language)
           if (lc !== null && !langFilter[lc]) return false
         }
+        if (!allRoots) {
+          const r = rootOf(w)
+          if (r && rootFilter[r] === false) return false
+        }
         const gids = w.groups ?? []
         if (gids.length === 0) return showUngrouped
         return gids.some((id) => groupFilter[id] !== false)
       }),
-    [modeWorks, showCoded, showUncoded, langFilter, groupFilter, showUngrouped, libraryMode]
+    [modeWorks, showCoded, showUncoded, langFilter, groupFilter, showUngrouped, libraryMode, allRoots, rootOf, rootFilter]
   )
 
   const favActive = filter.kind === 'favorites' || filter.kind === 'favlists'
@@ -356,8 +387,10 @@ export default function Home(): JSX.Element {
   // The 분류 panel (작품 coded/uncoded · 언어 · 그룹) applies to the online
   // favorite cards too, like to the local works: they're coded doujin works,
   // their language comes from the entry (or its fetched summary; unknown
-  // passes), and they belong to no group (= 그룹 없음).
+  // passes), and they belong to no group (= 그룹 없음) and no folder (hidden
+  // while 폴더 분류 is narrowed).
   const passesCategory = (f: OnlineFav): boolean => {
+    if (!allRoots) return false
     if (normal) return true
     if (!showCoded) return false
     const lc = langCategory(f.language ?? getFavSummary(f.code)?.language ?? null)
@@ -383,7 +416,7 @@ export default function Home(): JSX.Element {
       )
       .sort((a, b) => (favSort === 'rank' ? b.rank - a.rank || b.addedAt - a.addedAt : b.addedAt - a.addedAt))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [favActive, favDownloadedOnly, filter, onlineFavs, works, normal, favSort, localSeriesKeys, showCoded, langFilter, groupFilter, showUngrouped])
+  }, [favActive, favDownloadedOnly, filter, onlineFavs, works, normal, favSort, localSeriesKeys, showCoded, langFilter, groupFilter, showUngrouped, allRoots])
   // One merged favorites list (local works / series + online-only), sorted
   // together by favorite time (최근 추가순) or rating (평점 높은순), then paged.
   const favMerged = useMemo(
@@ -875,7 +908,7 @@ export default function Home(): JSX.Element {
           {hasExtras && <span className="chips-extra">{extras}</span>}
           {/* 분류 (작품 / 언어 / 그룹) in one popup; tinted while any filter is narrowed. */}
           <button
-            className={`chip layout-toggle class-btn ${(!normal && (!(showCoded && showUncoded) || !allLang)) || !allGroups ? 'active' : ''}`}
+            className={`chip layout-toggle class-btn ${(!normal && (!(showCoded && showUncoded) || !allLang)) || !allGroups || !allRoots ? 'active' : ''}`}
             onClick={() => setClassOpen(true)}
             title="분류"
           >
@@ -962,6 +995,32 @@ export default function Home(): JSX.Element {
                   </div>
                 </section>
               </>
+            )}
+            {shownRoots.length > 1 && (
+              <section className="class-sec">
+                <h3>폴더 분류</h3>
+                <div className="cat-panel grp-panel inline">
+                  <div className="cat-panel-actions">
+                    <button className="mini" onClick={() => shownRoots.forEach((r) => setRootFilter(r, true))}>
+                      전체 선택
+                    </button>
+                    <button className="mini" onClick={() => shownRoots.forEach((r) => setRootFilter(r, false))}>
+                      전체 선택 해제
+                    </button>
+                  </div>
+                  {shownRoots.map((r) => (
+                    <label key={r} className="grp-row">
+                      <input
+                        type="checkbox"
+                        checked={rootFilter[r] !== false}
+                        onChange={(e) => setRootFilter(r, e.target.checked)}
+                      />
+                      <span className="grp-row-name">{rootLabel(r)}</span>
+                      <span className="grp-row-count">({rootCounts[r]})</span>
+                    </label>
+                  ))}
+                </div>
+              </section>
             )}
             <section className="class-sec">
               <h3>그룹 분류</h3>

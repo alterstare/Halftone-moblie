@@ -279,6 +279,7 @@ interface AppState {
   langFilter: { korean: boolean; english: boolean; japanese: boolean; other: boolean }
   groupFilter: Record<string, boolean> // group id -> shown (missing = shown)
   showUngrouped: boolean
+  rootFilter: Record<string, boolean> // library folder -> shown (missing = shown)
 
   // reader split
   listWidth: number
@@ -460,6 +461,8 @@ interface AppState {
   setLangFilter: (cat: 'korean' | 'english' | 'japanese' | 'other', on: boolean) => void
   setGroupFilter: (id: string, on: boolean) => void
   setShowUngrouped: (b: boolean) => void
+  setRootFilter: (root: string, on: boolean) => void
+  resetCategoryFilters: () => void
   createGroup: (name: string) => Promise<string | null>
   deleteGroup: (id: string) => Promise<void>
   // Rename a group (and its folders on disk). Throws with a Korean message on failure.
@@ -722,6 +725,7 @@ export const useStore = create<AppState>((set, get) => ({
   langFilter: { korean: true, english: true, japanese: true, other: true },
   groupFilter: {},
   showUngrouped: true,
+  rootFilter: {},
 
   listWidth: DEFAULT_SETTINGS.listPaneWidth,
   normalListWidth: DEFAULT_SETTINGS.normalListPaneWidth,
@@ -1488,6 +1492,16 @@ export const useStore = create<AppState>((set, get) => ({
   setLangFilter: (cat, on) => set((st) => ({ langFilter: { ...st.langFilter, [cat]: on } })),
   setGroupFilter: (id, on) => set((st) => ({ groupFilter: { ...st.groupFilter, [id]: on } })),
   setShowUngrouped: (b) => set({ showUngrouped: b }),
+  setRootFilter: (root, on) => set((st) => ({ rootFilter: { ...st.rootFilter, [root]: on } })),
+  resetCategoryFilters: () =>
+    set({
+      showCoded: true,
+      showUncoded: true,
+      langFilter: { korean: true, english: true, japanese: true, other: true },
+      groupFilter: {},
+      showUngrouped: true,
+      rootFilter: {}
+    }),
   createGroup: async (name) => {
     const n = name.trim()
     if (!n) return null

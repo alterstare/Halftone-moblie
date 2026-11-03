@@ -194,8 +194,9 @@ export default function ComicBrowse(): JSX.Element {
     setSelGenres(g === '전체' ? [] : selGenres.includes(g) ? selGenres.filter((x) => x !== g) : [...selGenres, g])
   const genreLabel = selGenres.length > 1 ? `${selGenres[0]} 외 ${selGenres.length - 1}` : (selGenres[0] ?? '')
   // Pressing the 🌐 online button while already here bumps browseTopNonce →
-  // return to the initial listing: KEEP type/sort/genre, but CLEAR the search
-  // query (and field). First page + scroll top. Skip the initial mount.
+  // return to the initial listing: KEEP type/sort, but CLEAR the search
+  // query (and field) and every filter (genre / 분류 / 요일 / 플랫폼). First
+  // page + scroll top. Skip the initial mount.
   const mountNonce = useRef(browseTopNonce)
   useEffect(() => {
     if (browseTopNonce === mountNonce.current) return
@@ -203,8 +204,13 @@ export default function ComicBrowse(): JSX.Element {
     setFavMode(false)
     setQuery('')
     setField('title')
+    setGenre('전체')
+    setCat('')
+    setDay('')
+    setPlat('')
+    setFilterOpen(null)
     setPage(0)
-    setSource({ genre, sort, type })
+    setSource({ genre: '전체', sort, type })
     setReloadKey((k) => k + 1) // force a fresh fetch even if the source is unchanged
     if (rootRef.current) rootRef.current.scrollTop = 0
     // eslint-disable-next-line react-hooks/exhaustive-deps

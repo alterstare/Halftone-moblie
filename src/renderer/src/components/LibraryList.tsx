@@ -20,6 +20,7 @@ import SearchClear from './SearchClear'
 import GroupFilterMenu from './GroupFilterMenu'
 import { useTabState } from './useTabState'
 import { isNarrow } from '../mobile'
+import { useLibraryRoots } from '../rootFilter'
 
 const PAGE_SIZE = 40 // doujin list is paginated (like the online list) to keep the
 // DOM small — an unvirtualized full library made the pane-resize reflow stutter.
@@ -35,6 +36,8 @@ export default function LibraryList(): JSX.Element {
   const groups = useStore((s) => s.settings.groups)
   const groupFilter = useStore((s) => s.groupFilter)
   const showUngrouped = useStore((s) => s.showUngrouped)
+  const rootFilter = useStore((s) => s.rootFilter)
+  const { rootOf } = useLibraryRoots('doujin')
   const doujinGroups = useMemo(() => groups.filter((g) => (g.mode ?? 'doujin') === 'doujin'), [groups])
   const scheme = useStore((s) => s.settings.normalChapterScheme)
   const tabs = useStore((s) => s.tabs)
@@ -101,14 +104,16 @@ export default function LibraryList(): JSX.Element {
       )
       return selectWorks(inFolder, '', { kind: 'all' }, sort, seed, ignoreBrackets)
     }
-    // 그룹 분류 (shared with the home screen's filter).
+    // 폴더 / 그룹 분류 (shared with the home screen's filter).
     const doujinWorks = libWorks.filter((w) => {
+      const r = rootOf(w)
+      if (r && rootFilter[r] === false) return false
       const gids = w.groups ?? []
       if (gids.length === 0) return showUngrouped
       return gids.some((id) => groupFilter[id] !== false)
     })
     return selectWorks(doujinWorks, applied, filter, sort, seed, ignoreBrackets)
-  }, [activeGroup, activeArtistFolder, flattenRoots, works, applied, filter, sort, seed, ignoreBrackets, groupFilter, showUngrouped])
+  }, [activeGroup, activeArtistFolder, flattenRoots, works, applied, filter, sort, seed, ignoreBrackets, groupFilter, showUngrouped, rootOf, rootFilter])
 
   // Publish the current list order as the reading queue so the reader can flow
   // from one work into the next. General manga flows across a series' chapters;
