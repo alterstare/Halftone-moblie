@@ -401,27 +401,71 @@ public class MMPlugin extends Plugin {
     // meta.<x>.json names, child folders. Depth-limited (symlink loops).
     // skip = folders not to list (quick scan: works already in the library) —
     // they come back as { known: true } with only the parent's mtime.
+    // Progress: "scanProgress" events { folders, works } while walking (≤ 4/s);
+    // scanCancel aborts every walk started before it ("cancelled").
+
+    private static final java.util.concurrent.atomic.AtomicInteger scanGen = new java.util.concurrent.atomic.AtomicInteger();
+
+    private static final class ScanCancelled extends RuntimeException {
+        ScanCancelled() {
+            super("cancelled");
+        }
+    }
+
+    private final class ScanCtx {
+        final java.util.Set<String> ext = new java.util.HashSet<>();
+        final java.util.Set<String> skip = new java.util.HashSet<>();
+        final int gen = scanGen.get();
+        final java.util.concurrent.atomic.AtomicInteger folders = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger works = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicLong lastSent = new java.util.concurrent.atomic.AtomicLong();
+
+        void check() {
+            if (gen != scanGen.get()) throw new ScanCancelled();
+        }
+
+        void progress(boolean force) {
+            long now = System.currentTimeMillis(), last = lastSent.get();
+            if (!force && (now - last < 250 || !lastSent.compareAndSet(last, now))) return;
+            JSObject o = new JSObject();
+            o.put("folders", folders.get());
+            o.put("works", works.get());
+            notifyListeners("scanProgress", o);
+        }
+    }
 
     @PluginMethod
     public void scanTree(PluginCall call) {
         JSArray roots = call.getArray("roots", new JSArray());
         JSArray exts = call.getArray("exts", new JSArray());
         JSArray skips = call.getArray("skip", new JSArray());
+        ScanCtx c = new ScanCtx();
         bg(call, () -> {
-            java.util.Set<String> ext = new java.util.HashSet<>();
-            for (int i = 0; i < exts.length(); i++) ext.add(exts.optString(i, "").toLowerCase());
-            java.util.Set<String> skip = new java.util.HashSet<>();
-            for (int i = 0; i < skips.length(); i++) skip.add(skips.optString(i, ""));
+            for (int i = 0; i < exts.length(); i++) c.ext.add(exts.optString(i, "").toLowerCase());
+            for (int i = 0; i < skips.length(); i++) c.skip.add(skips.optString(i, ""));
             JSArray out = new JSArray();
             for (int i = 0; i < roots.length(); i++) {
                 String root = roots.optString(i, "");
-                JSObject n = root.isEmpty() ? null : scanPool.submit(() -> scanNode(root, ext, skip, 0, -1)).get();
+                JSObject n;
+                try {
+                    n = root.isEmpty() ? null : scanPool.submit(() -> scanNode(c, root, 0, -1)).get();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    if (e.getCause() instanceof ScanCancelled) throw new IOException("cancelled");
+                    throw e;
+                }
                 out.put(n == null ? org.json.JSONObject.NULL : n);
             }
+            c.progress(true);
             JSObject res = new JSObject();
             res.put("roots", out);
             call.resolve(res);
         });
+    }
+
+    @PluginMethod
+    public void scanCancel(PluginCall call) {
+        scanGen.incrementAndGet();
+        call.resolve();
     }
 
     // Folder listings are I/O-latency bound (shared storage goes through FUSE,
@@ -437,9 +481,11 @@ public class MMPlugin extends Plugin {
     }
 
     // mtime < 0 = not known from the parent's listing (a root).
-    private static JSObject scanNode(String path, java.util.Set<String> ext, java.util.Set<String> skip, int depth, long mtime) {
+    private static JSObject scanNode(ScanCtx c, String path, int depth, long mtime) {
         if (depth > 32) return null;
-        if (depth > 0 && skip.contains(path)) {
+        c.check();
+        java.util.Set<String> ext = c.ext;
+        if (depth > 0 && c.skip.contains(path)) {
             JSObject k = new JSObject();
             k.put("mtime", mtime);
             k.put("known", true);
@@ -483,6 +529,9 @@ public class MMPlugin extends Plugin {
                 if (f.isDirectory()) kids.add(new String[] { name, String.valueOf(f.lastModified()) });
             }
         }
+        c.folders.incrementAndGet();
+        if (images > 0) c.works.incrementAndGet();
+        c.progress(false);
         JSObject o = new JSObject();
         o.put("mtime", mtime);
         if (images > 0) o.put("images", images);
@@ -495,11 +544,11 @@ public class MMPlugin extends Plugin {
             // (NAS stays sequential: one SMB / WebDAV session per connection.)
             java.util.stream.Stream<String[]> st = Vfs.isRemote(path) ? kids.stream() : kids.parallelStream();
             java.util.List<JSObject> nodes = st.map(k -> {
-                JSObject c = scanNode(base + k[0], ext, skip, d + 1, Long.parseLong(k[1]));
-                if (c != null) c.put("name", k[0]);
-                return c;
+                JSObject n = scanNode(c, base + k[0], d + 1, Long.parseLong(k[1]));
+                if (n != null) n.put("name", k[0]);
+                return n;
             }).collect(java.util.stream.Collectors.toList());
-            for (JSObject c : nodes) if (c != null) arr.put(c);
+            for (JSObject n : nodes) if (n != null) arr.put(n);
             if (arr.length() > 0) o.put("kids", arr);
         }
         return o;

@@ -1,7 +1,8 @@
 import type { JSX, ReactNode } from 'react'
 import { useStore, downloadMode } from '../store'
+import type { Job } from '../store'
 import { useLock } from '../lock'
-import { PauseIcon, PlayIcon, DeleteIcon, Download2Icon, ConvertIcon } from './icons'
+import { PauseIcon, PlayIcon, DeleteIcon, Download2Icon, ConvertIcon, XIcon } from './icons'
 import { KIND_ICON } from './ActivityBar'
 import type { DoujinProgress } from '../../../shared/ipc'
 
@@ -10,7 +11,7 @@ interface Row {
   id: string
   icon: ReactNode
   title: string
-  status: 'running' | 'done' | 'error'
+  status: Job['status']
   done: number
   total: number
   detail?: string
@@ -18,6 +19,7 @@ interface Row {
   // Set only for online-download rows — drives the phase label + stop/retry
   // controls. Jobs (scan/meta/…) leave it undefined.
   dl?: { code: string; phase: DoujinProgress['phase']; canRetry: boolean }
+  canCancel?: boolean // a job that can be stopped (×)
 }
 const rowPct = (done: number, total: number): number =>
   total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
@@ -38,6 +40,7 @@ export default function Download(): JSX.Element {
   const allDownloads = useStore((s) => s.downloads)
   const jobs = useStore((s) => s.jobs)
   const clearDone = useStore((s) => s.clearDoneJobs)
+  const cancelJob = useStore((s) => s.cancelJob)
   // Show only this mode's downloads (doujin vs general-manga are separate lists).
   const downloads = allDownloads.filter((d) => downloadMode(d.code) === libraryMode)
   // Full activity list for this mode: jobs + downloads, running first, history kept.
@@ -54,7 +57,8 @@ export default function Download(): JSX.Element {
         done: j.done,
         total: j.total,
         detail: j.detail,
-        error: j.error
+        error: j.error,
+        canCancel: j.canCancel && j.status === 'running'
       })),
     ...downloads.map((d) => ({
       id: `dl:${d.code}`,
@@ -124,6 +128,8 @@ export default function Download(): JSX.Element {
                     ? { cls: 'ok', label: '✓ 완료' }
                     : r.status === 'error'
                       ? { cls: 'err', label: '✗ 실패' }
+                      : r.status === 'cancelled'
+                        ? { cls: 'stopped', label: '중단됨' }
                       : { cls: 'busy', label: r.total > 0 ? `${pct}%` : '진행 중' }
           const active = phase ? activePhase.has(phase) : false
           const canRetry = r.dl?.canRetry && (phase === 'stopped' || phase === 'error')
@@ -149,12 +155,21 @@ export default function Download(): JSX.Element {
                 <span>
                   {phase === 'stopped'
                     ? '정지됨'
-                    : r.total > 0
-                      ? `${r.done}/${r.total}`
-                      : r.detail ?? '…'}
+                    : r.status === 'cancelled'
+                      ? r.detail ?? '중단됨'
+                      : r.total > 0
+                        ? `${!r.dl && r.detail ? `${r.detail} · ` : ''}${r.done}/${r.total}`
+                        : r.detail ?? '…'}
                 </span>
                 {(r.status === 'error' || phase === 'stopped') && errText && (
                   <span className="dl-item-err">{errText}</span>
+                )}
+                {r.canCancel && (
+                  <span className="dl-item-actions">
+                    <button className="dl-row-btn" onClick={() => cancelJob(r.id)} title="중단">
+                      <XIcon />
+                    </button>
+                  </span>
                 )}
                 {r.dl && (active || canRetry) && (
                   <span className="dl-item-actions">

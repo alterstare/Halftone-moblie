@@ -9,7 +9,8 @@ import { join, resolve, sep, basename, dirname } from '../node/path'
 import { MM } from '../native'
 import { store, paths, sendToRenderer } from '../context'
 import { stopAllDownloads } from '../downloads'
-import { scanLibrary, scanNew, scanRoot, scanDirs, needsFullScan, listImages, normalRoots } from '../lib/scanner'
+import { scanLibrary, scanNew, scanRoot, scanDirs, needsFullScan, listImages, normalRoots, cancelScan, scanToken, alive } from '../lib/scanner'
+import type { ScanCallbacks } from '../lib/scanner'
 import { parseName } from '../lib/parser'
 import { setGroupFolder, mergeSeries, moveWorkToFolder, renameGroupFolders, safeName } from '../lib/favorites'
 import { setWorkFavorite } from '../lib/favoriteSync'
@@ -66,11 +67,20 @@ export const libraryApi: Partial<Api> = {
 
   // ---------- scanning / organizing ----------
 
+  // Progress: scanProgress events — 'walk' (folders listed / works found),
+  // then 'read' (work info read, n / total). cancelScan stops it ('cancelled').
   scanLibrary: async (opts?: { quick?: boolean }) => {
+    const gen = scanToken()
     const s = store.settings
     await ensureStorage([...s.libraryRoots, ...normalRoots(s), s.downloadDir, s.normalDownloadDir])
+    alive(gen)
+    const cb: ScanCallbacks = {
+      onWalk: (folders, works) =>
+        sendToRenderer(IPC.scanProgress, { scanned: works, total: 0, current: '', done: false, phase: 'walk', folders }),
+      onRead: (n, total) => sendToRenderer(IPC.scanProgress, { scanned: n, total, current: '', done: false, phase: 'read' })
+    }
     if (opts?.quick) {
-      const r = await scanNew(s, allWorks())
+      const r = await scanNew(s, allWorks(), cb)
       if (!r.full) {
         for (const id of r.removed) store.remove(id)
         store.mergeScanPartial(r.added)
@@ -81,15 +91,15 @@ export const libraryApi: Partial<Api> = {
         return allWorks()
       }
     }
-    const scanned = await scanLibrary(store.settings, {
-      onProgress: (n, current) => sendToRenderer(IPC.scanProgress, { scanned: n, total: 0, current, done: false })
-    })
+    const scanned = await scanLibrary(store.settings, cb)
     const merged = store.mergeScan(scanned)
     await store.flushWorks()
     sendToRenderer(IPC.scanProgress, { scanned: merged.length, total: merged.length, current: '', done: true })
     if (store.settings.autoOrganizeOnScan) await runOrganize()
     return allWorks()
   },
+
+  cancelScan: async () => cancelScan(),
 
   setCollections: async (collections: Settings['manualCollections'], dirs: string[]) => {
     const s = await store.saveSettings({ ...store.settings, manualCollections: collections })

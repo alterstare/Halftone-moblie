@@ -17,10 +17,31 @@ let active = 0
 interface Job {
   run: () => void
   key?: string
+  token?: WarmToken
+  cancel?: () => void
 }
 const urgentQ: Job[] = []
 const bgQ: Job[] = []
 const waitingBg = new Map<string, Job>()
+// Cards that asked while their thumb was still being looked up (not queued
+// yet) — the job goes to the urgent queue when it is queued.
+const wanted = new Set<string>()
+
+// A background warm-up run; cancelWarm drops its jobs still waiting (the ones
+// already generating finish).
+export interface WarmToken {
+  cancelled: boolean
+}
+export function cancelWarm(token: WarmToken): void {
+  token.cancelled = true
+  for (let i = bgQ.length - 1; i >= 0; i--) {
+    const j = bgQ[i]
+    if (j.token !== token) continue
+    bgQ.splice(i, 1)
+    if (j.key) waitingBg.delete(j.key)
+    j.cancel?.()
+  }
+}
 
 function pump(): void {
   while (active < MAX_CONCURRENT && (urgentQ.length || bgQ.length)) {
@@ -31,10 +52,14 @@ function pump(): void {
   }
 }
 
-function schedule<T>(fn: () => Promise<T>, urgent = true, key?: string): Promise<T> {
+function schedule<T>(fn: () => Promise<T>, urgent = true, key?: string, token?: WarmToken): Promise<T> {
+  if (!urgent && key && wanted.delete(key)) urgent = true
+  if (!urgent && token?.cancelled) return Promise.reject(new Error('cancelled'))
   return new Promise<T>((resolve, reject) => {
     const job: Job = {
       key: urgent ? undefined : key,
+      token: urgent ? undefined : token,
+      cancel: () => reject(new Error('cancelled')),
       run: () => {
         fn()
           .then(resolve, reject)
@@ -55,7 +80,10 @@ function schedule<T>(fn: () => Promise<T>, urgent = true, key?: string): Promise
 
 function promote(key: string): void {
   const j = waitingBg.get(key)
-  if (!j) return
+  if (!j) {
+    wanted.add(key)
+    return
+  }
   waitingBg.delete(key)
   const i = bgQ.indexOf(j)
   if (i >= 0) bgQ.splice(i, 1)
@@ -119,15 +147,21 @@ async function encodeFrom(workId: string, src: string, cropTall = false): Promis
   return window.api.saveThumb(workId, dataUrl)
 }
 
-async function resolve(workId: string, urgent: boolean): Promise<string | null> {
+async function resolve(workId: string, urgent: boolean, token?: WarmToken): Promise<string | null> {
   const existing = await window.api.getThumb(workId)
   // Raw full-size cover (online cover regen) → shrink once; keep it if that fails.
   if (existing?.endsWith('#raw')) {
     const url = existing.slice(0, -4)
-    return schedule(() => encodeFrom(workId, url), urgent, workId).then((u) => u ?? url, () => url)
+    return schedule(() => encodeFrom(workId, url), urgent, workId, token).then(
+      (u) => u ?? url,
+      (e) => {
+        if (token?.cancelled) throw e
+        return url
+      }
+    )
   }
   if (existing) return existing
-  return schedule(() => generate(workId), urgent, workId)
+  return schedule(() => generate(workId), urgent, workId, token)
 }
 
 // Mounted <Thumb>s listen for their work's thumb resolving later (e.g. a download
@@ -144,18 +178,27 @@ export function onThumb(workId: string, fn: (url: string | null) => void): () =>
 }
 
 // `urgent` = a card on screen wants it (false = background warm-up).
-export async function loadThumb(workId: string, urgent = true): Promise<string | null> {
+// A cancelled warm-up rejects; nothing is cached, the next ask starts over.
+export async function loadThumb(workId: string, urgent = true, token?: WarmToken): Promise<string | null> {
   if (mem.has(workId)) return mem.get(workId)!
   let p = pending.get(workId)
   if (p && urgent) promote(workId)
   if (!p) {
-    p = resolve(workId, urgent).then((url) => {
-      mem.set(workId, url)
-      pending.delete(workId)
-      listeners.get(workId)?.forEach((fn) => fn(url))
-      return url
-    })
-    pending.set(workId, p)
+    const mine: Promise<string | null> = resolve(workId, urgent, token).then(
+      (url) => {
+        mem.set(workId, url)
+        if (pending.get(workId) === mine) pending.delete(workId)
+        wanted.delete(workId)
+        listeners.get(workId)?.forEach((fn) => fn(url))
+        return url
+      },
+      (e) => {
+        if (pending.get(workId) === mine) pending.delete(workId)
+        wanted.delete(workId)
+        throw e
+      }
+    )
+    pending.set(workId, (p = mine))
   }
   return p
 }
@@ -163,7 +206,8 @@ export async function loadThumb(workId: string, urgent = true): Promise<string |
 // Pre-generate thumbnails for the whole library after a scan, in the background.
 export async function warmThumbs(
   workIds: string[],
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  token?: WarmToken
 ): Promise<void> {
   let done = 0
   const total = workIds.length
@@ -171,11 +215,11 @@ export async function warmThumbs(
     workIds.map((id) =>
       // One failing thumb must not reject the whole batch (which would leave the
       // job stuck), so swallow per-work errors and still count progress.
-      loadThumb(id, false)
+      loadThumb(id, false, token)
         .catch(() => null)
         .then(() => {
           done++
-          if (done % 10 === 0 || done === total) onProgress?.(done, total)
+          if (!token?.cancelled) onProgress?.(done, total)
         })
     )
   )

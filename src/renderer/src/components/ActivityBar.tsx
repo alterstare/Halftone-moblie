@@ -23,13 +23,14 @@ interface Row {
   id: string
   icon: ReactNode
   title: string
-  status: 'running' | 'done' | 'error'
+  status: Job['status']
   done: number
   total: number
   detail?: string
   error?: string
   // Set only for download rows — drives the phase label + stop/retry/remove controls.
   dl?: { code: string; phase: DoujinProgress['phase']; canStop: boolean; canRetry: boolean }
+  canCancel?: boolean // a job that can be stopped (×)
 }
 
 // Also used by the 작업 목록 screen (Download.tsx) — same icons in both.
@@ -58,6 +59,7 @@ export default function ActivityBar(): JSX.Element | null {
   const stopDownload = useStore((s) => s.stopDownload)
   const retryDownload = useStore((s) => s.retryDownload)
   const removeDownload = useStore((s) => s.removeDownload)
+  const cancelJob = useStore((s) => s.cancelJob)
   const stopAll = useStore((s) => s.stopAllDownloads)
   const startAll = useStore((s) => s.startAllDownloads)
   const listWidth = useStore((s) => s.listWidth)
@@ -91,7 +93,8 @@ export default function ActivityBar(): JSX.Element | null {
         done: j.done,
         total: j.total,
         detail: j.detail,
-        error: j.error
+        error: j.error,
+        canCancel: j.canCancel && j.status === 'running'
       })),
     ...downloads
       .filter((d) => downloadMode(d.code) === libraryMode)
@@ -131,7 +134,7 @@ export default function ActivityBar(): JSX.Element | null {
   const summary = showUpdate
     ? updateLabel
     : cur
-      ? `${cur.title}${cur.total > 0 ? ` · ${pct(cur.done, cur.total)}%` : ' · 진행 중…'}`
+      ? `${cur.title}${cur.total > 0 ? ` · ${pct(cur.done, cur.total)}%` : ` · ${cur.detail && !cur.dl ? cur.detail : '진행 중…'}`}`
       : `작업 ${rows.length}개 · 진행 중 없음`
   const anyActive = downloads.some((d) => downloadMode(d.code) === libraryMode && ACTIVE.has(d.phase))
   const anyPaused = downloads.some(
@@ -143,6 +146,8 @@ export default function ActivityBar(): JSX.Element | null {
     if (r.dl?.phase === 'converting') return r.total > 0 ? `webp 변환 ${r.done}/${r.total}` : 'webp 변환 중…'
     if (r.dl?.phase === 'stopped') return '일시정지됨'
     if (r.status === 'error') return `오류: ${r.error ?? '실패'}`
+    if (r.status === 'cancelled') return r.detail ?? '중단됨'
+    if (r.total > 0 && r.detail && !r.dl) return `${r.detail} · ${r.done}/${r.total} (${pct(r.done, r.total)}%)`
     if (r.status === 'done') return r.detail ?? '완료'
     return r.total > 0 ? `${r.done}/${r.total} (${pct(r.done, r.total)}%)` : r.detail ?? '진행 중…'
   }
@@ -275,9 +280,22 @@ export default function ActivityBar(): JSX.Element | null {
                       <XIcon />
                     </button>
                   </div>
+                ) : r.canCancel ? (
+                  <div className="activity-row-actions flat-group">
+                    <button
+                      className="mini icon danger"
+                      title="중단"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        cancelJob(r.id)
+                      }}
+                    >
+                      <XIcon />
+                    </button>
+                  </div>
                 ) : (
                   <span className="activity-row-status">
-                    {r.status === 'running' ? '진행' : r.status === 'done' ? '완료' : '오류'}
+                    {r.status === 'running' ? '진행' : r.status === 'done' ? '완료' : r.status === 'cancelled' ? '중단' : '오류'}
                   </span>
                 )}
               </div>

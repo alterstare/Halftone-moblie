@@ -367,6 +367,15 @@ passes every known work folder as `scanTree` `skip` (Java returns them as
 folder vanished from a root that was read (unreadable root / NAS offline keeps
 them); pages changed inside a known folder need the full scan; new folders
 under artist-folder auto collections fall back to the full scan.
+Scan progress / cancel (2026-11-02): `scanTree` sends `scanProgress` events
+{folders, works} (≤ 4/s) while walking → ScanProgress phase 'walk', then
+'read' (sidecar batches n / total); the scan job row shows them.
+`window.api.cancelScan` = generation bump (JS `scanGen` + Java `scanGen` via
+`MM.scanCancel`) → running scans reject 'cancelled'. Jobs started with
+`startJob(…, onCancel)` show × in the activity list / 작업 목록
+(`cancelJob` → status 'cancelled', later updates / endJob ignored): library
+scan, thumb warm-ups (`WarmToken` / `cancelWarm` drops queued jobs, ones
+generating finish), 썸네일 재생성 / 생성, 작가 채우기, 메타 채우기.
 
 Heart / group folder moves (2026-10-22, `folderOps.ts`): the UI flips at
 once; `setFavoriteByCode` / `setFavorite` / `setWorkGroups` run in a serial

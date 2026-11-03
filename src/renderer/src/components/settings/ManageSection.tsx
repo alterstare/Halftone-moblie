@@ -108,7 +108,7 @@ export default function ManageSection(): JSX.Element {
     }
     setEnriching(true)
     setEnrichProg({ done: 0, total: 0 })
-    const jid = startJob('meta', 'doujin', '메타 채우기 (작가·태그·언어)')
+    const jid = startJob('meta', 'doujin', '메타 채우기 (작가·태그·언어)', undefined, () => window.api.doujinCancelEnrich())
     enrichJobRef.current = jid
     try {
       await window.api.doujinEnrichAll()
@@ -148,7 +148,13 @@ export default function ManageSection(): JSX.Element {
       return
     }
     setRegenProg({ done: 0, total: ids.length })
-    const jid = startJob('thumb', 'doujin', '썸네일 재생성')
+    // Cancel (activity ×) frees the button at once; the loop stops after the
+    // thumb in progress.
+    let stop = false
+    const jid = startJob('thumb', 'doujin', '썸네일 재생성', undefined, () => {
+      stop = true
+      setRegenProg(null)
+    })
     updateJob(jid, { total: ids.length })
     const byId = new Map(works.map((w) => [w.id, w]))
     let done = 0
@@ -160,14 +166,17 @@ export default function ManageSection(): JSX.Element {
             .then((r) => r.ok)
             .catch(() => false)
         : false
+      if (stop) break
       if (!ok) await regenLocalThumb(id).catch(() => {})
+      if (stop) break
       done++
       setRegenProg({ done, total: ids.length })
       updateJob(jid, { done })
     }
+    bumpThumbNonce() // cards reload their thumbs
+    if (stop) return
     setRegenProg(null)
     endJob(jid, { status: 'done', detail: `${done}개 썸네일 재생성` })
-    bumpThumbNonce() // cards reload their thumbs
     notify(`썸네일 재생성 완료 — ${done}개.`)
   }
 
@@ -203,7 +212,11 @@ export default function ManageSection(): JSX.Element {
       return
     }
     setRegenProg({ done: 0, total: series.length })
-    const jid = startJob('thumb', 'normal', '썸네일 생성')
+    let stop = false
+    const jid = startJob('thumb', 'normal', '썸네일 생성', undefined, () => {
+      stop = true
+      setRegenProg(null)
+    })
     updateJob(jid, { total: series.length })
     let ok = 0
     for (let i = 0; i < series.length; i++) {
@@ -213,15 +226,18 @@ export default function ManageSection(): JSX.Element {
           .comicRegenCover([rep.id], series[i].title)
           .then((r) => r.ok)
           .catch(() => false)
+        if (stop) break
         if (!done) done = await regenLocalThumb(rep.id).then(() => true).catch(() => false)
         if (done) ok++
       }
+      if (stop) break
       setRegenProg({ done: i + 1, total: series.length })
       updateJob(jid, { done: i + 1 })
     }
+    bumpThumbNonce()
+    if (stop) return
     setRegenProg(null)
     endJob(jid, { status: 'done', detail: `${ok}/${series.length}개 썸네일` })
-    bumpThumbNonce()
     notify(`썸네일 생성 완료 — ${ok}/${series.length}개 시리즈.`)
   }
 
@@ -233,7 +249,11 @@ export default function ManageSection(): JSX.Element {
       return
     }
     setArtistProg({ done: 0, total: series.length })
-    const jid = startJob('meta', 'normal', '작가 이름 채우기')
+    let stop = false
+    const jid = startJob('meta', 'normal', '작가 이름 채우기', undefined, () => {
+      stop = true
+      setArtistProg(null)
+    })
     updateJob(jid, { total: series.length })
     let ok = 0
     for (let i = 0; i < series.length; i++) {
@@ -247,6 +267,7 @@ export default function ManageSection(): JSX.Element {
       } catch {
         /* skip this series */
       }
+      if (stop) return
       setArtistProg({ done: i + 1, total: series.length })
       updateJob(jid, { done: i + 1 })
     }

@@ -15,7 +15,7 @@ export function useWorkThumb(workId: string | undefined, enabled = true): string
     if (!enabled) return
     let alive = true
     syncThumbNonce(nonce)
-    loadThumb(workId).then((c) => alive && setSrc(c))
+    loadThumb(workId).then((c) => alive && setSrc(c), () => {})
     const off = onThumb(workId, (c) => alive && setSrc(c))
     return () => {
       alive = false

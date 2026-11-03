@@ -9,7 +9,37 @@ import { MM, type ScanNode } from '../native'
 import { fitName } from './nameFit'
 
 export interface ScanCallbacks {
-  onProgress?: (scanned: number, current: string) => void
+  onWalk?: (folders: number, works: number) => void // folder listing (native walk)
+  onRead?: (done: number, total: number) => void // sidecars read
+}
+
+// cancelScan aborts the running library scans: the native walk stops at its
+// next folder, the JS side at its next step (ScanCancelled).
+let scanGen = 0
+export class ScanCancelled extends Error {
+  constructor() {
+    super('cancelled')
+  }
+}
+export function cancelScan(): void {
+  scanGen++
+  MM.scanCancel().catch(() => {})
+}
+export function scanToken(): number {
+  return scanGen
+}
+export function alive(gen: number): void {
+  if (gen !== scanGen) throw new ScanCancelled()
+}
+
+// MM.scanTree with its progress events forwarded to cb.onWalk.
+async function walk(o: { roots: string[]; exts: string[]; skip?: string[] }, cb: ScanCallbacks) {
+  const h = cb.onWalk ? await MM.addListener('scanProgress', (e) => cb.onWalk!(e.folders, e.works)) : null
+  try {
+    return await MM.scanTree(o)
+  } finally {
+    h?.remove()
+  }
 }
 
 // All folders treated as library roots: the explicit libraryRoots plus the
@@ -56,15 +86,17 @@ export function libraryOfRoot(root: string, settings: Settings): 'doujin' | 'nor
 // The folder trees come from the native side in one call (scanTree); the walk
 // below only interprets them, then the doujin sidecars are read in batches.
 export async function scanLibrary(settings: Settings, cb: ScanCallbacks = {}): Promise<Work[]> {
+  const gen = scanGen
   const order = scanOrder(settings)
-  const trees = await loadTrees(order.map(([r]) => r))
+  const trees = await loadTrees(order.map(([r]) => r), cb)
+  alive(gen)
   const found: Found[] = []
   const visited = new Set<string>() // avoid re-walking nested/overlapping roots
   for (const [root, library] of order) {
     const node = trees.get(root)
     if (node) collect(root, node, library, null, settings, visited, found)
   }
-  return applyCollections(await buildWorks(found, settings, cb), settings)
+  return applyCollections(await buildWorks(found, settings, cb, gen), settings)
 }
 
 function scanOrder(settings: Settings): [string, 'doujin' | 'normal'][] {
@@ -86,13 +118,16 @@ function scanOrder(settings: Settings): [string, 'doujin' | 'normal'][] {
 // collections, which need every folder of the artist (caller runs a full scan).
 export async function scanNew(
   settings: Settings,
-  known: Work[]
+  known: Work[],
+  cb: ScanCallbacks = {}
 ): Promise<{ added: Work[]; removed: string[]; full: boolean }> {
+  const gen = scanGen
   const dirsOf = (w: Work): string[] => (w.sources?.length ? w.sources : [w.path]).map((d) => resolve(d))
   const skip = new Set(known.flatMap(dirsOf))
   const order = scanOrder(settings)
   const roots = [...new Set(order.map(([r]) => r).filter(Boolean))]
-  const r = await MM.scanTree({ roots: roots.map((x) => resolve(x)), exts: IMAGE_EXTS, skip: [...skip] })
+  const r = await walk({ roots: roots.map((x) => resolve(x)), exts: IMAGE_EXTS, skip: [...skip] }, cb)
+  alive(gen)
   const trees = new Map(roots.map((root, i) => [root, r.roots[i] ?? null]))
   const found: Found[] = []
   const seen = new Set<string>()
@@ -115,7 +150,7 @@ export async function scanNew(
       return !dirs.some((d) => [...seen].some((s) => d.startsWith(s + sep)))
     })
     .map((w) => w.id)
-  return { added: applyCollections(await buildWorks(found, settings, {}), settings), removed, full: false }
+  return { added: applyCollections(await buildWorks(found, settings, cb, gen), settings), removed, full: false }
 }
 
 // A work folder found by the walk (sidecar = its meta file name, doujin only).
@@ -129,11 +164,11 @@ interface Found {
   cover?: string
 }
 
-async function loadTrees(roots: string[]): Promise<Map<string, ScanNode | null>> {
+async function loadTrees(roots: string[], cb: ScanCallbacks = {}): Promise<Map<string, ScanNode | null>> {
   const uniq = [...new Set(roots.filter(Boolean))]
   const out = new Map<string, ScanNode | null>()
   if (!uniq.length) return out
-  const r = await MM.scanTree({ roots: uniq, exts: IMAGE_EXTS })
+  const r = await walk({ roots: uniq, exts: IMAGE_EXTS }, cb)
   uniq.forEach((root, i) => out.set(root, r.roots[i] ?? null))
   return out
 }
@@ -174,12 +209,14 @@ function collect(
 // Read the found works' sidecars (batched — one bridge call per 200) and build
 // the Work records.
 const SIDECAR_BATCH = 200
-async function buildWorks(found: Found[], settings: Settings, cb: ScanCallbacks): Promise<Work[]> {
+async function buildWorks(found: Found[], settings: Settings, cb: ScanCallbacks, gen = scanGen): Promise<Work[]> {
   const metas = new Map<string, DoujinMeta>()
   const withMeta = found.filter((f) => f.sidecar)
   for (let i = 0; i < withMeta.length; i += SIDECAR_BATCH) {
+    cb.onRead?.(i, withMeta.length)
     const batch = withMeta.slice(i, i + SIDECAR_BATCH)
     const r = await MM.readTexts({ paths: batch.map((f) => join(f.dir, f.sidecar!)) }).catch(() => ({ texts: [] }))
+    alive(gen)
     batch.forEach((f, j) => {
       const t = r.texts[j]
       if (!t) return
@@ -190,11 +227,9 @@ async function buildWorks(found: Found[], settings: Settings, cb: ScanCallbacks)
       }
     })
   }
-  return found.map((f, i) => {
-    const work = workOf(f.dir, f.pageCount, settings, f.library, f.artist, f.mtime, metas.get(f.dir) ?? null, f.cover)
-    cb.onProgress?.(i + 1, work.title)
-    return work
-  })
+  return found.map((f) =>
+    workOf(f.dir, f.pageCount, settings, f.library, f.artist, f.mtime, metas.get(f.dir) ?? null, f.cover)
+  )
 }
 
 // Scan a single root folder (used by the per-folder "갱신" buttons). Walks just

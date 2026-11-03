@@ -55,6 +55,7 @@ export interface MMPlugin {
   fsStat(o: { path: string }): Promise<Omit<FsEntry, 'name'>>
   // Library scan: each root's folder tree in one call (null = unreadable).
   scanTree(o: { roots: string[]; exts: string[]; skip?: string[] }): Promise<{ roots: (ScanNode | null)[] }>
+  scanCancel(): Promise<void>
   makeThumb(o: { src: string; out: string; cropTall?: boolean; max?: number }): Promise<{ w: number; h: number }>
   // Several small text files (null = missing / unreadable).
   readTexts(o: { paths: string[] }): Promise<{ texts: (string | null)[] }>
@@ -129,6 +130,7 @@ export interface MMPlugin {
 
   addListener(event: 'back', cb: () => void): Promise<PluginListenerHandle>
   addListener(event: 'comicVisible', cb: (e: { visible: boolean }) => void): Promise<PluginListenerHandle>
+  addListener(event: 'scanProgress', cb: (e: { folders: number; works: number }) => void): Promise<PluginListenerHandle>
 }
 
 export const MM = registerPlugin<MMPlugin>('MM')

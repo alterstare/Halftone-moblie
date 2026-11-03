@@ -8,7 +8,8 @@ import { useMemo } from 'react'
 import type { Work, Settings, SortMode, SessionState, OnlineFav, FitMode, ReadProgress, OnlineHistoryEntry } from '../../shared/types'
 import { DEFAULT_SETTINGS, SPLIT_SETTING_KEYS, workCodes } from '../../shared/types'
 import type { DoujinListSource, DoujinProgress, ComicChapter, UpdateStatus } from '../../shared/ipc'
-import { warmThumbs, invalidateThumb } from './thumbs'
+import { warmThumbs, invalidateThumb, cancelWarm } from './thumbs'
+import type { WarmToken } from './thumbs'
 import { convertWorkToWebp } from './convert'
 import { thumbTargetIds, groupSeries, titleKey, seriesRoots, isComicCode } from './util'
 import { getFavSummary } from './favSummaries'
@@ -116,14 +117,21 @@ export interface Job {
   kind: 'scan' | 'meta' | 'thumb' | 'organize' | 'convert'
   mode: 'doujin' | 'normal' // which library the task belongs to (bar is per-mode)
   title: string
-  status: 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error' | 'cancelled'
   done: number
   total: number
   detail?: string
   error?: string
   startedAt: number
   endedAt?: number
+  canCancel?: boolean // started with an onCancel (activity rows show ×)
 }
+
+// onCancel handlers of the running jobs that can be stopped.
+const jobCancels = new Map<string, () => void>()
+// Latest scanLibraryJob run — an older (cancelled) one finishing late must not
+// clear `loading` under a newer scan.
+let scanRun = 0
 
 // A download's library mode is encoded in its code: numeric = doujin gallery;
 // an http(s) url (manga-site chapter) or a "backup:" code = general-manga (normal).
@@ -323,7 +331,9 @@ interface AppState {
   // survive view switches — progress + completion show in the global activity bar).
   toggleActivity: (open?: boolean) => void
   clearDoneJobs: () => void
-  startJob: (kind: Job['kind'], mode: Job['mode'], title: string, detail?: string) => string
+  // onCancel = the job can be stopped from the activity list (cancelJob).
+  startJob: (kind: Job['kind'], mode: Job['mode'], title: string, detail?: string, onCancel?: () => void) => string
+  cancelJob: (id: string) => void
   updateJob: (id: string, patch: Partial<Job>) => void
   endJob: (id: string, patch: Partial<Job>) => void
   scanFolderJob: (path: string, mode: Job['mode']) => Promise<void>
@@ -1661,22 +1671,45 @@ export const useStore = create<AppState>((set, get) => ({
       // Finished downloads live in their own slice — drop those too so the bar clears.
       downloads: st.downloads.filter((d) => d.phase !== 'done' && d.phase !== 'error')
     })),
-  startJob: (kind, mode, title, detail) => {
+  startJob: (kind, mode, title, detail, onCancel) => {
     const id = `${kind}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}`
+    if (onCancel) jobCancels.set(id, onCancel)
     set((st) => ({
       jobs: [
-        { id, kind, mode, title, status: 'running', done: 0, total: 0, detail, startedAt: Date.now() },
+        { id, kind, mode, title, status: 'running', done: 0, total: 0, detail, startedAt: Date.now(), canCancel: !!onCancel },
         ...st.jobs
       ]
     }))
     return id
   },
-  updateJob: (id, patch) =>
-    set((st) => ({ jobs: st.jobs.map((j) => (j.id === id ? { ...j, ...patch } : j)) })),
-  endJob: (id, patch) =>
+  // Stop a running job: its onCancel runs, the row ends as 중단됨 at once (the
+  // job's own late updates / end are ignored).
+  cancelJob: (id) => {
+    const fn = jobCancels.get(id)
+    jobCancels.delete(id)
     set((st) => ({
-      jobs: st.jobs.map((j) => (j.id === id ? { ...j, endedAt: Date.now(), ...patch } : j))
-    })),
+      jobs: st.jobs.map((j) =>
+        j.id === id && j.status === 'running'
+          ? { ...j, status: 'cancelled', endedAt: Date.now(), canCancel: false, detail: j.total > 0 ? `중단됨 · ${j.done}/${j.total}` : '중단됨' }
+          : j
+      )
+    }))
+    try {
+      fn?.()
+    } catch {
+      /* stopping is best effort */
+    }
+  },
+  updateJob: (id, patch) =>
+    set((st) => ({ jobs: st.jobs.map((j) => (j.id === id && j.status === 'running' ? { ...j, ...patch } : j)) })),
+  endJob: (id, patch) => {
+    jobCancels.delete(id)
+    set((st) => ({
+      jobs: st.jobs.map((j) =>
+        j.id === id && j.status === 'running' ? { ...j, endedAt: Date.now(), canCancel: false, ...patch } : j
+      )
+    }))
+  },
   scanFolderJob: async (path, mode) => {
     const { startJob, endJob } = get()
     const id = startJob('scan', mode, `폴더 갱신 · ${path}`)
@@ -1691,27 +1724,44 @@ export const useStore = create<AppState>((set, get) => ({
   // Full library scan (triggered from Settings). Rescans every root, then warms
   // thumbnails for the current library mode. Progress shows in the activity bar.
   // quick = 새 폴더만 (folders already in the library are not re-read).
+  // Progress: folders listed / works found while walking, then work info
+  // read n / total. Cancel (activity ×) frees the buttons at once.
   scanLibraryJob: async (quick) => {
     const { startJob, endJob, updateJob, libraryMode } = get()
+    const run = ++scanRun
     set({ loading: true })
-    const jobId = startJob('scan', libraryMode, quick ? '라이브러리 갱신 (새 폴더)' : '라이브러리 갱신')
+    const jobId = startJob('scan', libraryMode, quick ? '라이브러리 갱신 (새 폴더)' : '라이브러리 갱신', '폴더 확인 중…', () => {
+      window.api.cancelScan()
+      if (run === scanRun) set({ loading: false })
+    })
+    const off = window.api.onScanProgress((p) => {
+      if (p.done) return
+      if (p.phase === 'walk') updateJob(jobId, { detail: `폴더 ${p.folders ?? 0}개 확인 · 작품 ${p.scanned}개 발견` })
+      else if (p.phase === 'read') updateJob(jobId, { done: p.scanned, total: p.total, detail: '작품 정보 읽는 중' })
+    })
     const before = new Set(get().works.map((x) => x.id))
     let w: Work[] = []
+    let ok = false
     try {
       w = await window.api.scanLibrary({ quick })
       set({ works: w })
+      ok = true
       const added = w.filter((x) => !before.has(x.id)).length
       endJob(jobId, { status: 'done', detail: quick ? `새 작품 ${added}개` : `${w.length}개` })
     } catch (e: any) {
       endJob(jobId, { status: 'error', error: String(e?.message ?? e) })
+    } finally {
+      off()
     }
-    set({ loading: false })
+    if (run === scanRun) set({ loading: false })
+    if (!ok) return
     const s = get().settings
     const ids = thumbTargetIds(quick ? w.filter((x) => !before.has(x.id)) : w, libraryMode, seriesRoots(s))
     if (ids.length) {
-      const thumbJob = startJob('thumb', libraryMode, '썸네일 생성')
+      const token: WarmToken = { cancelled: false }
+      const thumbJob = startJob('thumb', libraryMode, '썸네일 생성', undefined, () => cancelWarm(token))
       updateJob(thumbJob, { total: ids.length })
-      warmThumbs(ids, (done, total) => updateJob(thumbJob, { done, total }))
+      warmThumbs(ids, (done, total) => updateJob(thumbJob, { done, total }), token)
         .then(() => endJob(thumbJob, { status: 'done', detail: `${ids.length}개` }))
         .catch((e: any) => endJob(thumbJob, { status: 'error', error: String(e?.message ?? e) }))
     }
@@ -1942,9 +1992,10 @@ useStore.subscribe((st, prev) => {
         warmedIds.set(id, pc.get(id) ?? 0)
       }
       // Small batches (a finished download) run silently; big ones show progress.
-      const job = ids.length >= 20 ? startJob('thumb', mode, '썸네일 준비') : null
+      const token: WarmToken = { cancelled: false }
+      const job = ids.length >= 20 ? startJob('thumb', mode, '썸네일 준비', undefined, () => cancelWarm(token)) : null
       if (job) updateJob(job, { total: ids.length })
-      warmThumbs(ids, job ? (done, total) => updateJob(job, { done, total }) : undefined)
+      warmThumbs(ids, job ? (done, total) => updateJob(job, { done, total }) : undefined, token)
         .then(() => job && endJob(job, { status: 'done', detail: `${ids.length}개` }))
         .catch((e: any) => job && endJob(job, { status: 'error', error: String(e?.message ?? e) }))
     }

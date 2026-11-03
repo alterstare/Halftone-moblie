@@ -387,6 +387,10 @@ export interface ScanProgress {
   total: number
   current: string
   done: boolean
+  // walk = folders being listed (folders read / works found so far, no total);
+  // read = work info (sidecars) being read, scanned / total.
+  phase?: 'walk' | 'read'
+  folders?: number
 }
 
 export interface ParsedName {
