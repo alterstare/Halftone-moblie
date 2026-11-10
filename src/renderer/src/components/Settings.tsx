@@ -17,6 +17,7 @@ import { useLock } from '../lock'
 import type { Settings as SettingsT } from '../../../shared/types'
 import { SPLIT_SETTING_KEYS } from '../../../shared/types'
 import { setExcluded } from '../exclude'
+import { replaceExcludedThumbs } from '../thumbs'
 import ConfirmModal from './ConfirmModal'
 import SearchClear from './SearchClear'
 import { SearchIcon } from './icons'
@@ -52,6 +53,19 @@ const SCAN_KEYS: (keyof SettingsT)[] = [
   'doujinNamePatterns',
   'genreRules'
 ]
+
+// Newly registered 제외 이미지 → find the thumbs showing it and remake them
+// (in the background, as a job).
+async function replaceExcluded(added: string[]): Promise<void> {
+  const st = useStore.getState()
+  const ids = st.works.map((w) => w.id)
+  if (!ids.length) return
+  const jid = st.startJob('thumb', st.libraryMode, '제외 이미지 썸네일 교체')
+  st.updateJob(jid, { total: ids.length })
+  const n = await replaceExcludedThumbs(ids, added, (done) => st.updateJob(jid, { done }))
+  st.endJob(jid, { status: 'done', detail: n ? `썸네일 ${n}개 교체` : '교체할 썸네일 없음' })
+  if (n) st.bumpThumbNonce() // cards reload their thumbs
+}
 
 export default function Settings(): JSX.Element {
   const settings = useStore((s) => s.settings)
@@ -146,6 +160,8 @@ export default function Settings(): JSX.Element {
     // check settles instead of flagging the perMode difference.
     setDraft(useStore.getState().settings)
     setExcluded(saved.excludedImageHashes)
+    const added = saved.excludedImageHashes.filter((h) => !before.excludedImageHashes.includes(h))
+    if (added.length) void replaceExcluded(added)
     setSettingsDirty(false)
     // Folders / name patterns / genre rules changed → what the library holds
     // changed: rescan (pull-to-refresh no longer does).
