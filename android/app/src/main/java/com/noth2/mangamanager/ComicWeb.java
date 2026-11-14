@@ -159,6 +159,13 @@ final class ComicWeb {
         cm.setAcceptThirdPartyCookies(web, true);
         web.addJavascriptInterface(new Bridge(), "MMComic");
         web.setWebViewClient(new WebViewClient() {
+            // Renderer killed (memory): rebuild the activity, don't crash.
+            @Override
+            public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                MainActivity.rendererGone(act);
+                return true;
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 startedSeq = loadingSeq;

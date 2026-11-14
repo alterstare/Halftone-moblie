@@ -576,14 +576,14 @@ export function LibraryFab({
               />
             </form>
             <div className="exit-actions">
-              <button className="exit-btn ghost" onClick={() => setJump(null)}>
-                취소
-              </button>
               <button
                 className="exit-btn primary"
                 onClick={() => (document.querySelector('.page-jump-row') as HTMLFormElement | null)?.requestSubmit()}
               >
                 이동
+              </button>
+              <button className="exit-btn ghost" onClick={() => setJump(null)}>
+                취소
               </button>
             </div>
           </div>

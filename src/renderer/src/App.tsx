@@ -26,7 +26,7 @@ import { startExitAnimations } from './exitAnimations'
 import { setExcluded } from './exclude'
 import { startLockGuard, markLockReady, useLock, decoyHiddenTabs } from './lock'
 import LockPrompt from './components/LockPrompt'
-import { restoreSoftReload } from './softReload'
+import { dropBackground, restoreBackground, restoreSoftReload, saveBackground } from './softReload'
 import { resumeSummaryJobs } from './summaryJob'
 import Caret from './components/Caret'
 
@@ -169,8 +169,8 @@ export default function App(): JSX.Element {
       // F5 brings back the exact pre-reload screen; otherwise apply the start
       // screen (settings › 스타일) instead of the last tab.
       const start = settings.startScreen ?? 'last'
-      if (restoreSoftReload()) {
-        /* same screen as before the reload */
+      if (restoreSoftReload() || restoreBackground()) {
+        /* same screen as before the reload / the background kill */
       } else if (start !== 'last') {
         const [mode, where] = start.split('-') as ['doujin' | 'normal', 'home' | 'online']
         useStore.setState({ activeTabId: null, libraryMode: mode, view: where === 'online' ? 'browse' : 'home' })
@@ -231,7 +231,14 @@ export default function App(): JSX.Element {
     prevLibView.current = view
   }, [view])
   // Exit = always save the session (open tabs) and close — no exit popup.
-  const exitSaving = (): void => void window.api.closeWindow('keep', snapshot())
+  const exitSaving = (): void => {
+    dropBackground()
+    void window.api.closeWindow('keep', snapshot())
+  }
+
+  // Android may kill the app while it's in the background (memory) → the
+  // screen is saved on leaving and dropped on coming back (softReload.ts).
+  useEffect(() => window.api.onAppState((active) => (active ? dropBackground() : saveBackground())), [])
 
   // Cloudflare auth: main pops its browser window and tells us to show a banner.
   const [cfChallenge, setCfChallenge] = useState(false)

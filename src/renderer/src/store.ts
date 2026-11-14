@@ -107,6 +107,8 @@ export interface DownloadItem {
   phase: DoujinProgress['phase']
   error?: string
   spec?: DownloadSpec // how to (re)start this download; set on dispatch
+  page?: number // 일반 만화: pages saved of the current chapter (DoujinProgress)
+  pages?: number
 }
 
 // A background task shown in the global activity bar (library scan, metadata…).
@@ -1560,7 +1562,9 @@ export const useStore = create<AppState>((set, get) => ({
         phase: p.phase,
         // Clear the old error once a fresh (re)start moves past the error state.
         error: p.message ?? (p.phase === 'error' ? prev?.error : undefined),
-        spec: prev?.spec
+        spec: prev?.spec,
+        page: p.page,
+        pages: p.pages
       }
       const downloads =
         i >= 0

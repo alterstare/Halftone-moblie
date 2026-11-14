@@ -24,7 +24,7 @@ const controllers = new Map<string, AbortController>()
 // Background keep-alive: while any download is queued / running, the native
 // foreground service (DownloadService.java) keeps the process alive and shows
 // the progress as a notification. Updates are throttled to one per second.
-const live = new Map<string, { title: string; done: number; total: number; running: boolean }>()
+const live = new Map<string, { title: string; done: number; total: number; running: boolean; pages?: { page: number; pages: number } }>()
 let noteTimer: ReturnType<typeof setTimeout> | null = null
 let noteAt = 0
 let serviceOn = false
@@ -40,7 +40,12 @@ function pushNote(): void {
   const all = [...live.values()]
   const cur = all.find((d) => d.running && d.total > 0) ?? all.find((d) => d.running) ?? all[0]
   const waiting = all.length - 1
-  const text = (cur.total > 0 ? `${cur.done} / ${cur.total}` : '준비 중') + (waiting > 0 ? ` · 대기 ${waiting}` : '')
+  const text =
+    (cur.pages && cur.done < cur.total
+      ? `${cur.done + 1} / ${cur.total}화 · ${cur.pages.pages ? `${cur.pages.page} / ${cur.pages.pages}쪽` : '이미지 목록 모으는 중'}`
+      : cur.total > 0
+        ? `${cur.done} / ${cur.total}`
+        : '준비 중') + (waiting > 0 ? ` · 대기 ${waiting}` : '')
   serviceOn = true
   void MM.downloadService({
     active: true,
@@ -52,6 +57,22 @@ function pushNote(): void {
     done: cur.done,
     total: cur.total
   }).catch(() => {})
+}
+
+// Boot with a queue to resume (store.ts mm-dl-queue): the running service is
+// kept and handed to the resumed downloads; nothing resumed → stopped.
+export const hasDlQueue = (): boolean => {
+  try {
+    return (localStorage.getItem('mm-dl-queue') ?? '[]') !== '[]'
+  } catch {
+    return false
+  }
+}
+export function adoptService(): void {
+  serviceOn = true
+  setTimeout(() => {
+    if (!live.size && !noteTimer) pushNote()
+  }, 15000)
 }
 
 function noteChanged(urgent = false): void {
@@ -103,7 +124,8 @@ export type Report = (
   phase: DoujinProgress['phase'],
   done?: number,
   total?: number,
-  label?: string
+  label?: string,
+  pages?: { page: number; pages: number } // 일반 만화: pages of the current chapter
 ) => void
 
 // Run `task` as download `code`: waits for a slot, wires the stop button to
@@ -116,13 +138,14 @@ export async function runDownload<T>(
 ): Promise<T> {
   const send = (p: Omit<DoujinProgress, 'code'>): void =>
     sendToRenderer(IPC.doujinProgress, { code, ...p } satisfies DoujinProgress)
-  const report: Report = (phase, done = 0, total = 0, label = '') => {
-    send({ title: title || label, done, total, phase })
+  const report: Report = (phase, done = 0, total = 0, label = '', pages) => {
+    send({ title: title || label, done, total, phase, ...pages })
     const d = live.get(code)
     if (d) {
       d.title = title || label || d.title
       d.done = done
       d.total = total
+      d.pages = pages
       d.running = phase === 'fetching' || phase === 'downloading'
       noteChanged()
     }

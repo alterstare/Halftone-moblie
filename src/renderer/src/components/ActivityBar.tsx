@@ -31,6 +31,7 @@ interface Row {
   // Set only for download rows — drives the phase label + stop/retry/remove controls.
   dl?: { code: string; phase: DoujinProgress['phase']; canStop: boolean; canRetry: boolean }
   canCancel?: boolean // a job that can be stopped (×)
+  pagesText?: string // 일반 만화 download: "3/54화 · 12/83쪽" (chapterPages)
 }
 
 // Also used by the 작업 목록 screen (Download.tsx) — same icons in both.
@@ -43,6 +44,17 @@ export const KIND_ICON: Record<Job['kind'], ReactNode> = {
 }
 
 const ACTIVE = new Set<DoujinProgress['phase']>(['queued', 'fetching', 'downloading', 'enriching'])
+
+// 일반 만화 download: chapter n / N and the pages of the chapter being saved,
+// so it shows moving within a long chapter; `done` advances page by page.
+export function chapterPages(d: { done: number; total: number; page?: number; pages?: number }): { done: number; text: string } | null {
+  if (d.pages === undefined || d.total <= 0 || d.done >= d.total) return null
+  const page = d.page ?? 0
+  return {
+    done: d.done + (d.pages ? page / d.pages : 0),
+    text: `${d.done + 1}/${d.total}화 · ${d.pages ? `${page}/${d.pages}쪽` : '이미지 목록 모으는 중'}`
+  }
+}
 
 function pct(done: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
@@ -103,7 +115,8 @@ export default function ActivityBar(): JSX.Element | null {
         icon: <Download2Icon />,
         title: d.title,
         status: (d.phase === 'done' ? 'done' : d.phase === 'error' ? 'error' : 'running') as Row['status'],
-        done: d.done,
+        done: (d.phase === 'downloading' && chapterPages(d)?.done) || d.done,
+        pagesText: d.phase === 'downloading' ? chapterPages(d)?.text : undefined,
         total: d.total,
         detail: d.phase,
         error: d.error,
@@ -134,7 +147,7 @@ export default function ActivityBar(): JSX.Element | null {
   const summary = showUpdate
     ? updateLabel
     : cur
-      ? `${cur.title}${cur.total > 0 ? ` · ${pct(cur.done, cur.total)}%` : ` · ${cur.detail && !cur.dl ? cur.detail : '진행 중…'}`}`
+      ? `${cur.title}${cur.pagesText ? ` · ${cur.pagesText}` : cur.total > 0 ? ` · ${pct(cur.done, cur.total)}%` : ` · ${cur.detail && !cur.dl ? cur.detail : '진행 중…'}`}`
       : `작업 ${rows.length}개 · 진행 중 없음`
   const anyActive = downloads.some((d) => downloadMode(d.code) === libraryMode && ACTIVE.has(d.phase))
   const anyPaused = downloads.some(
@@ -149,6 +162,7 @@ export default function ActivityBar(): JSX.Element | null {
     if (r.status === 'cancelled') return r.detail ?? '중단됨'
     if (r.total > 0 && r.detail && !r.dl) return `${r.detail} · ${r.done}/${r.total} (${pct(r.done, r.total)}%)`
     if (r.status === 'done') return r.detail ?? '완료'
+    if (r.pagesText) return `${r.pagesText} (${pct(r.done, r.total)}%)`
     return r.total > 0 ? `${r.done}/${r.total} (${pct(r.done, r.total)}%)` : r.detail ?? '진행 중…'
   }
 

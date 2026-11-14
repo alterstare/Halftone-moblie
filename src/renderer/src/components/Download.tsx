@@ -3,7 +3,7 @@ import { useStore, downloadMode } from '../store'
 import type { Job } from '../store'
 import { useLock } from '../lock'
 import { PauseIcon, PlayIcon, DeleteIcon, Download2Icon, ConvertIcon, XIcon } from './icons'
-import { KIND_ICON } from './ActivityBar'
+import { KIND_ICON, chapterPages } from './ActivityBar'
 import type { DoujinProgress } from '../../../shared/ipc'
 
 // One merged activity entry: background jobs (export/scan) + online downloads.
@@ -20,6 +20,7 @@ interface Row {
   // controls. Jobs (scan/meta/…) leave it undefined.
   dl?: { code: string; phase: DoujinProgress['phase']; canRetry: boolean }
   canCancel?: boolean // a job that can be stopped (×)
+  pagesText?: string // 일반 만화 download: "3/54화 · 12/83쪽" (chapterPages)
 }
 const rowPct = (done: number, total: number): number =>
   total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0
@@ -65,7 +66,8 @@ export default function Download(): JSX.Element {
       icon: <Download2Icon />,
       title: d.title || d.code,
       status: (d.phase === 'done' ? 'done' : d.phase === 'error' ? 'error' : 'running') as Row['status'],
-      done: d.done,
+      done: (d.phase === 'downloading' && chapterPages(d)?.done) || d.done,
+      pagesText: d.phase === 'downloading' ? chapterPages(d)?.text : undefined,
       total: d.total,
       detail: d.phase,
       error: d.error,
@@ -157,7 +159,9 @@ export default function Download(): JSX.Element {
                     ? '정지됨'
                     : r.status === 'cancelled'
                       ? r.detail ?? '중단됨'
-                      : r.total > 0
+                      : r.pagesText
+                        ? r.pagesText
+                        : r.total > 0
                         ? `${!r.dl && r.detail ? `${r.detail} · ` : ''}${r.done}/${r.total}`
                         : r.detail ?? '…'}
                 </span>

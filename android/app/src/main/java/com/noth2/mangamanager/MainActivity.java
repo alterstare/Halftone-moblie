@@ -28,6 +28,17 @@ public class MainActivity extends BridgeActivity {
         // No page zoom: the only pinch zoom is the reader's own (on the pages).
         bridge.getWebView().getSettings().setSupportZoom(false);
         bridge.getWebView().getSettings().setBuiltInZoomControls(false);
+        // Android may kill the WebView renderer of a backgrounded app for
+        // memory; Capacitor then lets the whole app crash. Rebuild the activity
+        // instead: the process (and the download service) stays, the page
+        // starts again — its screen saved on leaving, downloads resumed.
+        bridge.addWebViewListener(new com.getcapacitor.WebViewListener() {
+            @Override
+            public boolean onRenderProcessGone(android.webkit.WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                rendererGone(MainActivity.this);
+                return true;
+            }
+        });
         // Last theme (MMPlugin.setTheme) as the page background before it loads.
         boolean dark = getSharedPreferences("halftone", MODE_PRIVATE).getBoolean("dark", false);
         int bg = dark ? 0xFF0B0D13 : 0xFFF4F5F8;
@@ -43,6 +54,17 @@ public class MainActivity extends BridgeActivity {
                 MMPlugin.exit(MainActivity.this);
             }
         });
+    }
+
+    private boolean rebuilding;
+
+    // Both WebViews share one renderer — rebuild once for the pair.
+    static void rendererGone(android.app.Activity act) {
+        if (!(act instanceof MainActivity)) return;
+        MainActivity m = (MainActivity) act;
+        if (m.rebuilding) return;
+        m.rebuilding = true;
+        m.runOnUiThread(m::recreate);
     }
 
     @Override

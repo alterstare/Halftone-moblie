@@ -129,6 +129,7 @@ export interface MMPlugin {
   restartApp(): Promise<void>
 
   addListener(event: 'back', cb: () => void): Promise<PluginListenerHandle>
+  addListener(event: 'appState', cb: (e: { active: boolean }) => void): Promise<PluginListenerHandle>
   addListener(event: 'comicVisible', cb: (e: { visible: boolean }) => void): Promise<PluginListenerHandle>
   addListener(event: 'scanProgress', cb: (e: { folders: number; works: number }) => void): Promise<PluginListenerHandle>
 }

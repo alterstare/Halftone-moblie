@@ -1013,7 +1013,7 @@ export async function downloadGenericChapters(
   chapters: ComicChapter[],
   title: string,
   destRoot: string,
-  onProgress: (done: number, total: number, label: string) => void,
+  onProgress: (done: number, total: number, label: string, page?: number, pages?: number) => void,
   only?: string[],
   signal?: AbortSignal,
   record?: ChapterRecord // resumed download: chapters already saved in full
@@ -1027,7 +1027,7 @@ export async function downloadGenericChapters(
   for (let i = 0; i < targets.length; i++) {
     signal?.throwIfAborted()
     const ch = targets[i]
-    onProgress(i, total, ch.title)
+    onProgress(i, total, ch.title, 0, 0)
     const n = Math.floor(ch.num || i + 1)
     const chDir = join(seriesDir, safeName(chapterFolderName(title, ch.title, n)))
     if (await chapterSaved(record, ch.url, chDir)) continue
@@ -1043,7 +1043,8 @@ export async function downloadGenericChapters(
       /* keep chapter url */
     }
     await fs.mkdir(chDir, { recursive: true })
-    if (await saveChapterImages(chDir, urls, referer)) await record?.done(ch.url)
+    onProgress(i, total, ch.title, 0, urls.length)
+    if (await saveChapterImages(chDir, urls, referer, (p, ps) => onProgress(i, total, ch.title, p, ps))) await record?.done(ch.url)
   }
   onProgress(total, total, '완료')
   return seriesDir
@@ -1084,17 +1085,27 @@ function extOf(url: string): string {
 // failing image is skipped; the rest still download. `referer` overrides the
 // comic site referer (backup sites need their own domain).
 // Resolves true when every image is on disk (none skipped as failed).
-async function saveChapterImages(chDir: string, urls: string[], referer?: string): Promise<boolean> {
+async function saveChapterImages(
+  chDir: string,
+  urls: string[],
+  referer?: string,
+  onPage?: (page: number, pages: number) => void // after each image (saved, already there or failed)
+): Promise<boolean> {
   const headers: Record<string, string> = referer ? { Referer: referer } : {}
   let next = 0
   let failed = 0
+  let settled = 0
+  const tick = (): void => onPage?.(++settled, urls.length)
   const worker = async (): Promise<void> => {
     for (;;) {
       const j = next++
       if (j >= urls.length) return
       const fp = join(chDir, `img${String(j).padStart(4, '0')}${extOf(urls[j])}`)
       const st = await fs.stat(fp).catch(() => null)
-      if (st && st.size > 0) continue
+      if (st && st.size > 0) {
+        tick()
+        continue
+      }
       // Retry network errors (connection resets); HTTP errors fail at once.
       for (let attempt = 0; ; attempt++) {
         try {
@@ -1108,6 +1119,7 @@ async function saveChapterImages(chDir: string, urls: string[], referer?: string
           await delay(300 * (attempt + 1))
         }
       }
+      tick()
     }
   }
   await Promise.all(Array.from({ length: 4 }, worker))
@@ -1150,7 +1162,7 @@ export async function comicDownloadSeries(
   seriesUrl: string,
   title: string,
   destRoot: string,
-  onProgress: (done: number, total: number, label: string) => void,
+  onProgress: (done: number, total: number, label: string, page?: number, pages?: number) => void,
   only?: string[], // when set, download only these chapter urls (선택/이어서)
   signal?: AbortSignal,
   record?: ChapterRecord // resumed download: chapters already saved in full
@@ -1166,7 +1178,7 @@ export async function comicDownloadSeries(
   for (let i = 0; i < chapters.length; i++) {
     signal?.throwIfAborted()
     const ch = chapters[i]
-    onProgress(i, total, ch.title)
+    onProgress(i, total, ch.title, 0, 0)
     // Folder = "<n>화 <subtitle>" (series name is only on the parent). The chapter
     // number sorts/merges subset & 이어서 downloads correctly on its own.
     const n = Math.floor(ch.num || i + 1)
@@ -1184,7 +1196,8 @@ export async function comicDownloadSeries(
     }
     if (!urls.length) continue
     await fs.mkdir(chDir, { recursive: true })
-    if (await saveChapterImages(chDir, urls)) await record?.done(ch.url)
+    onProgress(i, total, ch.title, 0, urls.length)
+    if (await saveChapterImages(chDir, urls, undefined, (p, ps) => onProgress(i, total, ch.title, p, ps))) await record?.done(ch.url)
   }
   onProgress(total, total, '완료')
   return seriesDir

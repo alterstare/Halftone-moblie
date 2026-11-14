@@ -18,6 +18,7 @@ import { doujinApi } from './api/doujin'
 import { comicApi } from './api/comic'
 import { checkForUpdate, installUpdate } from './update'
 import { applyGalleryHide } from './gallery'
+import { adoptService, hasDlQueue } from './downloads'
 
 
 // One-time migration to the in-app general-manga favorites (see desktop main).
@@ -55,6 +56,7 @@ const events: Partial<Api> = {
   onComicStatus: (cb) => on<string | null>(IPC.comicStatus, cb),
   onComicPages: (cb) => on<{ code: string; urls: string[]; state: 'more' | 'done' | 'cut' }>(IPC.comicPages, cb),
   onNavBack: (cb) => on(IPC.navBack, cb),
+  onAppState: (cb) => on<boolean>(IPC.appState, cb),
   onUpdateStatus: (cb: (s: UpdateStatus) => void) => on<UpdateStatus>(IPC.updateStatus, cb),
   installUpdate: () => installUpdate(),
   doujinCancelEnrich: doujinApi.doujinCancelEnrich
@@ -77,15 +79,19 @@ export async function installBackend(): Promise<void> {
   await migrateNormalFavorites()
   await migrateFavorites()
   await initThumbDir()
-  // A WebView reload (restartApp) leaves no download running — drop a service
-  // + notification left over from the previous page.
-  void MM.downloadService({ active: false }).catch(() => {})
+  // A WebView reload (restartApp, renderer rebuilt) leaves no download
+  // running — drop a service + notification left over from the previous page,
+  // unless the renderer resumes a queue: in the background the service could
+  // not be started again (Android 12+).
+  if (hasDlQueue()) adoptService()
+  else void MM.downloadService({ active: false }).catch(() => {})
 
   // Cloudflare check shown/cleared → "인증 필요" banner in the UI.
   setComicChallengeHandler((active) => sendToRenderer(IPC.comicChallenge, active))
   setComicStatusHandler((msg) => sendToRenderer(IPC.comicStatus, msg))
   // Android back button → the UI's history back (it decides when to exit).
   await MM.addListener('back', () => sendToRenderer(IPC.navBack))
+  await MM.addListener('appState', (e) => sendToRenderer(IPC.appState, e.active))
 
   window.api = { ...libraryApi, ...favoritesApi, ...doujinApi, ...comicApi, ...events } as Api
   // Load the favorites' summary cache in the background (the first 즐겨찾기

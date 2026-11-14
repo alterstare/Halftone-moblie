@@ -31,6 +31,7 @@ import okhttp3.CookieJar;
 import okhttp3.Dns;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
+import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
@@ -130,6 +131,7 @@ final class Net {
             // Each request gets a deadline: a stalled connection (no reset, no data)
             // would otherwise hang the reader / download forever.
             .callTimeout(60, TimeUnit.SECONDS)
+            .protocols(java.util.Collections.singletonList(Protocol.HTTP_1_1))
             .cookieJar(WEBVIEW_COOKIES)
             .addInterceptor(chain -> {
                 Request.Builder b = chain.request().newBuilder();

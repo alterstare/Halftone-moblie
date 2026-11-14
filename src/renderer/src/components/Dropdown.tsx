@@ -14,7 +14,9 @@ export default function Dropdown<T extends string>({
   mini = false,
   icon,
   title,
-  align = 'right'
+  align = 'right',
+  isSel,
+  stayOpen = false
 }: {
   value: T
   options: readonly (readonly [T, string])[]
@@ -31,6 +33,10 @@ export default function Dropdown<T extends string>({
   // Icon trigger: which edge the panel is anchored to ('left' for a button at
   // the start of a row, opening rightward).
   align?: 'left' | 'right'
+  // Several marked at once (multi-select): which options show as chosen.
+  isSel?: (v: T) => boolean
+  // Keep the panel open after a pick (toggling several options).
+  stayOpen?: boolean
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -78,10 +84,10 @@ export default function Dropdown<T extends string>({
             <button
               key={v}
               type="button"
-              className={`dropdown-opt ${v === value ? 'sel' : ''}`}
+              className={`dropdown-opt ${(isSel ? isSel(v) : v === value) ? 'sel' : ''}`}
               onClick={() => {
                 onChange(v)
-                setOpen(false)
+                if (!stayOpen) setOpen(false)
               }}
             >
               {l}

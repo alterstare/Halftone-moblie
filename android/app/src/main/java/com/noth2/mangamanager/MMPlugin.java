@@ -84,6 +84,27 @@ public class MMPlugin extends Plugin {
         });
     }
 
+    // App on / off screen → JS (the renderer saves its screen on leaving, in
+    // case Android kills the backgrounded app). Not the page's visibility:
+    // that stays "visible" while downloads run (MMWebView).
+    @Override
+    protected void handleOnStart() {
+        super.handleOnStart();
+        appState(true);
+    }
+
+    @Override
+    protected void handleOnStop() {
+        super.handleOnStop();
+        appState(false);
+    }
+
+    private void appState(boolean active) {
+        JSObject o = new JSObject();
+        o.put("active", active);
+        notifyListeners("appState", o);
+    }
+
     // Android back button. True = handled here or forwarded to JS.
     boolean handleBack() {
         if (comic != null && comic.back()) return true;
@@ -1337,6 +1358,7 @@ public class MMPlugin extends Plugin {
         if (p == null) return;
         p.getActivity().runOnUiThread(() -> {
             DownloadService.applyPriority(p.getBridge().getWebView());
+            if (p.getBridge().getWebView() instanceof MMWebView) ((MMWebView) p.getBridge().getWebView()).refreshVisibility();
             if (p.comic != null) DownloadService.applyPriority(p.comic.webView());
         });
     }

@@ -20,6 +20,37 @@ function rankToken(token: string, term: string): number | null {
   return idx === 0 || value[idx - 1] === ' ' ? 0 : 1
 }
 
+// Touch drags on the dropdown scroll only the dropdown: at its ends (or when it
+// doesn't overflow) the move is cancelled instead of chaining to the library
+// list, and it never reaches the list's pull-to-refresh handlers.
+const contained = new WeakSet<HTMLElement>()
+function containTouchScroll(el: HTMLElement | null): void {
+  if (!el || contained.has(el)) return
+  contained.add(el)
+  let y = 0
+  el.addEventListener(
+    'touchstart',
+    (e) => {
+      y = e.touches[0]?.clientY ?? 0
+      e.stopPropagation()
+    },
+    { passive: true }
+  )
+  el.addEventListener(
+    'touchmove',
+    (e) => {
+      e.stopPropagation()
+      const ny = e.touches[0]?.clientY ?? y
+      const dy = ny - y
+      y = ny
+      const atTop = el.scrollTop <= 0
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1
+      if (e.cancelable && ((dy > 0 && atTop) || (dy < 0 && atBottom))) e.preventDefault()
+    },
+    { passive: false }
+  )
+}
+
 // Search input with a dark, app-styled tag autocomplete. Suggestions complete the
 // LAST whitespace-separated word of the query, so earlier tokens are kept.
 // `tokens` are local (library) suggestions matched synchronously; the optional
@@ -181,7 +212,7 @@ export default function TagSearchInput({
       <SearchClear value={value} onClear={() => onChange('')} />
       {trailing && <span className="search-trailing">{trailing}</span>}
       {show && (
-        <ul className="search-ac-list">
+        <ul className="search-ac-list" ref={containTouchScroll}>
           {matches.map((t, i) => (
             <li
               key={t}
@@ -198,7 +229,7 @@ export default function TagSearchInput({
         </ul>
       )}
       {showPanel && (
-        <ul className="search-ac-list">
+        <ul className="search-ac-list" ref={containTouchScroll}>
           {/* Top row: toggle between 최근 검색 and 즐겨찾는 태그 (only if favorites exist). */}
           {hasFav && (
             <li

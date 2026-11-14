@@ -53,11 +53,11 @@ export function ChapterPicker({
         ))}
       </div>
       <div className="dl-select-foot">
-        <button className="btn" onClick={onCancel}>
-          취소
-        </button>
         <button className="btn primary" disabled={!selected.size} onClick={onConfirm}>
           {confirmLabel}
+        </button>
+        <button className="btn" onClick={onCancel}>
+          취소
         </button>
       </div>
     </>

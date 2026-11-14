@@ -30,11 +30,21 @@ public class DownloadService extends Service {
     // True while the service is up — read by the exit path (keep running in
     // the background instead of finishing the activity) and the WebViews.
     static volatile boolean running;
+    private static DownloadService self;
 
     private PowerManager.WakeLock wake;
     private WifiManager.WifiLock wifi;
 
     static void update(Context ctx, String title, String text, int done, int total) {
+        // Already up: just the notification. startForegroundService from the
+        // background throws on Android 12+ (a page rebuilt behind the screen
+        // resuming its queue).
+        DownloadService s = self;
+        if (running && s != null) {
+            NotificationManager nm = s.getSystemService(NotificationManager.class);
+            if (nm != null) nm.notify(NOTE_ID, s.build(title, text, done, total));
+            return;
+        }
         Intent i = new Intent(ctx, DownloadService.class)
             .putExtra("title", title)
             .putExtra("text", text)
@@ -64,6 +74,7 @@ public class DownloadService extends Service {
     public void onCreate() {
         super.onCreate();
         running = true;
+        self = this;
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm != null) {
             NotificationChannel ch = new NotificationChannel(CHANNEL, "다운로드", NotificationManager.IMPORTANCE_LOW);
@@ -144,6 +155,7 @@ public class DownloadService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        self = null;
         if (wake != null && wake.isHeld()) wake.release();
         if (wifi != null && wifi.isHeld()) wifi.release();
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);

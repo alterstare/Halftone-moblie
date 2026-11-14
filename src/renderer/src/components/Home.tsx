@@ -792,11 +792,11 @@ export default function Home(): JSX.Element {
               />
             </form>
             <div className="exit-actions">
-              <button className="exit-btn ghost" onClick={() => setMergeAsk(null)}>
-                취소
-              </button>
               <button className="exit-btn primary" disabled={!mergeAsk.name.trim()} onClick={confirmMerge}>
                 통합
+              </button>
+              <button className="exit-btn ghost" onClick={() => setMergeAsk(null)}>
+                취소
               </button>
             </div>
           </div>

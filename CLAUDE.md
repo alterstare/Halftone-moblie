@@ -337,6 +337,23 @@ app.png's dark dots re-screened coarse, clipped to a circle like the
 launcher icon (vector; a plain downscale of the fine dots blurs; the system
 download icon animates).
 Android 15 caps dataSync at ~6h/day (`onTimeout` stops it).
+Background timers (2026-11-14): a hidden page gets its timers throttled by
+Chromium (emulator: 250ms chain → 1s, then 35s gaps within ~1 min), which
+stalled the download pacer. The app WebView is `MMWebView`
+(res/layout/capacitor_bridge_layout_main.xml overrides Capacitor's): while
+`DownloadService.running` it reports its window as visible
+(`onWindowVisibilityChanged`, re-applied on service start / stop via
+`onDownloadService` → `refreshVisibility`). So `document.visibilityState`
+is no "app in background" signal — use `window.api.onAppState`
+(MMPlugin handleOnStart / handleOnStop → `appState`).
+Killed in the background: on `appState` false the renderer writes the
+soft-reload snapshot (softReload.ts) to localStorage `mm-bg-resume`
+(no lock state — the PIN is asked again), dropped on coming back / exit;
+boot restores it (`restoreBackground`, beats the start screen). A killed
+WebView renderer no longer crashes the app (Capacitor returns false from
+onRenderProcessGone): MainActivity / ComicWeb return true and
+`rendererGone` recreates the activity once — process and download service
+stay, the page boots again (snapshot + `resumeDownloads`).
 Update notice = `src/backend/update.ts` (GitHub releases/latest): startup
 check only; 업데이트 in the activity bar opens the release page in the browser
 (`MM.openUrl`, https only). NO in-app APK download / install: no
@@ -518,6 +535,15 @@ Two library modes:
   and leaving to the list stops it; ComicBrowse lists use slot 'browse'
   (latest wins). Checkpoints: navigate / ensure / waitPageImages / collect /
   chapter-page loops.
+  Comic OkHttp client is HTTP/1.1 only (Net.java, 2026-11-14): over HTTP/2
+  (one shared connection) the image CDN stalled parallel requests — emulator,
+  8 at once: 58s + 3 timeouts vs 4.3s on HTTP/1.1 (Chromium fetch of the same
+  8: 4.3s); a 2-chapter download 705s → 126s. Prefetching the next chapter's
+  list while saving images was tried: no gain (they share the bandwidth).
+  Download progress: `DoujinProgress.page / pages` = pages of the chapter being
+  saved (0 pages = list being collected) → "3/54화 · 12/83쪽" in 작업 목록,
+  activity bar and notification (`chapterPages` in ActivityBar.tsx); the bar
+  moves page by page.
   Some ISPs reset TLS by SNI for the site domain; its DNS CNAME (a BunnyCDN
   host) serves the same site unblocked. (Desktop 0.4.1
   tried switching to it automatically; reverted in 0.4.2 — not used now.)

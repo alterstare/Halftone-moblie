@@ -58,7 +58,8 @@ async function runComicDownload(seriesUrl: string, title: string, chapterUrls?: 
       seriesUrl,
       title,
       destRoot,
-      (done, total, label) => report('downloading', done, total, label),
+      (done, total, label, page, pages) =>
+        report('downloading', done, total, label, pages === undefined ? undefined : { page: page ?? 0, pages }),
       chapterUrls,
       signal,
       await chapterRecord(seriesUrl)
@@ -111,7 +112,8 @@ export const comicApi: Partial<Api> = {
         chapters,
         title,
         destRoot,
-        (done, total, label) => report('downloading', done, total, label),
+        (done, total, label, page, pages) =>
+        report('downloading', done, total, label, pages === undefined ? undefined : { page: page ?? 0, pages }),
         only,
         signal,
         await chapterRecord('backup:' + title)

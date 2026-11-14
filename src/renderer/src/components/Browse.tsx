@@ -302,7 +302,13 @@ export default function Browse(): JSX.Element {
 
   // Language applies at once to whatever is showing (list or search), and is
   // what a tag search from elsewhere keeps (store.searchOnline).
-  const changeLang = (l: string): void => {
+  // 언어 is multi-select: 전체 clears the rest, a language toggles in / out
+  // (comma-joined in the source; none left = 전체).
+  const langSet = lang === 'all' ? [] : lang.split(',')
+  const changeLang = (pick: string): void => {
+    const next =
+      pick === 'all' ? [] : langSet.includes(pick) ? langSet.filter((x) => x !== pick) : [...langSet, pick]
+    const l = next.length ? LANGS.map(([v]) => v).filter((v) => next.includes(v)).join(',') : 'all'
     setLang(l)
     useStore.getState().patchSettings({ browseLang: l === 'all' ? null : l })
     setBrowsePage(0)
@@ -365,9 +371,9 @@ export default function Browse(): JSX.Element {
     const base = favSelected.includes(FAV_BASE) ? favGalleries : []
     const seen = new Set<string>()
     // the 언어 filter applies to the favorites too (unknown language = hidden)
-    const want = lang === 'all' ? null : lang
+    const want = lang === 'all' ? null : lang.split(',')
     return [...base, ...listGallery].filter(
-      (g) => !seen.has(g.code) && !!seen.add(g.code) && (!want || g.language === want)
+      (g) => !seen.has(g.code) && !!seen.add(g.code) && (!want || (!!g.language && want.includes(g.language)))
     )
   }, [favMode, favSelected, items, favGalleries, listGallery, lang])
   // Library lookups by gallery code (downloaded? local cover? local heart?).
@@ -490,7 +496,16 @@ export default function Browse(): JSX.Element {
         <div className="search-row">
           <TagSearchInput
             leading={
-              <Dropdown<string> icon={<FilterAltIcon />} title="언어" align="left" value={lang} onChange={changeLang} options={LANGS} />
+              <Dropdown<string>
+                icon={<FilterAltIcon />}
+                title="언어"
+                align="left"
+                value={lang}
+                onChange={changeLang}
+                options={LANGS}
+                isSel={(v) => (v === 'all' ? lang === 'all' : langSet.includes(v))}
+                stayOpen
+              />
             }
             trailing={
               // 즐겨찾기 view: the icon sorts the favorites (the online sorts don't apply)

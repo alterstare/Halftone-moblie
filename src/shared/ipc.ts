@@ -145,6 +145,7 @@ export const IPC = {
   openFolder: 'util:openFolder',
   closeWindow: 'app:closeWindow', // renderer -> main: exit decision
   navBack: 'app:navBack', // main -> renderer: mouse/back-command → go back
+  appState: 'app:state', // main -> renderer: app on screen (true) / in the background (false)
   updateStatus: 'update:status', // main -> renderer: auto-update progress/state
   installUpdate: 'update:install', // renderer -> main: quit and install the downloaded update
   resetApp: 'app:reset' // renderer -> main: wipe settings/library data (+ optionally work folders), relaunch
@@ -192,6 +193,10 @@ export interface DoujinProgress {
     | 'error'
     | 'stopped'
   message?: string
+  // 일반 만화: done / total count chapters; these are the pages of the chapter
+  // being saved (pages 0 = its image list is still being collected).
+  page?: number
+  pages?: number
 }
 
 export interface GallerySummary {
@@ -413,6 +418,8 @@ export interface Api {
   onComicPages: (cb: (p: { code: string; urls: string[]; state: 'more' | 'done' | 'cut' }) => void) => () => void
   // Mouse "back" side button / browser-backward app command → go back.
   onNavBack: (cb: () => void) => () => void
+  // The app came on screen (true) / went to the background (false).
+  onAppState: (cb: (active: boolean) => void) => () => void
   // Mouse "forward" side button / browser-forward app command → go forward.
   // Renderer reports the exit decision. For 'keep', pass the live tab session.
   closeWindow: (decision: CloseDecision, session?: SessionState) => Promise<void>

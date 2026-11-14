@@ -324,7 +324,7 @@
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 22px;
   display: inline-flex;
   align-items: center;
@@ -518,7 +518,7 @@
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 22px;
   display: inline-flex;
   align-items: center;
@@ -569,7 +569,7 @@
   padding: 0 10px;
   background: var(--bg-2);
   border-radius: var(--r5) var(--r5) 0 0;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
@@ -788,7 +788,7 @@
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 19px;
   border-radius: 50%;
 }
@@ -1120,7 +1120,7 @@ body {
 }
 .fab-item .micon {
   font-size: 20px;
-  color: var(--text-dim);
+  color: var(--text-tag);
 }
 .fab-item:active {
   background: var(--accent-soft);
@@ -1366,7 +1366,7 @@ body:has(.activity) .fab-wrap {
   border: none;
   border-radius: 16px;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 13px;
   cursor: pointer;
 }
@@ -1406,7 +1406,7 @@ body:has(.activity) .fab-wrap {
 }
 .card-more-ed .micon {
   font-size: 18px;
-  color: var(--text-dim);
+  color: var(--text-tag);
 }
 .card-more-ed.on,
 .card-more-ed.on .micon {
@@ -1611,7 +1611,7 @@ body:has(.activity) .fab-wrap {
   border: none;
   border-radius: 16px;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 13px;
   cursor: pointer;
 }
@@ -2692,7 +2692,7 @@ body:has(.activity) .fab-wrap {
   margin-right: -2px;
   border: none;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--text-tag);
   font-size: 20px;
   display: grid;
   place-items: center;
@@ -3216,4 +3216,84 @@ body.focus-hide-tabs .app.focus-reader > .mtabbar {
 }
 .mm-cross:not(.show) .mm-cross-ok {
   pointer-events: none;
+}
+
+/* ===== Confirm / notice dialogs — Halftone mobile style (every app; rule in
+   ~/.claude/CLAUDE.md): the title big and left-aligned at the top, the
+   explanation small and left-aligned under it, small text buttons at the
+   bottom right in the order action (저장 / 삭제) · middle (저장 안 함) · close.
+   Colour: nothing is coloured except the main action — purple when it is
+   positive (저장 / 확인), red when it loses something (삭제 / 덮어쓰기).
+   Last in the file so it beats the older dialog rules above. ===== */
+.exit-backdrop .exit-modal {
+  text-align: left;
+  padding: 22px 22px 12px;
+  border: none;
+  background: var(--bg-1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+}
+.exit-modal .exit-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--text);
+  text-align: left;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.exit-modal .exit-desc {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  text-align: left;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.exit-modal .exit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-right: -8px;
+}
+.exit-modal .exit-actions .exit-btn {
+  flex: none;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--r3);
+  background: transparent;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.exit-modal .exit-actions .exit-btn::before {
+  display: none;
+}
+.exit-modal .exit-actions .exit-btn:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--text);
+  filter: none;
+}
+.exit-modal .exit-actions .exit-btn.primary,
+.exit-modal .exit-actions .exit-btn.primary:hover:not(:disabled) {
+  color: var(--accent);
+}
+.exit-modal .exit-actions .exit-btn.danger,
+.exit-modal .exit-actions .exit-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+.exit-modal .exit-actions .exit-btn:active:not(:disabled) {
+  background: var(--bg-3);
+}
+.exit-modal .exit-icon {
+  display: none;
 }

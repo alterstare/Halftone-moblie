@@ -534,10 +534,14 @@ export interface NozomiPage {
 }
 
 export async function fetchNozomi(
-  source: { kind: 'index' | 'search'; language: string | null; query?: string },
+  source: { kind: 'index' | 'search'; language: string | null; query?: string; sort?: string },
   page: number,
   pageSize: number
 ): Promise<NozomiPage> {
+  if (source.kind === 'index' && langsOf(source.language).length > 1) {
+    const all = await cachedIds(indexKey(source), () => indexIds({ ...source, kind: 'index' }))
+    return { ids: all.slice(page * pageSize, page * pageSize + pageSize), total: all.length }
+  }
   const url = ltn() + nozomiPath(source)
   const start = page * pageSize * 4
   const end = start + pageSize * 4 - 1
@@ -548,6 +552,35 @@ export async function fetchNozomi(
 }
 
 const idsFromBuf = (buf: Uint8Array): number[] => int32sBE(buf)
+
+// A source's language may name several, comma-joined ("korean,japanese").
+export function langsOf(language: string | null): string[] {
+  return (language ?? '').split(',').map((l) => l.trim()).filter((l) => l && l !== 'all')
+}
+
+// Whole id list of an index (latest / popular). Several languages: latest =
+// their language indexes merged newest (highest id) first; popular = the
+// all-language ranking kept to galleries in one of them.
+const indexKey = (source: { language: string | null; sort?: string }): string =>
+  `index:${source.sort ?? 'date'}:${langsOf(source.language).join(',') || 'all'}`
+async function indexIds(source: { kind: 'index'; language: string | null; sort?: string }): Promise<number[]> {
+  const langs = langsOf(source.language)
+  if (langs.length <= 1) return idsFromBuf((await httpsGetFull(ltn() + nozomiPath(source))).body)
+  if (source.sort && source.sort !== 'date') {
+    const [ranked, keep] = await Promise.all([
+      httpsGetFull(ltn() + nozomiPath({ ...source, language: null })).then((r) => idsFromBuf(r.body)),
+      languagesIdSet(langs)
+    ])
+    return ranked.filter((x) => keep.has(x))
+  }
+  return [...(await languagesIdSet(langs))].sort((a, b) => b - a)
+}
+
+async function languagesIdSet(langs: string[]): Promise<Set<number>> {
+  const set = new Set<number>()
+  for (const ids of await Promise.all(langs.map(languageIndexIds))) for (const x of ids) set.add(x)
+  return set
+}
 
 // Index browse (latest / popular) minus excluded tags. Plain browse fetches only
 // the requested page by byte range, which can't skip anything — so with
@@ -570,8 +603,7 @@ export async function fetchNozomiExcluding(
 ): Promise<NozomiPage> {
   const toks = exclude.map((t) => t.replace(/^-/, '').trim()).filter(Boolean)
   if (!toks.length) return fetchNozomi(source, page, pageSize)
-  const path = nozomiPath(source)
-  let all = await cachedIds(path, async () => idsFromBuf((await httpsGetFull(ltn() + path)).body))
+  let all = await cachedIds(indexKey(source), () => indexIds(source))
   for (const tok of toks) {
     const ids = await cachedIds(`tok:${tok}`, () => fetchTokenIds(tok, 'all'))
     if (!ids.length) continue
@@ -829,7 +861,7 @@ async function searchAllIds(
     // (Whole index, minus the exclusions.)
     const src = { kind: 'index' as const, language }
     if (negatives.length) return (await fetchNozomiExcluding(src, 0, Number.MAX_SAFE_INTEGER, negatives)).ids
-    return idsFromBuf((await httpsGetFull(ltn() + nozomiPath(src))).body)
+    return indexIds(src)
   }
 
   let inter: number[] | null = null
@@ -854,9 +886,10 @@ async function searchAllIds(
   }
 
   // Language filter: text-search / all-nozomi ids are language-agnostic, so keep
-  // only ids present in the chosen language index (doujin does the same).
-  if (lang !== 'all' && all.length) {
-    const langSet = new Set(await languageIndexIds(lang))
+  // only ids present in the chosen language indexes (doujin does the same).
+  const langs = langsOf(language)
+  if (langs.length && all.length) {
+    const langSet = await languagesIdSet(langs)
     if (langSet.size) all = all.filter((x) => langSet.has(x))
   }
 

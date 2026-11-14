@@ -54,7 +54,7 @@ export default function Tooltip(): JSX.Element | null {
       timer = window.setTimeout(() => {
         const r = el.getBoundingClientRect()
         setTip({ x: r.left + r.width / 2, y: r.bottom + 6, top: r.top, text })
-      }, 350)
+      }, 700)
     }
 
     const out = (e: MouseEvent): void => {
@@ -81,10 +81,55 @@ export default function Tooltip(): JSX.Element | null {
     })
     obs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['title'] })
 
+    // Anything that changes the screen while a tip is up (or waiting) hides it:
+    // a press, a key (shortcuts change screens), the wheel / a scroll, a resize,
+    // the window losing focus, or the anchor going away / moving. The titles
+    // stay stripped until the pointer leaves the element, so the browser's own
+    // bubble doesn't come up in its place.
+    const dismiss = (): void => {
+      window.clearTimeout(timer)
+      setTip(null)
+    }
+    let anchor: HTMLElement | null = null
+    let anchorRect: DOMRect | null = null
+    const track = (): void => {
+      if (cur === anchor) return
+      anchor = cur
+      anchorRect = cur ? cur.getBoundingClientRect() : null
+    }
+    const check = (): void => {
+      if (!cur) return
+      if (!cur.isConnected || cur.getClientRects().length === 0) {
+        window.clearTimeout(timer)
+        restore()
+        setTip(null)
+        return
+      }
+      const r = cur.getBoundingClientRect()
+      if (anchorRect && (Math.abs(r.left - anchorRect.left) > 2 || Math.abs(r.top - anchorRect.top) > 2)) dismiss()
+    }
+    // checked right away (not on the next frame: frames stop while the window is hidden)
+    const changed = new MutationObserver(check)
+    changed.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
+    document.addEventListener('mousedown', dismiss, true)
+    document.addEventListener('keydown', dismiss, true)
+    document.addEventListener('wheel', dismiss, { capture: true, passive: true })
+    document.addEventListener('scroll', dismiss, true)
+    window.addEventListener('resize', dismiss)
+    window.addEventListener('blur', dismiss)
     document.addEventListener('mouseover', over, true)
+    document.addEventListener('mouseover', track, true)
     document.addEventListener('mouseout', out, true)
     return () => {
       document.removeEventListener('mouseover', over, true)
+      changed.disconnect()
+      document.removeEventListener('mouseover', track, true)
+      document.removeEventListener('mousedown', dismiss, true)
+      document.removeEventListener('keydown', dismiss, true)
+      document.removeEventListener('wheel', dismiss, true)
+      document.removeEventListener('scroll', dismiss, true)
+      window.removeEventListener('resize', dismiss)
+      window.removeEventListener('blur', dismiss)
       document.removeEventListener('mouseout', out, true)
       obs.disconnect()
       window.clearTimeout(timer)
