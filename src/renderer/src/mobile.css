@@ -1126,6 +1126,76 @@ body {
   background: var(--accent-soft);
 }
 
+/* ---------- Search that follows the page (FloatSearch, like Sorta 관리 ›
+   캐릭터 / Halftone desktop): stuck at the list's top once the search row has
+   gone up; one box that shrinks into the round button and grows back. */
+.float-search {
+  position: sticky;
+  top: -16px; /* the lists' top padding counts: closer to the edge */
+  height: 0;
+  z-index: 40;
+}
+.float-search-box {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  padding: 0 14px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-1);
+  color: var(--muted);
+  box-shadow: var(--shadow-subtle);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    width 0.22s ease,
+    padding 0.22s ease,
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+.float-search.shown .float-search-box {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.float-search-box:focus-within {
+  border-color: var(--accent);
+}
+.float-search-box > .micon {
+  flex: none;
+  font-size: 18px;
+}
+.float-search-box input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  transition: opacity 0.16s ease;
+}
+.float-search.folded .float-search-box {
+  width: 36px;
+  padding: 0 0 0 8px;
+  color: var(--text-tag);
+}
+.float-search.folded .float-search-box:active {
+  background: var(--accent-hover);
+}
+.float-search.folded .float-search-box input {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* ---------- Library tools: 작품 선택 ---------- */
 /* Bar fixed flush to the bottom edge (over the activity bar), sliding up. */
 .sel-bar {

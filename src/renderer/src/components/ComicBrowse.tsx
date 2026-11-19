@@ -19,6 +19,7 @@ import Pager from './Pager'
 import { groupSeries, titleKey, isComicCode } from '../util'
 import { useComicStatus } from './useComicStatus'
 import SearchClear from './SearchClear'
+import FloatSearch from './FloatSearch'
 import Dropdown from './Dropdown'
 import ContextMenu from './ContextMenu'
 
@@ -69,6 +70,7 @@ export default function ComicBrowse(): JSX.Element {
   const authorSeed = useStore((s) => s.comicAuthorSeed)
   const browseTopNonce = useStore((s) => s.browseTopNonce)
   const rootRef = useRef<HTMLDivElement>(null)
+  const searchRowRef = useRef<HTMLDivElement>(null)
   // Bumped to force a fresh fetch even when source/page are unchanged (used by
   // the 🌐 double-press reset when already on the first page).
   const [reloadKey, setReloadKey] = useState(0)
@@ -410,10 +412,19 @@ export default function ComicBrowse(): JSX.Element {
         onSelect={sel.start}
         pager={pager}
       />
+      <FloatSearch
+        scroller={rootRef}
+        anchor={searchRowRef}
+        value={query}
+        onChange={setQuery}
+        onEnter={run}
+        placeholder={field === 'author' ? '작가 검색' : '제목 검색'}
+        off={sel.selecting}
+      />
       <div className="browse-head">
         {/* Phone: full-width search box (Enter searches) — 제목/작가 filter icon
             at its left end, sort icon at its right end. */}
-        <div className="search-row">
+        <div className="search-row" ref={searchRowRef}>
           <div className="search-ac has-leading has-trailing">
             <span className="search-leading">
               <Dropdown<'title' | 'author'>

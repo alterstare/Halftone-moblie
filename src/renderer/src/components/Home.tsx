@@ -19,6 +19,7 @@ import SeriesGridCard from './SeriesGridCard'
 import OnlineFavCard from './OnlineFavCard'
 import FavDlToggle, { FavSortSelect } from './FavDlToggle'
 import TagSearchInput from './TagSearchInput'
+import FloatSearch from './FloatSearch'
 import Pager from './Pager'
 import ConfirmModal, { DelTitle } from './ConfirmModal'
 import { mergeFavorites, type FavEntry } from '../favorites'
@@ -81,6 +82,7 @@ export default function Home(): JSX.Element {
   const deleteGroup = useStore((s) => s.deleteGroup)
   const homeTopNonce = useStore((s) => s.homeTopNonce)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const searchRowRef = useRef<HTMLDivElement>(null)
   const mountNonce = useRef(homeTopNonce)
   const [delGroup, setDelGroup] = useState<{ id: string; name: string } | null>(null)
 
@@ -822,11 +824,20 @@ export default function Home(): JSX.Element {
           onCancel={() => setDelSel(null)}
         />
       )}
+      <FloatSearch
+        scroller={scrollRef}
+        anchor={searchRowRef}
+        value={query}
+        onChange={setQuery}
+        onEnter={() => setSearch(query.trim())}
+        placeholder="검색"
+        off={sel.selecting}
+      />
       <div className="home-head">
         {/* Phone: the search box takes the whole row (Enter on the keyboard
             searches); sort is the icon at its right end. Picking 무작위 again
             reshuffles. */}
-        <div className="search-row">
+        <div className="search-row" ref={searchRowRef}>
           <TagSearchInput
             value={query}
             onChange={setQuery}
